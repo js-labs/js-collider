@@ -115,7 +115,7 @@ public abstract class PacketHandler implements Session.Listener
             int packetLen = validateHeader( data );
             if (packetLen < 0)
             {
-                m_session.closeConnection( Session.DISCARD_ALL );
+                m_session.closeConnection();
                 break;
             }
             data.position( pos );

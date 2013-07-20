@@ -76,13 +76,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             /* else stop() called from the listener callback. */
             m_lock.unlock();
 
-            if (sessionListener == null)
-            {
-            }
-            else
-            {
-                sessionImpl.setListener( sessionListener );
-            }
+            sessionImpl.setListener( sessionListener );
         }
     }
 

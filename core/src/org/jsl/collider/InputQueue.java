@@ -250,4 +250,8 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             }
         }
     }
+
+    public void stop()
+    {
+    }
 }

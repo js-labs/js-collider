@@ -22,10 +22,6 @@ import java.nio.ByteBuffer;
 
 public interface Session
 {
-    public static final int DISCARD_IN_DATA  = 0x0001;
-    public static final int DISCARD_OUT_DATA = 0x0002;
-    public static final int DISCARD_ALL = (DISCARD_IN_DATA | DISCARD_OUT_DATA);
-
     public interface Listener
     {
         public abstract void onDataReceived( ByteBuffer data );
@@ -37,5 +33,5 @@ public interface Session
     public SocketAddress getRemoteAddress();
 
     public int sendData( ByteBuffer data );
-    public int closeConnection( int flags );
+    public int closeConnection();
 }
