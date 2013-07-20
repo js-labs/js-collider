@@ -22,22 +22,20 @@ import java.nio.ByteBuffer;
 
 public interface Session
 {
-    public static interface Handler
-    {
-        boolean initialize();
-        void handleData( ByteBuffer byteBuffer );
-        void handleClose();
-    }
+    public static final int DISCARD_IN_DATA  = 0x0001;
+    public static final int DISCARD_OUT_DATA = 0x0002;
+    public static final int DISCARD_ALL = (DISCARD_IN_DATA | DISCARD_OUT_DATA);
 
-    public static interface HandlerFactory
+    public interface Handler
     {
-        public abstract Handler createHandler( Session session );
+        public abstract void onDataReceived( ByteBuffer data );
+        public abstract void onConnectionClosed();
     }
 
     public Collider getCollider();
-    public SocketAddress getLocalSocketAddress();
-    public SocketAddress getRemoteSocketAddress();
+    public SocketAddress getLocalAddress();
+    public SocketAddress getRemoteAddress();
 
-    public int closeConnection();
     public int sendData( ByteBuffer data );
+    public int closeConnection( int flags );
 }

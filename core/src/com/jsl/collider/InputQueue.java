@@ -82,7 +82,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
         else
         {
-            m_handler.handleClose();
+            m_handler.onConnectionClosed();
             s_tlsDataBlock.set( dataBlock );
         }
     }
@@ -112,7 +112,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
                 abort();
             rw.limit( limit );
 
-            m_handler.handleData( rw );
+            m_handler.onDataReceived( rw );
             rw.position( limit );
 
             length = m_length.addAndGet( -bytesReady );
@@ -135,7 +135,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
 
         if ((length & CLOSED) == 0)
-            m_handler.handleClose();
+            m_handler.onConnectionClosed();
 
         if (m_dataBlock.compareAndSet(dataBlock, null))
         {
@@ -154,20 +154,14 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         m_handler = handler;
         m_length = new AtomicInteger();
         m_dataBlock = new AtomicReference<DataBlock>();
-    }
 
-    public void initialize( SelectionKey selectionKey )
-    {
-        m_selectionKey = selectionKey;
-        if (m_handler.initialize())
-            m_collider.executeInSelectorThread( this );
+        m_collider.executeInSelectorThread( this );
     }
 
     public void runInSelectorThread()
     {
         int interestOps = m_selectionKey.interestOps();
-        if ((interestOps & SelectionKey.OP_READ) != 0)
-            abort();
+        assert( (interestOps & SelectionKey.OP_READ) == 0 );
         m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
     }
 
@@ -247,7 +241,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
             if ((length & LENGTH_MASK) == 0)
             {
-                m_handler.handleClose();
+                m_handler.onConnectionClosed();
                 if (prev != null)
                 {
                     if (s_tlsDataBlock.get() == null)

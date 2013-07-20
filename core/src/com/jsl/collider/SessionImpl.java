@@ -21,51 +21,14 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Executor;
 
 
-public class SessionImpl implements Collider.ChannelHandler, Session
+public class SessionImpl extends Collider.SelectorThreadRunnable
+        implements Session, Collider.ChannelHandler
 {
-    private class SelectorRegistrator extends Collider.SelectorThreadRunnable
-    {
-        private Selector m_selector;
-
-        SelectorRegistrator( Selector selector )
-        {
-            m_selector = selector;
-        }
-
-        public void runInSelectorThread()
-        {
-            try
-            {
-                m_selectionKey = m_socketChannel.register( m_selector, 0 );
-            }
-            catch (IOException ex)
-            {
-                System.out.println( ex.toString() );
-                m_waitingMonitor.release();
-                m_waitingMonitor = null;
-                return;
-            }
-            m_collider.executeInThreadPool( new Initializer() );
-        }
-    }
-
-    private class Initializer implements Runnable
-    {
-        public void run()
-        {
-            m_inputQueue.initialize( m_selectionKey );
-            m_waitingMonitor.release();
-            m_waitingMonitor = null;
-        }
-    }
-
     private Collider m_collider;
-    private Monitor m_waitingMonitor;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
     private InputQueue m_inputQueue;
@@ -73,19 +36,32 @@ public class SessionImpl implements Collider.ChannelHandler, Session
 
     public SessionImpl(
             Collider collider,
-            Selector selector,
-            Monitor waitingMonitor,
             SocketChannel socketChannel,
-            Session.HandlerFactory handlerFactory )
+            SelectionKey selectionKey )
     {
         m_collider = collider;
-        m_waitingMonitor = waitingMonitor;
         m_socketChannel = socketChannel;
-        m_inputQueue = new InputQueue( collider, socketChannel, handlerFactory.createHandler(this) );
+        m_selectionKey = selectionKey;
         m_outputQueue = new OutputQueue();
+    }
 
-        waitingMonitor.acquire();
-        collider.executeInSelectorThread( new SelectorRegistrator(selector) );
+    public Collider getCollider() { return m_collider; }
+    public SocketAddress getLocalAddress() { return m_socketChannel.socket().getLocalSocketAddress(); }
+    public SocketAddress getRemoteAddress() { return m_socketChannel.socket().getRemoteSocketAddress(); }
+
+    public int sendData( ByteBuffer data )
+    {
+        return 0;
+    }
+
+    public int closeConnection( int flags )
+    {
+        return 0;
+    }
+
+    public void setHandler( Handler handler )
+    {
+        m_inputQueue = new InputQueue( m_collider, m_socketChannel, handler );
     }
 
     public void handleReadyOps( Executor executor )
@@ -100,17 +76,10 @@ public class SessionImpl implements Collider.ChannelHandler, Session
             executor.execute( m_outputQueue );
     }
 
-    public Collider getCollider() { return m_collider; }
-    public SocketAddress getLocalSocketAddress() { return m_socketChannel.socket().getLocalSocketAddress(); }
-    public SocketAddress getRemoteSocketAddress() { return m_socketChannel.socket().getRemoteSocketAddress(); }
-
-    public int closeConnection()
+    public void runInSelectorThread()
     {
-        return 0;
-    }
-
-    public int sendData( ByteBuffer data )
-    {
-        return 0;
+        int interestOps = m_selectionKey.interestOps();
+        interestOps |= SelectionKey.OP_READ;
+        m_selectionKey.interestOps( interestOps );
     }
 }

@@ -18,13 +18,11 @@
 package com.jsl.collider;
 
 import java.io.IOException;
-import java.net.SocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
-import java.util.Set;
-import java.util.Iterator;
+import java.util.*;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
@@ -48,7 +46,7 @@ public class Collider
         }
     }
 
-    public static interface ChannelHandler
+    public interface ChannelHandler
     {
         abstract public void handleReadyOps( Executor executor );
     }
@@ -59,26 +57,68 @@ public class Collider
         abstract public void runInSelectorThread();
     }
 
+    /*
+    private class AcceptorRegistrator extends SelectorThreadRunnable implements Runnable
+    {
+        private ServerSocketChannel m_channel;
+        private Acceptor m_acceptor;
+        private AcceptorImpl m_acceptorImpl;
+
+        public AcceptorRegistrator( ServerSocketChannel channel, Acceptor acceptor )
+        {
+            m_channel = channel;
+            m_acceptor = acceptor;
+        }
+
+        public void runInSelectorThread()
+        {
+            try
+            {
+                SelectionKey selectionKey = m_channel.register( m_selector, 0, null );
+                m_acceptorImpl = new AcceptorImpl(
+                        Collider.this, Collider.this.m_selector, m_channel, selectionKey, m_acceptor );
+                selectionKey.attach( m_acceptorImpl );
+                m_executor.execute( this );
+            }
+            catch (IOException ex)
+            {
+                m_acceptor.onAcceptorStartingFailure( ex.getMessage() );
+            }
+        }
+
+        public void run()
+        {
+            int localPort = m_channel.socket().getLocalPort();
+            if (localPort == -1)
+            {
+                m_acceptor.onAcceptorStartingFailure( "Not connected." );
+            }
+            else
+            {
+                m_acceptor.onAcceptorStarted( localPort );
+                executeInSelectorThread( m_acceptorImpl );
+            }
+        }
+    }
+    */
+
     private Config m_config;
     private Selector m_selector;
     private ExecutorService m_executor;
     private volatile boolean m_run;
-
+    private final Map<Acceptor, AcceptorImpl> m_acceptors;
     private volatile SelectorThreadRunnable m_strHead;
     private AtomicReference<SelectorThreadRunnable> m_strTail;
 
-    public Collider( Config config ) throws IOException
+    public Collider() throws IOException
     {
-        m_config = config;
+        m_config = new Config();
         m_selector = Selector.open();
         m_executor = Executors.newFixedThreadPool(m_config.threadPoolThreads);
         m_run = true;
+        m_acceptors = Collections.synchronizedMap( new HashMap<Acceptor, AcceptorImpl>() );
+        m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
-    }
-
-    public Collider() throws IOException
-    {
-        this( new Config() );
     }
 
     public void run() throws IOException
@@ -126,17 +166,15 @@ public class Collider
         catch (InterruptedException ignored) {}
     }
 
-
     public void stop()
     {
         m_run = false;
         m_selector.wakeup();
     }
 
-
     public void executeInSelectorThread( SelectorThreadRunnable runnable )
     {
-        runnable.nextSelectorThreadRunnable = null;
+        assert( runnable.nextSelectorThreadRunnable == null );
         SelectorThreadRunnable tail = m_strTail.getAndSet( runnable );
         if (tail == null)
         {
@@ -147,26 +185,51 @@ public class Collider
             tail.nextSelectorThreadRunnable = runnable;
     }
 
-
     public void executeInThreadPool( Runnable runnable )
     {
         m_executor.execute( runnable );
     }
 
-
-    public Acceptor addAcceptor( SocketAddress addr, Acceptor.HandlerFactory handlerFactory )
+    public void addAcceptor( Acceptor acceptor )
     {
+        synchronized (m_acceptors)
+        {
+            if (m_acceptors.containsKey(acceptor))
+            {
+                acceptor.onAcceptorStartingFailure( "Acceptor already registered." );
+                return;
+            }
+            m_acceptors.put( acceptor, null );
+        }
+
         try
         {
             ServerSocketChannel channel = ServerSocketChannel.open();
             channel.configureBlocking( false );
-            channel.setOption( StandardSocketOptions.SO_REUSEADDR, handlerFactory.reuseAddr );
-            channel.socket().bind( addr );
-            return new AcceptorImpl( this, m_selector, channel, handlerFactory );
+            channel.setOption( StandardSocketOptions.SO_REUSEADDR, acceptor.getReuseAddr() );
+            channel.socket().bind( acceptor.getAddr() );
+
+            AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );
+            synchronized (m_acceptors) { m_acceptors.put( acceptor, acceptorImpl ); }
+            acceptorImpl.start();
         }
-        catch (IOException ignored)
+        catch (IOException e)
         {
-            return null;
+            synchronized (m_acceptors) { m_acceptors.remove( acceptor ); }
+            acceptor.onAcceptorStartingFailure( e.getMessage() );
         }
+    }
+
+    public void removeAcceptor( Acceptor acceptor )
+    {
+        AcceptorImpl acceptorImpl;
+        synchronized (m_acceptors)
+        {
+            if (!m_acceptors.containsKey(acceptor))
+                return;
+            acceptorImpl = m_acceptors.get( acceptor );
+        }
+        assert( acceptorImpl != null );
+        acceptorImpl.stop();
     }
 }

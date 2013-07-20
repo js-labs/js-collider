@@ -17,19 +17,31 @@
 
 package com.jsl.collider;
 
-public interface Acceptor
-{
-    public abstract static class HandlerFactory implements Session.HandlerFactory
-    {
-        public boolean reuseAddr;
-        public boolean tcpNoDelay;
+import java.net.InetSocketAddress;
 
-        public HandlerFactory()
-        {
-            reuseAddr = true;
-            tcpNoDelay = false;
-        }
+public abstract class Acceptor
+{
+    private InetSocketAddress m_addr;
+    private boolean m_reuseAddr;
+    public boolean m_tcpNoDelay;
+
+    public Acceptor( InetSocketAddress addr )
+    {
+        m_addr = addr;
+        m_reuseAddr = false;
+        m_tcpNoDelay = false;
     }
 
-    public void close();
+    public InetSocketAddress getAddr() { return m_addr; }
+
+    public void setReuseAddr( boolean reuseAddr ) { m_reuseAddr = reuseAddr; }
+    public boolean getReuseAddr() { return m_reuseAddr; }
+
+    public void setTcpNoDelay( boolean tcpNoDelay ) { m_tcpNoDelay = tcpNoDelay; }
+    public boolean getTcpNoDelay() { return m_tcpNoDelay; }
+
+    public abstract Session.Handler createSessionHandler( Session session );
+
+    public void onAcceptorStarted( int localPort ) {}
+    public void onAcceptorStartingFailure( String errorText ) {}
 }

@@ -44,7 +44,7 @@ public class Monitor
     {
         m_lock.lock();
         if (--m_count == 0)
-            m_cond.signal();
+            m_cond.signalAll();
         m_lock.unlock();
     }
 
@@ -54,10 +54,11 @@ public class Monitor
         try
         {
             while (m_count > 0)
-                m_cond.wait();
+                m_cond.await();
         }
-        catch (InterruptedException ignored)
+        catch (InterruptedException ex)
         {
+            System.out.println( ex.toString() );
         }
         m_lock.unlock();
     }

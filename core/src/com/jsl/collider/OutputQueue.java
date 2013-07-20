@@ -17,9 +17,21 @@
 
 package com.jsl.collider;
 
+import java.nio.ByteBuffer;
+
+
 
 public class OutputQueue extends Collider.SelectorThreadRunnable implements Runnable
 {
+    public int sendData( ByteBuffer data )
+    {
+        return 0;
+    }
+
+    public void close()
+    {
+    }
+
     public void runInSelectorThread()
     {
     }
