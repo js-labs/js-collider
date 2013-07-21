@@ -36,16 +36,17 @@ public class OutputQueue
             m_buf = ByteBuffer.allocateDirect( size );
             rw = m_buf.duplicate();
             ww = m_buf.duplicate();
+            rw.limit(0);
         }
     }
 
-    private final int OFFS_WIDTH = 28;
-    private final int WRITERS_WIDTH = 6;
-
-    private final long OFFS_MASK   = ((1 << OFFS_WIDTH) - 1);
-    private final long WRITER_MASK = (((1 << WRITERS_WIDTH) - 1) << (OFFS_WIDTH * 2));
-    private final long WRITER      = (1 << OFFS_WIDTH*2);
-    private final long LOCK        = (1 << (WRITERS_WIDTH + OFFS_WIDTH*2));
+    private final int OFFS_WIDTH = 36;
+    private final int START_WIDTH = 20;
+    private final int WRITERS_WIDTH = 6; /* even 64 concurrent threads looks unlikely */
+    private final long OFFS_MASK    = ((1L << OFFS_WIDTH) - 1);
+    private final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
+    private final long WRITERS_MASK = (((1L << WRITERS_WIDTH) - 1) << (START_WIDTH + OFFS_WIDTH));
+    private final long WRITER       = (1L << (START_WIDTH+OFFS_WIDTH));
 
     private int m_blockSize;
     private AtomicLong m_state;
@@ -56,70 +57,134 @@ public class OutputQueue
     {
         m_blockSize = blockSize;
         m_state = new AtomicLong();
+        m_head = new DataBlock( blockSize );
+        m_tail = m_head;
     }
 
     public long addData( ByteBuffer data )
     {
-        int dataSize = data.remaining();
+        int dataRemaining = data.remaining();
         long state = m_state.get();
         for (;;)
         {
-            if ((state & LOCK) != 0)
+            if (state == -1)
             {
                 state = m_state.get();
                 continue;
             }
 
-            final long offs = (state & OFFS_MASK);
+            final long offs = ((state & OFFS_MASK) % m_blockSize);
             long space = (m_blockSize - offs);
-            if (dataSize > space)
+            assert( m_tail.ww.remaining() == space );
+
+            if (dataRemaining > space)
             {
-                if ((state & WRITER_MASK) != 0)
-                {
-                    /* Some threads still writing, can't lock */
-                    state = m_state.get();
-                    continue;
-                }
-
-                long newState = (state | LOCK);
-                if (!m_state.compareAndSet(state, newState))
+                if ((state & WRITERS_MASK) != 0)
                 {
                     state = m_state.get();
                     continue;
                 }
 
-                /*
-                ACE_OS::memcpy( m_tail->get_wr_ptr(offs), data, space );
-
-                data = ((const char*)data) + space;
-                long bytesRest = static_cast<long>( size );
-                bytesRest -= space;
-
-                Spare * spare = this->cache_get( bytesRest );
-                m_tail->set_next( spare );
-                while (1)
+                if (!m_state.compareAndSet(state, -1))
                 {
-                    if (bytesRest > SPARE_CAPACITY)
-                    {
-                        ACE_OS::memcpy( spare->get_wr_ptr(0), data, SPARE_CAPACITY );
-                        data = ((const char*)data) + SPARE_CAPACITY;
-                        bytesRest -= SPARE_CAPACITY;
-                        spare = spare->get_next();
-                    }
-                    else
-                    {
-                        ACE_OS::memcpy( spare->get_wr_ptr(0), data, bytesRest );
-                        break;
-                    }
+                    state = m_state.get();
+                    continue;
                 }
 
-                m_tail = spare;
-                cpphelper::atomic_swap( &m_offsAndFlags, bytesRest );
-                return static_cast<long>( size );
-                */
+                data.limit( data.position() + (int)space );
+                m_tail.ww.put( data );
+
+                int bytesRest = (dataRemaining - (int)space);
+                while (bytesRest > m_blockSize)
+                {
+                    DataBlock dataBlock = new DataBlock( m_blockSize );
+                    data.limit( data.position() + m_blockSize );
+                    dataBlock.ww.put( data );
+                    m_tail.next = dataBlock;
+                    m_tail = dataBlock;
+                    bytesRest -= m_blockSize;
+                }
+
+                DataBlock dataBlock = new DataBlock( m_blockSize );
+                data.limit( data.position() + bytesRest );
+                dataBlock.ww.put( data );
+                m_tail.next = dataBlock;
+                m_tail = dataBlock;
+
+                assert( data.remaining() == 0 );
+
+                long newState = (state & OFFS_MASK);
+                newState += dataRemaining;
+
+                if (newState > OFFS_MASK)
+                    newState %= m_blockSize;
+
+                boolean res = m_state.compareAndSet( -1, newState );
+                assert( res );
+
+                return dataRemaining;
             }
-            break;
+
+            long writers = (state & WRITERS_MASK);
+            if (writers == WRITERS_MASK)
+            {
+                /* Reached maximum number of writers, let's try later. */
+                state = m_state.get();
+                continue;
+            }
+
+            long newState = (state & OFFS_MASK);
+            newState += dataRemaining;
+            if (newState > OFFS_MASK)
+                newState %= m_blockSize;
+            newState |= (state & ~OFFS_MASK);
+            newState += WRITER;
+
+            if (writers == 0)
+            {
+                assert( (state & START_MASK) == 0 );
+                newState |= (offs << OFFS_WIDTH);
+            }
+
+            if (!m_state.compareAndSet(state, newState))
+            {
+                state = m_state.get();
+                continue;
+            }
+
+            m_tail.ww.put( data );
+
+            state = newState;
+            for (;;)
+            {
+                assert( (state & WRITERS_MASK) != 0 );
+
+                newState = (state - WRITER);
+                if ((newState & WRITERS_MASK) == 0)
+                {
+                    long start = ((newState >> OFFS_WIDTH) & START_MASK);
+                    newState &= ~(START_MASK << OFFS_WIDTH);
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        long end = ((newState & OFFS_MASK) % m_blockSize);
+                        return (end - start);
+                    }
+                }
+                else if (offs == ((newState >> OFFS_WIDTH) & START_MASK))
+                {
+                    newState &= ~(OFFS_MASK << OFFS_WIDTH);
+                    newState |= ((offs + dataRemaining) << OFFS_WIDTH);
+                    if (m_state.compareAndSet(state, newState))
+                        return dataRemaining;
+                }
+                else
+                {
+                    if (m_state.compareAndSet(state, newState))
+                        return 0;
+                }
+
+                state = m_state.get();
+            }
         }
-        return 0;
     }
 }

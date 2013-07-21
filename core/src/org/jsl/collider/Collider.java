@@ -36,13 +36,15 @@ public class Collider
     {
         public int threadPoolThreads;
         public int readBlockSize;
+        public int outputQueueBlockSize;
         public int shutdownTimeout;
 
         public Config()
         {
-            threadPoolThreads = 4;
-            readBlockSize     = (1024 * 32);
-            shutdownTimeout   = 60;
+            threadPoolThreads     = 4;
+            readBlockSize         = (32 * 1024);
+            outputQueueBlockSize  = (32 * 1024);
+            shutdownTimeout       = 60;
         }
     }
 
@@ -119,6 +121,11 @@ public class Collider
         m_acceptors = Collections.synchronizedMap( new HashMap<Acceptor, AcceptorImpl>() );
         m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
+    }
+
+    public Config getConfig()
+    {
+        return m_config;
     }
 
     public void run() throws IOException

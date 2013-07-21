@@ -52,7 +52,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
         m_state = new AtomicLong( CHANNEL_RC + CHANNEL_RC );
         m_inputQueue = null;
-        m_outputQueue = new OutputQueue();
+        m_outputQueue = new OutputQueue( collider.getConfig().outputQueueBlockSize );
     }
 
     public Collider getCollider() { return m_collider; }

@@ -1,0 +1,25 @@
+<project name="JS-Collider">
+
+    <property name="OUT_DIR" location="out/production"/>
+
+    <target name="clean">
+        <delete dir="out"/>
+    </target>
+
+    <target name="compile">
+        <mkdir dir="${OUT_DIR}/core"/>
+        <javac srcdir="core/src" destdir="${OUT_DIR}/core"/>
+    </target>
+
+    <target name="dist" depends="compile">
+        <jar jarfile="out/JS-Collider.jar" basedir="${OUT_DIR}/core">
+            <manifest>
+                <attribute name="Implementation-Title" value="JS-Collider"/>
+                <attribute name="Implementation-Vendor" value="org.jsl"/>
+                <attribute name="Implementation-Version" value="0.9"/>
+                <attribute name="Sealed" value="true"/>
+            </manifest>
+        </jar>
+    </target>        
+
+</project>
