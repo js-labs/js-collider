@@ -17,6 +17,7 @@
 
 package org.jsl.collider;
 
+import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
@@ -28,10 +29,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SessionImpl extends Collider.SelectorThreadRunnable
         implements Session, Collider.ChannelHandler, Runnable
 {
-    private final long LENGTH_MASK     = 0x00000000FFFFFFFFL;
-    private final long CLOSED          = 0x0000000100000000L;
-    private final long CHANNEL_RC      = 0x0000001000000000L;
-    private final long CHANNEL_RC_MASK = 0x0000003000000000L;
+    private static final long LENGTH_MASK     = 0x000000FFFFFFFFFFL;
+    private static final long CLOSED          = 0x0000010000000000L;
+    private static final long CHANNEL_RC      = 0x0000100000000000L;
+    private static final long CHANNEL_RC_MASK = 0x0000300000000000L;
 
     private Collider m_collider;
     private SocketChannel m_socketChannel;
@@ -40,19 +41,24 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     private AtomicLong m_state;
     private InputQueue m_inputQueue;
     private OutputQueue m_outputQueue;
+    private ByteBuffer [] m_iov;
 
     public SessionImpl(
             Collider collider,
             SocketChannel socketChannel,
             SelectionKey selectionKey )
     {
+        Collider.Config colliderConfig = collider.getConfig();
+
         m_collider = collider;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
 
         m_state = new AtomicLong( CHANNEL_RC + CHANNEL_RC );
         m_inputQueue = null;
-        m_outputQueue = new OutputQueue( collider.getConfig().outputQueueBlockSize );
+        m_outputQueue = new OutputQueue(
+                colliderConfig.outputQueueBlockSize, colliderConfig.useDirectBuffers );
+        m_iov = new ByteBuffer[8];
     }
 
     public Collider getCollider() { return m_collider; }
@@ -172,11 +178,37 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     public void runInSelectorThread()
     {
         int interestOps = m_selectionKey.interestOps();
-        interestOps |= SelectionKey.OP_WRITE;
-        m_selectionKey.interestOps( interestOps );
+        m_selectionKey.interestOps( interestOps | SelectionKey.OP_WRITE );
     }
 
     public void run()
     {
+        long state = m_state.get();
+        long bytesReady = (state & LENGTH_MASK);
+        bytesReady = m_outputQueue.getData( m_iov, bytesReady );
+        int pos0 = m_iov[0].position();
+
+        int iovc = 0;
+        for (; iovc<m_iov.length && m_iov[iovc]!= null; iovc++);
+
+        long bytesSent = 0;
+        try
+        {
+            bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+            for (int idx=0; idx<iovc; idx++)
+                m_iov[idx] = null;
+        }
+        catch (IOException ignored)
+        {
+            return;
+        }
+
+        m_outputQueue.removeData( pos0, bytesSent );
+        state = m_state.addAndGet( -bytesSent );
+
+        if (bytesSent < bytesReady)
+            m_collider.executeInSelectorThread( this );
+        else if ((state & LENGTH_MASK) != 0)
+            m_collider.executeInThreadPool( this );
     }
 }
