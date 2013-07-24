@@ -35,6 +35,7 @@ public class Collider
     public static class Config
     {
         public int threadPoolThreads;
+        public boolean useDirectBuffers;
         public int readBlockSize;
         public int outputQueueBlockSize;
         public int shutdownTimeout;
@@ -42,6 +43,7 @@ public class Collider
         public Config()
         {
             threadPoolThreads     = 4;
+            useDirectBuffers      = true;
             readBlockSize         = (32 * 1024);
             outputQueueBlockSize  = (32 * 1024);
             shutdownTimeout       = 60;
@@ -108,15 +110,20 @@ public class Collider
     private Selector m_selector;
     private ExecutorService m_executor;
     private volatile boolean m_run;
-    private final Map<Acceptor, AcceptorImpl> m_acceptors;
+    private Map<Acceptor, AcceptorImpl> m_acceptors;
     private volatile SelectorThreadRunnable m_strHead;
     private AtomicReference<SelectorThreadRunnable> m_strTail;
 
     public Collider() throws IOException
     {
-        m_config = new Config();
+        this( new Config() );
+    }
+
+    public Collider( Config config ) throws IOException
+    {
+        m_config = config;
         m_selector = Selector.open();
-        m_executor = Executors.newFixedThreadPool(m_config.threadPoolThreads);
+        m_executor = Executors.newFixedThreadPool( m_config.threadPoolThreads );
         m_run = true;
         m_acceptors = Collections.synchronizedMap( new HashMap<Acceptor, AcceptorImpl>() );
         m_strHead = null;
