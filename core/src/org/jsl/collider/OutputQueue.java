@@ -26,44 +26,71 @@ public class OutputQueue
     private static class DataBlock
     {
         public DataBlock next;
-        private ByteBuffer m_buf;
+        public ByteBuffer buf;
         public ByteBuffer rw;
-        public ByteBuffer ww;
+        public ByteBuffer [] ww;
 
-        public DataBlock( int size )
+        public DataBlock( ByteBuffer abuf )
         {
+            buf = abuf;
             next = null;
-            m_buf = ByteBuffer.allocateDirect( size );
-            rw = m_buf.duplicate();
-            ww = m_buf.duplicate();
+            rw = buf.duplicate();
+            ww = new ByteBuffer[6];
+            ww[0] = abuf.duplicate();
             rw.limit(0);
         }
     }
 
-    private final int OFFS_WIDTH = 36;
-    private final int START_WIDTH = 20;
-    private final int WRITERS_WIDTH = 6; /* even 64 concurrent threads looks unlikely */
-    private final long OFFS_MASK    = ((1L << OFFS_WIDTH) - 1);
-    private final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
-    private final long WRITERS_MASK = (((1L << WRITERS_WIDTH) - 1) << (START_WIDTH + OFFS_WIDTH));
-    private final long WRITER       = (1L << (START_WIDTH+OFFS_WIDTH));
+    private static final int OFFS_WIDTH = 36;
+    private static final int START_WIDTH = 20;
+    private static final int WRITERS_WIDTH = 6;
+    private static final long OFFS_MASK    = ((1L << OFFS_WIDTH) - 1);
+    private static final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
+    private static final long WRITERS_MASK = (((1L << WRITERS_WIDTH) - 1) << (START_WIDTH + OFFS_WIDTH));
 
     private int m_blockSize;
+    private boolean m_useDirectBuffers;
+
     private AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
 
-    public OutputQueue( int blockSize )
+    private DataBlock createDataBlock()
     {
-        m_blockSize = blockSize;
+        if (m_useDirectBuffers)
+            return new DataBlock( ByteBuffer.allocateDirect(m_blockSize) );
+        else
+            return new DataBlock( ByteBuffer.allocate(m_blockSize) );
+    }
+
+    private static long getOffs( long state, int blockSize )
+    {
+        long offs = (state & OFFS_MASK);
+        long ret = (offs % blockSize);
+        if (ret > 0)
+            return ret;
+        if (offs > 0)
+            return blockSize;
+        return 0;
+    }
+
+    public OutputQueue( int blockSize, boolean useDirectBuffers )
+    {
+        long maxBlockSize = (START_MASK >> OFFS_WIDTH);
+        if (blockSize > maxBlockSize)
+            m_blockSize = (int) maxBlockSize;
+        else
+            m_blockSize = blockSize;
+        m_useDirectBuffers = useDirectBuffers;
+
         m_state = new AtomicLong();
-        m_head = new DataBlock( blockSize );
+        m_head = this.createDataBlock();
         m_tail = m_head;
     }
 
     public long addData( ByteBuffer data )
     {
-        int dataRemaining = data.remaining();
+        int dataSize = data.remaining();
         long state = m_state.get();
         for (;;)
         {
@@ -73,11 +100,10 @@ public class OutputQueue
                 continue;
             }
 
-            final long offs = ((state & OFFS_MASK) % m_blockSize);
+            final long offs = getOffs( state, m_blockSize );
             long space = (m_blockSize - offs);
-            assert( m_tail.ww.remaining() == space );
 
-            if (dataRemaining > space)
+            if (dataSize > space)
             {
                 if ((state & WRITERS_MASK) != 0)
                 {
@@ -91,41 +117,51 @@ public class OutputQueue
                     continue;
                 }
 
-                data.limit( data.position() + (int)space );
-                m_tail.ww.put( data );
+                ByteBuffer byteBuffer = m_tail.ww[0];
+                byteBuffer.position( (int) offs );
+                byteBuffer.limit( m_blockSize );
 
-                int bytesRest = (dataRemaining - (int)space);
+                if (space > 0)
+                {
+                    data.limit( data.position() + (int)space );
+                    byteBuffer.put( data );
+                }
+
+                int bytesRest = (dataSize - (int)space);
                 while (bytesRest > m_blockSize)
                 {
-                    DataBlock dataBlock = new DataBlock( m_blockSize );
+                    DataBlock dataBlock = this.createDataBlock();
                     data.limit( data.position() + m_blockSize );
-                    dataBlock.ww.put( data );
+                    dataBlock.ww[0].put( data );
                     m_tail.next = dataBlock;
                     m_tail = dataBlock;
                     bytesRest -= m_blockSize;
                 }
 
-                DataBlock dataBlock = new DataBlock( m_blockSize );
+                DataBlock dataBlock = this.createDataBlock();
                 data.limit( data.position() + bytesRest );
-                dataBlock.ww.put( data );
+                dataBlock.ww[0].put( data );
                 m_tail.next = dataBlock;
                 m_tail = dataBlock;
 
                 assert( data.remaining() == 0 );
 
                 long newState = (state & OFFS_MASK);
-                newState += dataRemaining;
-
+                newState += dataSize;
                 if (newState > OFFS_MASK)
+                {
                     newState %= m_blockSize;
+                    if (newState == 0)
+                        newState = m_blockSize;
+                }
 
                 boolean res = m_state.compareAndSet( -1, newState );
                 assert( res );
 
-                return dataRemaining;
+                return dataSize;
             }
 
-            long writers = (state & WRITERS_MASK);
+            final long writers = (state & WRITERS_MASK);
             if (writers == WRITERS_MASK)
             {
                 /* Reached maximum number of writers, let's try later. */
@@ -134,12 +170,24 @@ public class OutputQueue
             }
 
             long newState = (state & OFFS_MASK);
-            newState += dataRemaining;
+            newState += dataSize;
             if (newState > OFFS_MASK)
+            {
                 newState %= m_blockSize;
+                if (newState == 0)
+                    newState = m_blockSize;
+            }
             newState |= (state & ~OFFS_MASK);
-            newState += WRITER;
 
+            long writer = (1L << (START_WIDTH + OFFS_WIDTH));
+            int writerIdx = 0;
+            for (; writerIdx<WRITERS_WIDTH; writerIdx++, writer<<=1)
+            {
+                if ((state & writer) == 0)
+                    break;
+            }
+
+            newState |= writer;
             if (writers == 0)
             {
                 assert( (state & START_MASK) == 0 );
@@ -152,39 +200,116 @@ public class OutputQueue
                 continue;
             }
 
-            m_tail.ww.put( data );
+            ByteBuffer ww = m_tail.ww[writerIdx];
+            if (ww == null)
+            {
+                ww = m_tail.buf.duplicate();
+                m_tail.ww[writerIdx] = ww;
+            }
+
+            ww.position( (int) offs );
+            ww.put( data );
 
             state = newState;
             for (;;)
             {
-                assert( (state & WRITERS_MASK) != 0 );
-
-                newState = (state - WRITER);
+                newState = (state - writer);
+                long start = ((state & START_MASK) >> OFFS_WIDTH);
                 if ((newState & WRITERS_MASK) == 0)
                 {
-                    long start = ((newState >> OFFS_WIDTH) & START_MASK);
-                    newState &= ~(START_MASK << OFFS_WIDTH);
+                    newState &= ~START_MASK;
                     if (m_state.compareAndSet(state, newState))
                     {
-                        long end = ((newState & OFFS_MASK) % m_blockSize);
+                        long end = getOffs( newState, m_blockSize );
                         return (end - start);
                     }
                 }
-                else if (offs == ((newState >> OFFS_WIDTH) & START_MASK))
+                else if (offs == start)
                 {
-                    newState &= ~(OFFS_MASK << OFFS_WIDTH);
-                    newState |= ((offs + dataRemaining) << OFFS_WIDTH);
+                    newState &= ~START_MASK;
+                    newState |= ((offs + dataSize) << OFFS_WIDTH);
                     if (m_state.compareAndSet(state, newState))
-                        return dataRemaining;
+                        return dataSize;
                 }
                 else
                 {
                     if (m_state.compareAndSet(state, newState))
                         return 0;
                 }
-
                 state = m_state.get();
             }
+        }
+    }
+
+    public long getData( ByteBuffer [] iov, long maxBytes )
+    {
+        DataBlock dataBlock = m_head;
+        int pos = dataBlock.rw.position();
+        int capacity = dataBlock.rw.capacity();
+
+        if (pos == capacity)
+        {
+            assert( dataBlock.next != null );
+            m_head = dataBlock.next;
+            dataBlock.next = null;
+            dataBlock = m_head;
+            pos = dataBlock.rw.position();
+            capacity = dataBlock.rw.capacity();
+            assert( pos == 0 );
+        }
+
+        long bytesRest = maxBytes;
+        long ret = 0;
+        int idx = 0;
+
+        for (;;)
+        {
+            int bb = (capacity - pos);
+            if (bb > bytesRest)
+                bb = (int) bytesRest;
+
+            dataBlock.rw.limit( pos + bb );
+            iov[idx] = dataBlock.rw;
+
+            ret += bb;
+            bytesRest -= bb;
+
+            if (++idx == iov.length)
+                return ret;
+
+            if (bytesRest == 0)
+                break;
+
+            assert( dataBlock.next != null );
+            dataBlock = dataBlock.next;
+            pos = dataBlock.rw.position();
+            capacity = dataBlock.rw.capacity();
+        }
+
+        for (; idx<iov.length; idx++)
+            iov[idx] = null;
+
+        return ret;
+    }
+
+    public void removeData( int pos0, long bytes )
+    {
+        int pos = pos0;
+        long bytesRest = bytes;
+        for (;;)
+        {
+            DataBlock dataBlock = m_head;
+            int capacity = dataBlock.rw.capacity();
+            int rwb = (capacity - pos);
+            if (bytesRest <= rwb)
+                break;
+
+            assert( dataBlock.next != null );
+
+            bytesRest -= rwb;
+            m_head = dataBlock.next;
+            dataBlock.next = null;
+            pos = 0;
         }
     }
 }
