@@ -50,6 +50,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             {
                 System.out.println( ex.toString() );
                 m_lock.lock();
+                assert( m_state > 0 );
                 if ((--m_state == 0) && (m_stop > 0))
                     m_cond.signalAll();
                 m_lock.unlock();
@@ -70,6 +71,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             m_lock.lock();
             if (m_callbackThreads.remove(currentThread))
             {
+                assert( m_state > 0 );
                 if ((--m_state == 0) && (m_stop > 0))
                     m_cond.signalAll();
             }
