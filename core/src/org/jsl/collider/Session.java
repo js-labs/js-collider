@@ -32,6 +32,6 @@ public interface Session
     public SocketAddress getLocalAddress();
     public SocketAddress getRemoteAddress();
 
-    public int sendData( ByteBuffer data );
-    public int closeConnection();
+    public boolean sendData( ByteBuffer data );
+    public boolean closeConnection();
 }
