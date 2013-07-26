@@ -28,21 +28,18 @@ public class OutputQueue
         public DataBlock next;
         public ByteBuffer buf;
         public ByteBuffer rw;
-        public ByteBuffer [] ww;
 
         public DataBlock( ByteBuffer abuf )
         {
             buf = abuf;
             next = null;
             rw = buf.duplicate();
-            ww = new ByteBuffer[6];
-            ww[0] = abuf.duplicate();
             rw.limit(0);
         }
     }
 
-    private static final int OFFS_WIDTH = 36;
-    private static final int START_WIDTH = 20;
+    private static final int OFFS_WIDTH    = 36;
+    private static final int START_WIDTH   = 20;
     private static final int WRITERS_WIDTH = 6;
     private static final long OFFS_MASK    = ((1L << OFFS_WIDTH) - 1);
     private static final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
@@ -54,6 +51,7 @@ public class OutputQueue
     private AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
+    private ByteBuffer [] m_ww;
 
     private DataBlock createDataBlock()
     {
@@ -86,6 +84,8 @@ public class OutputQueue
         m_state = new AtomicLong();
         m_head = this.createDataBlock();
         m_tail = m_head;
+        m_ww = new ByteBuffer[WRITERS_WIDTH];
+        m_ww[0] = m_tail.buf.duplicate();
     }
 
     public long addData( ByteBuffer data )
@@ -117,34 +117,38 @@ public class OutputQueue
                     continue;
                 }
 
-                ByteBuffer byteBuffer = m_tail.ww[0];
-                byteBuffer.position( (int) offs );
-                byteBuffer.limit( m_blockSize );
-
                 if (space > 0)
                 {
+                    ByteBuffer ww = m_ww[0];
+                    ww.position( (int) offs );
+                    ww.limit( m_blockSize );
                     data.limit( data.position() + (int)space );
-                    byteBuffer.put( data );
+                    ww.put( data );
                 }
+
+                for (int idx=0; idx<WRITERS_WIDTH; idx++)
+                    m_ww[idx] = null;
 
                 int bytesRest = (dataSize - (int)space);
-                while (bytesRest > m_blockSize)
+                for (;;)
                 {
                     DataBlock dataBlock = this.createDataBlock();
-                    data.limit( data.position() + m_blockSize );
-                    dataBlock.ww[0].put( data );
+                    ByteBuffer ww = dataBlock.buf.duplicate();
                     m_tail.next = dataBlock;
                     m_tail = dataBlock;
+
+                    if (bytesRest <= m_blockSize)
+                    {
+                        data.limit( data.position() + bytesRest );
+                        ww.put( data );
+                        m_ww[0] = ww;
+                        break;
+                    }
+
+                    data.limit( data.position() + m_blockSize );
+                    ww.put( data );
                     bytesRest -= m_blockSize;
                 }
-
-                DataBlock dataBlock = this.createDataBlock();
-                data.limit( data.position() + bytesRest );
-                dataBlock.ww[0].put( data );
-                m_tail.next = dataBlock;
-                m_tail = dataBlock;
-
-                assert( data.remaining() == 0 );
 
                 long newState = (state & OFFS_MASK);
                 newState += dataSize;
@@ -200,11 +204,11 @@ public class OutputQueue
                 continue;
             }
 
-            ByteBuffer ww = m_tail.ww[writerIdx];
+            ByteBuffer ww = m_ww[writerIdx];
             if (ww == null)
             {
                 ww = m_tail.buf.duplicate();
-                m_tail.ww[writerIdx] = ww;
+                m_ww[writerIdx] = ww;
             }
 
             ww.position( (int) offs );
