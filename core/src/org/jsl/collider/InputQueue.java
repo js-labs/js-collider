@@ -64,12 +64,6 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     private AtomicInteger m_length;
     private AtomicReference<DataBlock> m_dataBlock;
 
-    private void abort()
-    {
-        System.out.println( Thread.currentThread().getStackTrace().toString() );
-        System.exit( -1 );
-    }
-
     private void readAndHandleData()
     {
         DataBlock dataBlock = s_tlsDataBlock.get();
@@ -114,8 +108,6 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         for (;;)
         {
             limit += bytesReady;
-            if (limit > rw.capacity())
-                abort();
             rw.limit( limit );
 
             m_listener.onDataReceived( rw );
