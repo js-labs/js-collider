@@ -33,30 +33,34 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     private static class DataBlock
     {
         public DataBlock next;
-        public ByteBuffer byteBuffer;
+        public ByteBuffer buf;
         public ByteBuffer rw;
         public ByteBuffer ww;
 
-        public DataBlock( int size )
+        public DataBlock( boolean useDirectBuffers, int blockSize )
         {
             next = null;
-            byteBuffer = ByteBuffer.allocateDirect( size );
-            rw = byteBuffer.duplicate();
-            ww = byteBuffer.duplicate();
+            if (useDirectBuffers)
+                buf = ByteBuffer.allocateDirect( blockSize );
+            else
+                buf = ByteBuffer.allocate( blockSize );
+            rw = buf.duplicate();
+            ww = buf.duplicate();
+            rw.limit(0);
         }
     }
 
     private static final ThreadLocal<DataBlock> s_tlsDataBlock = new ThreadLocal<DataBlock>();
 
-    private static int BLOCK_SIZE = (1024 * 16);
-
     private Collider m_collider;
+    private boolean m_useDirectBuffers;
+    private int m_blockSize;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
     private Session.Listener m_listener;
 
-    private final int LENGTH_MASK = 0x3FFFFFFF;
-    private final int CLOSED      = 0x40000000;
+    private static final int LENGTH_MASK = 0x3FFFFFFF;
+    private static final int CLOSED      = 0x40000000;
     private AtomicInteger m_length;
     private AtomicReference<DataBlock> m_dataBlock;
 
@@ -70,7 +74,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     {
         DataBlock dataBlock = s_tlsDataBlock.get();
         if (dataBlock == null)
-            dataBlock = new DataBlock( BLOCK_SIZE );
+            dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
         else
             s_tlsDataBlock.remove();
 
@@ -149,10 +153,14 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     public InputQueue(
             Collider collider,
             SocketChannel socketChannel,
+            SelectionKey selectionKey,
             Session.Listener listener )
     {
         m_collider = collider;
+        m_blockSize = collider.getConfig().readBlockSize;
+        m_useDirectBuffers = collider.getConfig().useDirectBuffers;
         m_socketChannel = socketChannel;
+        m_selectionKey = selectionKey;
         m_listener = listener;
         m_length = new AtomicInteger();
         m_dataBlock = new AtomicReference<DataBlock>();
@@ -184,7 +192,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             prev = dataBlock;
             dataBlock = s_tlsDataBlock.get();
             if (dataBlock == null)
-                dataBlock = new DataBlock( BLOCK_SIZE );
+                dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
             else
                 s_tlsDataBlock.remove();
         }

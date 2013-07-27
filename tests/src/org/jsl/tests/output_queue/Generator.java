@@ -41,6 +41,8 @@ public class Generator extends Thread
 
     public void run()
     {
+        System.out.println( Thread.currentThread().getName() + ": started." );
+
         long startTime = System.nanoTime();
         for (int idx=0; idx<m_msgs; idx++)
         {

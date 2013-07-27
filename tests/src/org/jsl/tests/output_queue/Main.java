@@ -63,7 +63,7 @@ public class Main
     {
         m_sema = new Semaphore(0);
         m_state = new AtomicLong(0);
-        m_outputQueue = new OutputQueue( 1000, false );
+        m_outputQueue = new OutputQueue( false, 1000 );
         m_handler = new Handler();
         m_waitMessages = 0;
         m_messages = 0;

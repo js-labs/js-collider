@@ -127,7 +127,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         m_state = new AtomicLong( IQ_STARTING );
         m_inputQueue = null;
         m_outputQueue = new OutputQueue(
-                colliderConfig.outputQueueBlockSize, colliderConfig.useDirectBuffers );
+                colliderConfig.useDirectBuffers, colliderConfig.outputQueueBlockSize );
         m_iov = new ByteBuffer[4];
 
         if (s_logger.isLoggable(Level.FINE))
@@ -214,7 +214,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     {
         if (listener == null)
             listener = new DummyListener();
-        m_inputQueue = new InputQueue( m_collider, m_socketChannel, listener );
+        m_inputQueue = new InputQueue( m_collider, m_socketChannel, m_selectionKey, listener );
 
         long state = m_state.get();
         for (;;)

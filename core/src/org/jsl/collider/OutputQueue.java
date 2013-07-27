@@ -31,10 +31,13 @@ public class OutputQueue
         public ByteBuffer buf;
         public ByteBuffer rw;
 
-        public DataBlock( ByteBuffer abuf )
+        public DataBlock( boolean useDirectBuffers, int blockSize )
         {
-            buf = abuf;
             next = null;
+            if (useDirectBuffers)
+                buf = ByteBuffer.allocateDirect( blockSize );
+            else
+                buf = ByteBuffer.allocate( blockSize );
             rw = buf.duplicate();
             rw.limit(0);
         }
@@ -47,21 +50,13 @@ public class OutputQueue
     private static final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
     private static final long WRITERS_MASK = (((1L << WRITERS_WIDTH) - 1) << (START_WIDTH + OFFS_WIDTH));
 
-    private int m_blockSize;
     private boolean m_useDirectBuffers;
+    private int m_blockSize;
 
     private AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
     private ByteBuffer [] m_ww;
-
-    private DataBlock createDataBlock()
-    {
-        if (m_useDirectBuffers)
-            return new DataBlock( ByteBuffer.allocateDirect(m_blockSize) );
-        else
-            return new DataBlock( ByteBuffer.allocate(m_blockSize) );
-    }
 
     private static long getOffs( long state, int blockSize )
     {
@@ -74,17 +69,17 @@ public class OutputQueue
         return 0;
     }
 
-    public OutputQueue( int blockSize, boolean useDirectBuffers )
+    public OutputQueue( boolean useDirectBuffers, int blockSize )
     {
+        m_useDirectBuffers = useDirectBuffers;
         long maxBlockSize = (START_MASK >> OFFS_WIDTH);
         if (blockSize > maxBlockSize)
             m_blockSize = (int) maxBlockSize;
         else
             m_blockSize = blockSize;
-        m_useDirectBuffers = useDirectBuffers;
 
         m_state = new AtomicLong();
-        m_head = this.createDataBlock();
+        m_head = new DataBlock( m_useDirectBuffers, m_blockSize );
         m_tail = m_head;
         m_ww = new ByteBuffer[WRITERS_WIDTH];
         m_ww[0] = m_tail.buf.duplicate();
@@ -134,7 +129,7 @@ public class OutputQueue
                 int bytesRest = (dataSize - (int)space);
                 for (;;)
                 {
-                    DataBlock dataBlock = this.createDataBlock();
+                    DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
                     ByteBuffer ww = dataBlock.buf.duplicate();
                     m_tail.next = dataBlock;
                     m_tail = dataBlock;
