@@ -62,7 +62,7 @@ public class Collider
 
     public interface ChannelHandler
     {
-        abstract public void handleReadyOps( Executor executor );
+        public void handleReadyOps( Executor executor );
     }
 
     public static abstract class SelectorThreadRunnable
@@ -70,51 +70,6 @@ public class Collider
         public volatile SelectorThreadRunnable nextSelectorThreadRunnable;
         abstract public void runInSelectorThread();
     }
-
-    /*
-    private class AcceptorRegistrator extends SelectorThreadRunnable implements Runnable
-    {
-        private ServerSocketChannel m_channel;
-        private Acceptor m_acceptor;
-        private AcceptorImpl m_acceptorImpl;
-
-        public AcceptorRegistrator( ServerSocketChannel channel, Acceptor acceptor )
-        {
-            m_channel = channel;
-            m_acceptor = acceptor;
-        }
-
-        public void runInSelectorThread()
-        {
-            try
-            {
-                SelectionKey selectionKey = m_channel.register( m_selector, 0, null );
-                m_acceptorImpl = new AcceptorImpl(
-                        Collider.this, Collider.this.m_selector, m_channel, selectionKey, m_acceptor );
-                selectionKey.attach( m_acceptorImpl );
-                m_executor.execute( this );
-            }
-            catch (IOException ex)
-            {
-                m_acceptor.onAcceptorStartingFailure( ex.getMessage() );
-            }
-        }
-
-        public void run()
-        {
-            int localPort = m_channel.socket().getLocalPort();
-            if (localPort == -1)
-            {
-                m_acceptor.onAcceptorStartingFailure( "Not connected." );
-            }
-            else
-            {
-                m_acceptor.onAcceptorStarted( localPort );
-                executeInSelectorThread( m_acceptorImpl );
-            }
-        }
-    }
-    */
 
     private Config m_config;
     private Selector m_selector;
