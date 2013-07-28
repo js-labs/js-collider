@@ -139,7 +139,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
         m_state = new AtomicLong( IQ_STARTING );
-        m_inputQueue = new InputQueue( collider, inputQueueBlockSize, socketChannel, selectionKey );
+        m_inputQueue = new InputQueue( collider, inputQueueBlockSize, this, socketChannel, selectionKey );
         m_outputQueue = new OutputQueue( colliderConfig.useDirectBuffers, outputQueueBlockSize );
         m_iov = new ByteBuffer[sendIovMax];
 

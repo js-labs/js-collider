@@ -19,13 +19,10 @@
 
 package org.jsl.collider;
 
-import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.NotYetConnectedException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class InputQueue extends Collider.SelectorThreadRunnable implements Runnable
@@ -43,125 +40,173 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             if (useDirectBuffers)
                 buf = ByteBuffer.allocateDirect( blockSize );
             else
-                buf = ByteBuffer.allocate( blockSize );
+                buf = ByteBuffer.allocate(blockSize);
             rw = buf.duplicate();
             ww = buf.duplicate();
             rw.limit(0);
+        }
+
+        public final DataBlock reset()
+        {
+            DataBlock dataBlock = next;
+            next = null;
+            rw.clear();
+            rw.limit(0);
+            ww.clear();
+            return dataBlock;
+        }
+    }
+
+    private class DeferredHandler implements Runnable
+    {
+        public DataBlock dataBlock;
+
+        public void run()
+        {
+            assert( dataBlock != null );
+            long state = m_state.get();
+            InputQueue.this.handleData( dataBlock, state );
         }
     }
 
     private static final ThreadLocal<DataBlock> s_tlsDataBlock = new ThreadLocal<DataBlock>();
 
+    private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
+    {
+        protected ByteBuffer [] initialValue() { return new ByteBuffer[2]; }
+    };
+
+    private static final long LENGTH_MASK = 0x00000000FFFFFFFFL;
+    private static final long TAIL_LOCK   = 0x0000000100000000L;
+    private static final long CLOSED      = 0x0000000200000000L;
+
     private Collider m_collider;
-    private boolean m_useDirectBuffers;
-    private int m_blockSize;
+    private final boolean m_useDirectBuffers;
+    private final int m_blockSize;
+    private SessionImpl m_session;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
     private Session.Listener m_listener;
 
-    private static final int LENGTH_MASK = 0x3FFFFFFF;
-    private static final int CLOSED      = 0x40000000;
-    private AtomicInteger m_length;
-    private AtomicReference<DataBlock> m_dataBlock;
+    private AtomicLong m_state;
+    private DataBlock m_tail;
+    private DeferredHandler m_deferredHandler;
 
-    private void readAndHandleData()
+    private DataBlock createDataBlock()
     {
         DataBlock dataBlock = s_tlsDataBlock.get();
         if (dataBlock == null)
             dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
         else
-            s_tlsDataBlock.remove();
+            s_tlsDataBlock.set( null );
+        return dataBlock;
+    }
 
-        int bytesReceived = this.readData( dataBlock );
-        if (bytesReceived > 0)
+    private void handleData( DataBlock dataBlock, long state )
+    {
+        ByteBuffer rw = dataBlock.rw;
+        assert( rw.position() == rw.limit() );
+
+        long bytesReady = (state & LENGTH_MASK);
+        long bytesRest = bytesReady;
+
+        int pos = rw.position();
+        for (;;)
         {
-            m_dataBlock.set( dataBlock );
-            m_length.set( bytesReceived );
-            m_collider.executeInSelectorThread( this );
-            this.handleData( dataBlock, bytesReceived );
+            long bb = (m_blockSize - pos);
+            if (bytesRest <= bb)
+            {
+                int limit = pos + (int) bytesRest;
+                rw.limit( limit );
+                m_listener.onDataReceived( rw );
+                rw.position( limit );
+                break;
+            }
+
+            bytesRest -= bb;
+            rw.limit( m_blockSize );
+            m_listener.onDataReceived( rw );
+
+            DataBlock next = dataBlock.reset();
+            s_tlsDataBlock.set( dataBlock );
+            dataBlock = next;
+            rw = dataBlock.rw;
+            pos = 0;
+        }
+
+        boolean tailLock;
+        for (;;)
+        {
+            long newState = state;
+            newState -= bytesReady;
+
+            if (((newState & LENGTH_MASK) == 0) && ((newState & TAIL_LOCK) == 0))
+            {
+                newState |= TAIL_LOCK;
+                tailLock = true;
+            }
+            else
+                tailLock = false;
+
+            if (m_state.compareAndSet(state, newState))
+            {
+                state = newState;
+                break;
+            }
+
+            state = m_state.get();
+        }
+
+        if ((state & LENGTH_MASK) > 0)
+        {
+            if (m_deferredHandler == null)
+                m_deferredHandler = new DeferredHandler();
+            m_deferredHandler.dataBlock = dataBlock;
+            m_collider.executeInThreadPool( m_deferredHandler );
         }
         else
         {
-            m_listener.onConnectionClosed();
-            s_tlsDataBlock.set( dataBlock );
-        }
-    }
-
-    private int readData( DataBlock dataBlock )
-    {
-        try
-        {
-            int bytesReceived = m_socketChannel.read( dataBlock.ww );
-            if (bytesReceived > 0)
-                return bytesReceived;
-        }
-        catch (NotYetConnectedException ignored) { }
-        catch (IOException ignored) { }
-        return -1;
-    }
-
-    private void handleData( DataBlock dataBlock, int bytesReady )
-    {
-        int length;
-        ByteBuffer rw = dataBlock.rw;
-        int limit = rw.limit();
-        for (;;)
-        {
-            limit += bytesReady;
-            rw.limit( limit );
-
-            m_listener.onDataReceived( rw );
-            rw.position( limit );
-
-            length = m_length.addAndGet( -bytesReady );
-            int bytesRest = (length & LENGTH_MASK);
-            if (bytesRest == 0)
-                break;
-
-            if (rw.capacity() == rw.position())
+            if (tailLock)
             {
-                DataBlock db = dataBlock.next;
-                dataBlock.next = null;
-                dataBlock.rw.clear();
-                dataBlock.ww.clear();
-                if (s_tlsDataBlock.get() == null)
-                    s_tlsDataBlock.set( dataBlock );
-                dataBlock = db;
-                rw = dataBlock.rw;
-                limit = 0;
+                DataBlock tail = m_tail;
+                m_tail = null;
+                m_state.addAndGet( -TAIL_LOCK );
+
+                DataBlock next = tail.reset();
+                assert( next == null );
+                s_tlsDataBlock.set( tail );
             }
-        }
 
-        if ((length & CLOSED) == 0)
-            m_listener.onConnectionClosed();
-
-        if (m_dataBlock.compareAndSet(dataBlock, null))
-        {
-            if (s_tlsDataBlock.get() == null)
-                s_tlsDataBlock.set( dataBlock );
+            if ((state & CLOSED) != 0)
+                m_listener.onConnectionClosed();
         }
     }
 
     public InputQueue(
             Collider collider,
             int blockSize,
+            SessionImpl session,
             SocketChannel socketChannel,
             SelectionKey selectionKey )
     {
         m_collider = collider;
         m_useDirectBuffers = collider.getConfig().useDirectBuffers;
         m_blockSize = blockSize;
+        m_session = session;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-        m_length = new AtomicInteger();
-        m_dataBlock = new AtomicReference<DataBlock>();
+        m_listener = null;
+        m_state = new AtomicLong();
+        m_tail = null;
     }
+
 
     public void setListenerAndStart( Session.Listener listener )
     {
         m_listener = listener;
         m_collider.executeInSelectorThread( this );
     }
+
 
     public void runInSelectorThread()
     {
@@ -170,91 +215,186 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
     }
 
+
     public void run()
     {
-        DataBlock dataBlock = m_dataBlock.get();
+        ByteBuffer [] iov = s_tlsIov.get();
+        int iovCnt;
+        DataBlock prev;
+        DataBlock dataBlock0;
+        DataBlock dataBlock1;
 
-        int length = m_length.get();
-        if (length == 0)
+        boolean tailLock;
+        long state = m_state.get();
+        for (;;)
         {
-            this.readAndHandleData();
-            return;
-        }
-
-        DataBlock prev = null;
-        if (dataBlock.ww.remaining() == 0)
-        {
-            prev = dataBlock;
-            dataBlock = s_tlsDataBlock.get();
-            if (dataBlock == null)
-                dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-            else
-                s_tlsDataBlock.remove();
-        }
-
-        int bytesReceived = this.readData( dataBlock );
-        if (bytesReceived > 0)
-        {
-            if (prev != null)
-                prev.next = dataBlock;
-
-            for (;;)
+            if ((state & LENGTH_MASK) == 0)
             {
-                int newLength = (length & LENGTH_MASK) + bytesReceived;
-                /*
-                if ((newLength & LENGTH_MASK) > LENGTH_MASK)
-                    Queue is too big !!!
-                */
-                if (m_length.compareAndSet(length, newLength))
-                {
-                    length = newLength;
-                    break;
-                }
-                length = m_length.get();
+                tailLock = false;
+                break;
             }
 
-            if (length == bytesReceived)
-            {
-                if (prev != null)
-                {
-                    prev.next = null;
-                    if (s_tlsDataBlock.get() == null)
-                        s_tlsDataBlock.set( prev );
-                    m_dataBlock.set( dataBlock );
-                }
+            assert( (state & TAIL_LOCK) == 0 );
 
-                m_collider.executeInSelectorThread( this );
-                this.handleData( dataBlock, bytesReceived );
+            long newState = state;
+            newState |= TAIL_LOCK;
+            tailLock = true;
+
+            if (m_state.compareAndSet(state, newState))
+                break;
+
+            state = m_state.get();
+        }
+
+        int pos0;
+        if (tailLock)
+        {
+            dataBlock0 = m_tail;
+            pos0 = dataBlock0.ww.position();
+
+            long space = (m_blockSize - pos0);
+            if (space > m_blockSize/2)
+            {
+                prev = null;
+                dataBlock1 = null;
+                iov[0] = dataBlock0.ww;
+                iovCnt = 1;
+            }
+            else if (space > 0)
+            {
+                prev = null;
+                dataBlock1 = createDataBlock();
+                iov[0] = dataBlock0.ww;
+                iov[1] = dataBlock1.ww;
+                iovCnt = 2;
             }
             else
             {
-                m_collider.executeInSelectorThread( this );
+                prev = dataBlock0;
+                dataBlock0 = createDataBlock();
+                dataBlock1 = null;
+                pos0 = 0;
+                iov[0] = dataBlock0.ww;
+                iovCnt = 1;
             }
         }
         else
         {
-            for (;;)
+            prev = null;
+            dataBlock0 = createDataBlock();
+            dataBlock1 = null;
+            pos0 = 0;
+            iov[0] = dataBlock0.ww;
+            iovCnt = 1;
+        }
+
+        long bytesReceived;
+        try { bytesReceived = m_socketChannel.read( iov, 0, iovCnt ); }
+        catch (Exception ignored) { bytesReceived = 0; }
+
+        if (bytesReceived > 0)
+        {
+            if (prev != null)
+                prev.next = dataBlock0;
+
+            if ((state & LENGTH_MASK) == 0)
             {
-                int newLength = (length | CLOSED);
-                if (m_length.compareAndSet(length, newLength))
+                for (;;)
                 {
-                    length = newLength;
-                    break;
+                    if ((state & TAIL_LOCK) == 0)
+                        break;
+                    state = m_state.get();
                 }
-                length = m_length.get();
             }
 
-            if ((length & LENGTH_MASK) == 0)
+            if (bytesReceived > (m_blockSize - pos0))
             {
-                m_listener.onConnectionClosed();
-                if (prev != null)
+                assert( dataBlock1 != null );
+                dataBlock0.next = dataBlock1;
+                m_tail = dataBlock1;
+                dataBlock1 = null;
+            }
+            else
+                m_tail = dataBlock0;
+
+            for (;;)
+            {
+                long newState = state;
+                newState &= LENGTH_MASK;
+                newState += bytesReceived;
+                assert( newState < LENGTH_MASK );
+
+                newState |= (state & ~LENGTH_MASK);
+
+                if (tailLock)
                 {
-                    if (s_tlsDataBlock.get() == null)
-                        s_tlsDataBlock.set( dataBlock );
+                    assert( (newState & TAIL_LOCK) != 0 );
+                    newState -= TAIL_LOCK;
                 }
+
+                if (m_state.compareAndSet(state, newState))
+                {
+                    state = newState;
+                    break;
+                }
+                state = m_state.get();
+            }
+
+            /*
+             * if (bytesReceived == space)
+             *     m_collider.executeInThreadPool( this );
+             * else
+             *     m_collider.executInSelectorThread( this );
+             * Wrong!
+             */
+            m_collider.executeInSelectorThread( this );
+
+            if ((state & LENGTH_MASK) == bytesReceived)
+            {
+                handleData( dataBlock0, state );
+                if (prev != null)
+                    prev.next = null;
+            }
+
+            if (dataBlock1 != null)
+            {
+                assert( dataBlock1.ww.position() == 0 );
+                s_tlsDataBlock.set( dataBlock1 );
             }
         }
+        else
+        {
+            m_session.onReaderStopped();
+
+            for (;;)
+            {
+                long newState = state;
+                newState |= CLOSED;
+
+                if (tailLock)
+                {
+                    assert( (newState & TAIL_LOCK) != 0 );
+                    newState -= TAIL_LOCK;
+                }
+
+                if (m_state.compareAndSet(state, newState))
+                    break;
+
+                state = m_state.get();
+            }
+
+            if ((state & LENGTH_MASK) == 0)
+            {
+                m_listener.onConnectionClosed();
+                if (tailLock)
+                    m_tail = null;
+            }
+        }
+
+        iov[0] = null;
+        iov[1] = null;
     }
+
 
     public void stop()
     {
