@@ -61,7 +61,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
         public void run()
         {
-            SessionImpl sessionImpl = new SessionImpl( m_collider, m_socketChannel, m_selectionKey );
+            SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, m_socketChannel, m_selectionKey );
             Thread currentThread = Thread.currentThread();
 
             m_lock.lock();
@@ -115,7 +115,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             m_lock.unlock();
 
             try { m_channel.close(); }
-            catch (IOException ignored) { assert(false); }
+            catch (IOException ignored) { }
             m_channel = null;
         }
     }
@@ -268,7 +268,8 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
     public void run()
     {
-        for (;;)
+        boolean run = true;
+        while (run)
         {
             SocketChannel socketChannel = null;
 
@@ -292,6 +293,13 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
                 }
                 break;
             }
+            m_state++;
+            if (m_stop > 0)
+            {
+                m_state -= 2;
+                run = false;
+            }
+            m_lock.unlock();
 
             try { socketChannel.configureBlocking( false ); }
             catch (IOException ex)
@@ -300,28 +308,15 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
                 try { socketChannel.close(); }
                 catch (IOException ignored) {}
                 System.out.println( ex.toString() );
+
+                m_lock.lock();
+                if (--m_state == 0)
+                    m_cond.signalAll();
+                m_lock.unlock();
                 continue;
             }
 
-            try
-            {
-                socketChannel.setOption( StandardSocketOptions.TCP_NODELAY, m_acceptor.getTcpNoDelay() );
-            }
-            catch (IOException ex)
-            {
-                /* Not a critical problem */
-                System.out.print( ex.toString() );
-            }
-
-            m_state++;
-            if (m_stop > 0)
-            {
-                m_state -= 2;
-                m_lock.unlock();
-                break;
-            }
-            m_lock.unlock();
-
+            m_acceptor.configureSocketChannel( m_collider, socketChannel );
             m_collider.executeInSelectorThread( new SessionRegistrator(socketChannel) );
         }
     }

@@ -38,17 +38,25 @@ public class Collider
     {
         public int threadPoolThreads;
         public boolean useDirectBuffers;
-        public int readBlockSize;
-        public int outputQueueBlockSize;
         public int shutdownTimeout;
+
+        public int socketSendBufSize;
+        public int socketRecvBufSize;
+        public int inputQueueBlockSize;
+        public int outputQueueBlockSize;
 
         public Config()
         {
-            threadPoolThreads     = 4;
-            useDirectBuffers      = true;
-            readBlockSize         = (32 * 1024);
-            outputQueueBlockSize  = (32 * 1024);
-            shutdownTimeout       = 60;
+            threadPoolThreads = 4;
+            useDirectBuffers  = true;
+            shutdownTimeout   = 60;
+
+            /* Use system default settings by default */
+            socketSendBufSize = 0;
+            socketRecvBufSize = 0;
+
+            inputQueueBlockSize   = (32 * 1024);
+            outputQueueBlockSize  = (16 * 1024);
         }
     }
 
@@ -222,7 +230,7 @@ public class Collider
         {
             ServerSocketChannel channel = ServerSocketChannel.open();
             channel.configureBlocking( false );
-            channel.setOption( StandardSocketOptions.SO_REUSEADDR, acceptor.getReuseAddr() );
+            channel.setOption( StandardSocketOptions.SO_REUSEADDR, acceptor.reuseAddr );
             channel.socket().bind( acceptor.getAddr() );
 
             AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );

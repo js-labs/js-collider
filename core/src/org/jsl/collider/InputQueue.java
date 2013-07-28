@@ -152,19 +152,22 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
     public InputQueue(
             Collider collider,
+            int blockSize,
             SocketChannel socketChannel,
-            SelectionKey selectionKey,
-            Session.Listener listener )
+            SelectionKey selectionKey )
     {
         m_collider = collider;
-        m_blockSize = collider.getConfig().readBlockSize;
         m_useDirectBuffers = collider.getConfig().useDirectBuffers;
+        m_blockSize = blockSize;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-        m_listener = listener;
         m_length = new AtomicInteger();
         m_dataBlock = new AtomicReference<DataBlock>();
+    }
 
+    public void setListenerAndStart( Session.Listener listener )
+    {
+        m_listener = listener;
         m_collider.executeInSelectorThread( this );
     }
 

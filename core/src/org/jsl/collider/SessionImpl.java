@@ -33,12 +33,12 @@ import java.util.logging.Logger;
 public class SessionImpl extends Collider.SelectorThreadRunnable
         implements Session, Collider.ChannelHandler, Runnable
 {
-    private static final long LENGTH_MASK     = 0x000000FFFFFFFFFFL;
-    private static final long CLOSED          = 0x0000010000000000L;
-    private static final long IQ_STATE_MASK   = 0x0000300000000000L;
-    private static final long IQ_STARTING     = 0x0000000000000000L;
-    private static final long IQ_STARTED      = 0x0000100000000000L;
-    private static final long IQ_STOPPED      = 0x0000200000000000L;
+    private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
+    private static final long CLOSED        = 0x0000010000000000L;
+    private static final long IQ_STATE_MASK = 0x0000300000000000L;
+    private static final long IQ_STARTING   = 0x0000000000000000L;
+    private static final long IQ_STARTED    = 0x0000100000000000L;
+    private static final long IQ_STOPPED    = 0x0000200000000000L;
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
@@ -115,20 +115,33 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
     public SessionImpl(
             Collider collider,
+            SessionEmitter sessionEmitter,
             SocketChannel socketChannel,
             SelectionKey selectionKey )
     {
         Collider.Config colliderConfig = collider.getConfig();
 
+        int inputQueueBlockSize = sessionEmitter.inputQueueBlockSize;
+        if (inputQueueBlockSize == 0)
+            inputQueueBlockSize = colliderConfig.inputQueueBlockSize;
+
+        int sendBufSize = sessionEmitter.socketSendBufSize;
+        if (sendBufSize == 0)
+            sendBufSize = colliderConfig.socketSendBufSize;
+        if (sendBufSize == 0)
+            sendBufSize = (64 * 1024);
+        int outputQueueBlockSize = sessionEmitter.outputQueueBlockSize;
+        if (outputQueueBlockSize == 0)
+            outputQueueBlockSize = colliderConfig.outputQueueBlockSize;
+        int sendIovMax = (sendBufSize / outputQueueBlockSize) + 1;
+
         m_collider = collider;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-
         m_state = new AtomicLong( IQ_STARTING );
-        m_inputQueue = null;
-        m_outputQueue = new OutputQueue(
-                colliderConfig.useDirectBuffers, colliderConfig.outputQueueBlockSize );
-        m_iov = new ByteBuffer[4];
+        m_inputQueue = new InputQueue( collider, inputQueueBlockSize, socketChannel, selectionKey );
+        m_outputQueue = new OutputQueue( colliderConfig.useDirectBuffers, outputQueueBlockSize );
+        m_iov = new ByteBuffer[sendIovMax];
 
         if (s_logger.isLoggable(Level.FINE))
         {
@@ -214,7 +227,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     {
         if (listener == null)
             listener = new DummyListener();
-        m_inputQueue = new InputQueue( m_collider, m_socketChannel, m_selectionKey, listener );
+        m_inputQueue.setListenerAndStart( listener );
 
         long state = m_state.get();
         for (;;)
@@ -262,6 +275,8 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     {
         long state = m_state.get();
         long bytesReady = (state & LENGTH_MASK);
+        assert( bytesReady > 0 );
+
         bytesReady = m_outputQueue.getData( m_iov, bytesReady );
         int pos0 = m_iov[0].position();
 
