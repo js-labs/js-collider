@@ -1,6 +1,26 @@
+<!--
+ * JS-Collider framework.
+ * Copyright (C) 2013 Sergey Zubarev
+ * info@js-labs.org
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+
 <project name="JS-Collider">
 
     <property name="OUT_DIR" location="out/production"/>
+    <property name="TST_PKG" value="org.jsl.tests"/>
 
     <target name="clean">
         <delete dir="out"/>
@@ -8,18 +28,46 @@
 
     <target name="compile">
         <mkdir dir="${OUT_DIR}/core"/>
-        <javac srcdir="core/src" destdir="${OUT_DIR}/core"/>
+        <javac srcdir="core/src" destdir="${OUT_DIR}/core" includeantruntime="false"/>
     </target>
 
     <target name="dist" depends="compile">
-        <jar jarfile="out/JS-Collider.jar" basedir="${OUT_DIR}/core">
+        <jar jarfile="out/${ant.project.name}.jar" basedir="${OUT_DIR}/core">
             <manifest>
-                <attribute name="Implementation-Title" value="JS-Collider"/>
+                <attribute name="Implementation-Title" value="${ant.project.name}"/>
                 <attribute name="Implementation-Vendor" value="org.jsl"/>
                 <attribute name="Implementation-Version" value="0.9"/>
                 <attribute name="Sealed" value="true"/>
             </manifest>
         </jar>
-    </target>        
+    </target>
+
+    <target name="compile_tests" depends="dist">
+        <mkdir dir="${OUT_DIR}/core"/>
+        <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false"/>
+    </target>
+
+    <target name="jar_tests" depends="compile_tests">
+        <jar jarfile="out/${ant.project.name}-tests.jar" basedir="${OUT_DIR}/tests">
+            <manifest>
+                <attribute name="Implementation-Title" value="${ant.project.name}-tests"/>
+                <attribute name="Implementation-Vendor" value="org.jsl"/>
+                <attribute name="Implementation-Version" value="0.1"/>
+                <attribute name="Sealed" value="true"/>
+            </manifest>
+        </jar>
+    </target>
+
+    <target name="run_tests" depends="test.output_queue">
+    </target>
+
+    <target name="test.output_queue" depends="jar_tests">
+        <java classname="${TST_PKG}.output_queue.Main" fork="true">
+            <classpath>
+                <pathelement location="out/${ant.project.name}.jar"/>
+                <pathelement location="out/${ant.project.name}-tests.jar"/>
+            </classpath>
+        </java>
+    </target>
 
 </project>
