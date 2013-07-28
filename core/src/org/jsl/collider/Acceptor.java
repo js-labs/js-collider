@@ -21,28 +21,12 @@ package org.jsl.collider;
 
 import java.net.InetSocketAddress;
 
-public abstract class Acceptor
+public abstract class Acceptor extends SessionEmitter
 {
-    private InetSocketAddress m_addr;
-    private boolean m_reuseAddr;
-    public boolean m_tcpNoDelay;
-
     public Acceptor( InetSocketAddress addr )
     {
-        m_addr = addr;
-        m_reuseAddr = false;
-        m_tcpNoDelay = false;
+        super( addr );
     }
-
-    public InetSocketAddress getAddr() { return m_addr; }
-
-    public void setReuseAddr( boolean reuseAddr ) { m_reuseAddr = reuseAddr; }
-    public boolean getReuseAddr() { return m_reuseAddr; }
-
-    public void setTcpNoDelay( boolean tcpNoDelay ) { m_tcpNoDelay = tcpNoDelay; }
-    public boolean getTcpNoDelay() { return m_tcpNoDelay; }
-
-    public abstract Session.Listener createSessionListener( Session session );
 
     public void onAcceptorStarted( int localPort ) {}
     public void onAcceptorStartingFailure( String errorText ) {}
