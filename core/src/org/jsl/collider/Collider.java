@@ -87,8 +87,39 @@ public class Collider
 
         public void run()
         {
+            SessionEmitter [] emitters = null;
+            synchronized (m_emitters)
+            {
+                int size = m_emitters.size();
+                if (size > 0)
+                {
+                    emitters = new SessionEmitter[size];
+                    Iterator<SessionEmitter> it = m_emitters.keySet().iterator();
+                    for (int idx=0; idx<size; idx++)
+                        emitters[idx] = it.next();
+                }
+            }
+            if (emitters != null)
+            {
+                for (SessionEmitter emitter : emitters)
+                    removeEmitter( emitter );
+            }
             executeInSelectorThread( this );
         }
+    }
+
+    private void removeEmitter( SessionEmitter emitter )
+    {
+        SessionEmitterImpl emitterImpl;
+        synchronized (m_emitters)
+        {
+            if (!m_emitters.containsKey(emitter))
+                return;
+            emitterImpl = m_emitters.get( emitter );
+            m_emitters.remove( emitter );
+        }
+        assert( emitterImpl != null );
+        emitterImpl.stop();
     }
 
     private final static int ST_RUNNING = 1;
@@ -148,20 +179,6 @@ public class Collider
                 keyIterator.remove();
             }
 
-            if (m_state == ST_STOPPING)
-            {
-                Set<SelectionKey> keys = m_selector.keys();
-                int sessions = 0;
-                for (SelectionKey key : keys)
-                {
-                    Object attachment = key.attachment();
-                    if (attachment instanceof SessionImpl)
-                        sessions++;
-                }
-                if (sessions == 0)
-                    break;
-            }
-
             while (m_strHead != null)
             {
                 m_strHead.runInSelectorThread();
@@ -178,6 +195,20 @@ public class Collider
                 }
                 m_strHead = next;
                 head.nextSelectorThreadRunnable = null;
+            }
+
+            if (m_state == ST_STOPPING)
+            {
+                Set<SelectionKey> keys = m_selector.keys();
+                int sessions = 0;
+                for (SelectionKey key : keys)
+                {
+                    Object attachment = key.attachment();
+                    if (attachment instanceof SessionImpl)
+                        sessions++;
+                }
+                if (sessions == 0)
+                    break;
             }
         }
 
@@ -273,14 +304,6 @@ public class Collider
 
     public void removeAcceptor( Acceptor acceptor )
     {
-        SessionEmitterImpl emitterImpl;
-        synchronized (m_emitters)
-        {
-            if (!m_emitters.containsKey(acceptor))
-                return;
-            emitterImpl = m_emitters.get( acceptor );
-        }
-        assert( emitterImpl != null );
-        emitterImpl.stop();
+        removeEmitter( acceptor );
     }
 }

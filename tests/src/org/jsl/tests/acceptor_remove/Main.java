@@ -87,7 +87,7 @@ public class Main
         {
             if (--m_maxSessions == 0)
             {
-                m_collider.removeAcceptor( this );
+                //m_collider.removeAcceptor( this );
                 m_collider.stop();
                 //m_scheduler.schedule( new Timer(), 1, TimeUnit.SECONDS );
             }
