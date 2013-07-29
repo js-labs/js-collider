@@ -61,6 +61,12 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
+            m_selectionKey.cancel();
+            m_selectionKey = null;
+
+            try { m_socketChannel.close(); }
+            catch (IOException e) { e.printStackTrace(); }
+            m_socketChannel = null;
         }
     }
 
@@ -203,7 +209,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                 return false;
 
             long newState = state;
-            state |= CLOSED;
+            newState |= CLOSED;
 
             if (m_state.compareAndSet(state, newState))
                 break;

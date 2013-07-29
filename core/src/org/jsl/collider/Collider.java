@@ -47,7 +47,7 @@ public class Collider
 
         public Config()
         {
-            threadPoolThreads = 4;
+            threadPoolThreads = 0;
             useDirectBuffers  = true;
             shutdownTimeout   = 60;
 
@@ -71,11 +71,35 @@ public class Collider
         abstract public void runInSelectorThread();
     }
 
+    private class Stopper extends SelectorThreadRunnable implements Runnable
+    {
+        public void runInSelectorThread()
+        {
+            Set<SelectionKey> keys = m_selector.keys();
+            for (SelectionKey key : keys)
+            {
+                Object attachment = key.attachment();
+                if (attachment instanceof SessionImpl)
+                    ((SessionImpl)attachment).closeConnection();
+            }
+            m_state = ST_STOPPING;
+        }
+
+        public void run()
+        {
+            executeInSelectorThread( this );
+        }
+    }
+
+    private final static int ST_RUNNING = 1;
+    private final static int ST_STOPPING = 2;
+
     private Config m_config;
     private Selector m_selector;
     private ExecutorService m_executor;
-    private volatile boolean m_run;
-    private Map<Acceptor, AcceptorImpl> m_acceptors;
+    private int m_state;
+    private boolean m_stop;
+    private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private volatile SelectorThreadRunnable m_strHead;
     private AtomicReference<SelectorThreadRunnable> m_strTail;
 
@@ -88,9 +112,17 @@ public class Collider
     {
         m_config = config;
         m_selector = Selector.open();
-        m_executor = Executors.newFixedThreadPool( m_config.threadPoolThreads );
-        m_run = true;
-        m_acceptors = Collections.synchronizedMap( new HashMap<Acceptor, AcceptorImpl>() );
+
+        int threadPoolThreads = config.threadPoolThreads;
+        if (threadPoolThreads == 0)
+            threadPoolThreads = Runtime.getRuntime().availableProcessors();
+        if (threadPoolThreads < 4)
+            threadPoolThreads = 4;
+        m_executor = Executors.newFixedThreadPool( threadPoolThreads );
+
+        m_state = ST_RUNNING;
+        m_stop = false;
+        m_emitters = Collections.synchronizedMap( new HashMap<SessionEmitter, SessionEmitterImpl>() );
         m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
     }
@@ -102,7 +134,7 @@ public class Collider
 
     public void run() throws IOException
     {
-        while (m_run)
+        for (;;)
         {
             m_selector.select();
 
@@ -114,6 +146,20 @@ public class Collider
                 ChannelHandler channelHandler = (ChannelHandler) key.attachment();
                 channelHandler.handleReadyOps( m_executor );
                 keyIterator.remove();
+            }
+
+            if (m_state == ST_STOPPING)
+            {
+                Set<SelectionKey> keys = m_selector.keys();
+                int sessions = 0;
+                for (SelectionKey key : keys)
+                {
+                    Object attachment = key.attachment();
+                    if (attachment instanceof SessionImpl)
+                        sessions++;
+                }
+                if (sessions == 0)
+                    break;
             }
 
             while (m_strHead != null)
@@ -145,11 +191,18 @@ public class Collider
         catch (InterruptedException ignored) {}
     }
 
+
     public void stop()
     {
-        m_run = false;
-        m_selector.wakeup();
+        synchronized (m_emitters)
+        {
+            if (m_stop)
+                return;
+            m_stop = true;
+        }
+        executeInThreadPool( new Stopper() );
     }
+
 
     public void executeInSelectorThread( SelectorThreadRunnable runnable )
     {
@@ -164,21 +217,39 @@ public class Collider
             tail.nextSelectorThreadRunnable = runnable;
     }
 
+
     public void executeInThreadPool( Runnable runnable )
     {
         m_executor.execute( runnable );
     }
 
+
     public void addAcceptor( Acceptor acceptor )
     {
-        synchronized (m_acceptors)
+        boolean stop;
+        boolean alreadyRegistered = false;
+
+        synchronized (m_emitters)
         {
-            if (m_acceptors.containsKey(acceptor))
+            stop = m_stop;
+            if (!stop)
             {
-                acceptor.onAcceptorStartingFailure( "Acceptor already registered." );
-                return;
+                if (m_emitters.containsKey(acceptor))
+                    alreadyRegistered = true;
+                else
+                    m_emitters.put( acceptor, null );
             }
-            m_acceptors.put( acceptor, null );
+        }
+
+        if (stop)
+        {
+            acceptor.onAcceptorStartingFailure( "Collider is not running." );
+            return;
+        }
+        else if (alreadyRegistered)
+        {
+            acceptor.onAcceptorStartingFailure( "Acceptor already registered" );
+            return;
         }
 
         try
@@ -189,26 +260,27 @@ public class Collider
             channel.socket().bind( acceptor.getAddr() );
 
             AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );
-            synchronized (m_acceptors) { m_acceptors.put( acceptor, acceptorImpl ); }
+            synchronized (m_emitters) { m_emitters.put( acceptor, acceptorImpl ); }
             acceptorImpl.start();
         }
         catch (IOException e)
         {
-            synchronized (m_acceptors) { m_acceptors.remove( acceptor ); }
+            synchronized (m_emitters) { m_emitters.remove( acceptor ); }
             acceptor.onAcceptorStartingFailure( e.getMessage() );
         }
     }
 
+
     public void removeAcceptor( Acceptor acceptor )
     {
-        AcceptorImpl acceptorImpl;
-        synchronized (m_acceptors)
+        SessionEmitterImpl emitterImpl;
+        synchronized (m_emitters)
         {
-            if (!m_acceptors.containsKey(acceptor))
+            if (!m_emitters.containsKey(acceptor))
                 return;
-            acceptorImpl = m_acceptors.get( acceptor );
+            emitterImpl = m_emitters.get( acceptor );
         }
-        assert( acceptorImpl != null );
-        acceptorImpl.stop();
+        assert( emitterImpl != null );
+        emitterImpl.stop();
     }
 }

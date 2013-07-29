@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 public class AcceptorImpl extends Collider.SelectorThreadRunnable
-        implements Runnable, Collider.ChannelHandler
+        implements Runnable, Collider.ChannelHandler, SessionEmitterImpl
 {
     private class SessionRegistrator extends Collider.SelectorThreadRunnable implements Runnable
     {
@@ -62,8 +62,9 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
         public void run()
         {
             SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, m_socketChannel, m_selectionKey );
-            Thread currentThread = Thread.currentThread();
+            m_selectionKey.attach( sessionImpl );
 
+            Thread currentThread = Thread.currentThread();
             m_lock.lock();
             m_callbackThreads.add( currentThread );
             m_lock.unlock();
