@@ -20,7 +20,18 @@
 <project name="JS-Collider">
 
     <property name="OUT_DIR" location="out/production"/>
-    <property name="TST_PKG" value="org.jsl.tests"/>
+
+    <macrodef name="run-test">
+        <attribute name="name"/>
+        <sequential>
+            <java classname="org.jsl.tests.@{name}.Main" fork="true">
+                <classpath>
+                    <pathelement location="out/${ant.project.name}.jar"/>
+                    <pathelement location="out/production/tests"/>
+                </classpath>
+            </java>
+        </sequential>
+    </macrodef>
 
     <target name="clean">
         <delete dir="out"/>
@@ -43,31 +54,19 @@
     </target>
 
     <target name="compile_tests" depends="dist">
-        <mkdir dir="${OUT_DIR}/core"/>
-        <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false"/>
-    </target>
-
-    <target name="jar_tests" depends="compile_tests">
-        <jar jarfile="out/${ant.project.name}-tests.jar" basedir="${OUT_DIR}/tests">
-            <manifest>
-                <attribute name="Implementation-Title" value="${ant.project.name}-tests"/>
-                <attribute name="Implementation-Vendor" value="org.jsl"/>
-                <attribute name="Implementation-Version" value="0.1"/>
-                <attribute name="Sealed" value="true"/>
-            </manifest>
-        </jar>
+        <mkdir dir="${OUT_DIR}/tests"/>
+        <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false">
+            <classpath>
+                <pathelement location="out/${ant.project.name}.jar"/>
+            </classpath>
+        </javac>
     </target>
 
     <target name="run_tests" depends="test.output_queue">
     </target>
 
-    <target name="test.output_queue" depends="jar_tests">
-        <java classname="${TST_PKG}.output_queue.Main" fork="true">
-            <classpath>
-                <pathelement location="out/${ant.project.name}.jar"/>
-                <pathelement location="out/${ant.project.name}-tests.jar"/>
-            </classpath>
-        </java>
+    <target name="test.output_queue" depends="compile_tests">
+        <run-test name="output_queue"/>
     </target>
 
 </project>
