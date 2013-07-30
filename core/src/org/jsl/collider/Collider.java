@@ -30,6 +30,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 public class Collider
@@ -81,6 +83,15 @@ public class Collider
                 Object attachment = key.attachment();
                 if (attachment instanceof SessionImpl)
                     ((SessionImpl)attachment).closeConnection();
+                /*
+                 * else if (attachement instanceof AcceptorImpl)
+                 * {
+                 *     Can happen, canceled SelectionKey is not removed from the
+                 *     Selector ritgh at the SelectionKey.cancel() call,
+                 *     but will present in the keys set till the next
+                 *     Selector.select() call.
+                 * }
+                 */
             }
             m_state = ST_STOPPING;
         }
@@ -125,6 +136,8 @@ public class Collider
     private final static int ST_RUNNING = 1;
     private final static int ST_STOPPING = 2;
 
+    private static final Logger s_logger = Logger.getLogger( Collider.class.getName() );
+
     private Config m_config;
     private Selector m_selector;
     private ExecutorService m_executor;
@@ -165,6 +178,9 @@ public class Collider
 
     public void run() throws IOException
     {
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "Collider started." );
+
         for (;;)
         {
             m_selector.select();
@@ -182,7 +198,6 @@ public class Collider
             while (m_strHead != null)
             {
                 m_strHead.runInSelectorThread();
-
                 SelectorThreadRunnable head = m_strHead;
                 SelectorThreadRunnable next = m_strHead.nextSelectorThreadRunnable;
                 if (next == null)
@@ -199,16 +214,9 @@ public class Collider
 
             if (m_state == ST_STOPPING)
             {
-                Set<SelectionKey> keys = m_selector.keys();
-                int sessions = 0;
-                for (SelectionKey key : keys)
-                {
-                    Object attachment = key.attachment();
-                    if (attachment instanceof SessionImpl)
-                        sessions++;
-                }
-                if (sessions == 0)
+                if (m_selector.keys().size() == 0)
                     break;
+                m_selector.wakeup();
             }
         }
 
@@ -220,11 +228,17 @@ public class Collider
             m_executor.awaitTermination( m_config.shutdownTimeout, TimeUnit.SECONDS );
         }
         catch (InterruptedException ignored) {}
+
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "Collider stopped." );
     }
 
 
     public void stop()
     {
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "Collider.stop() called." );
+
         synchronized (m_emitters)
         {
             if (m_stop)
