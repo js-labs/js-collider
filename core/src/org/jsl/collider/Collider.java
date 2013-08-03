@@ -247,7 +247,11 @@ public class Collider
                 m_executor.shutdownNow();
             m_executor.awaitTermination( m_config.shutdownTimeout, TimeUnit.SECONDS );
         }
-        catch (InterruptedException ignored) {}
+        catch (InterruptedException ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( ex.toString() );
+        }
 
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "Collider stopped." );

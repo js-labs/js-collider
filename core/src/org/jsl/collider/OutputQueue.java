@@ -201,20 +201,57 @@ public class OutputQueue
                 continue;
             }
 
+            state = newState;
+
             ByteBuffer ww = m_ww[writerIdx];
             if (ww == null)
             {
-                ww = m_tail.buf.duplicate();
-                m_ww[writerIdx] = ww;
+                try
+                {
+                    ww = m_tail.buf.duplicate();
+                    m_ww[writerIdx] = ww;
+                }
+                catch (Throwable ex)
+                {
+                    /* Most probably OutOfMemoryError happened.
+                     * We have to recover queue state, otherwise it will remain
+                     * in inconsistent state, and then we will send corrupted data.
+                     * Not a good idea to swallow the error, but have no other options.
+                     * There is at least one write window initialized,
+                     * we could use it, just need to wait for some time.
+                     */
+                    long failedWriter = writer;
+                    loop: for (;;)
+                    {
+                        writerIdx = 0;
+                        writer = (1L << (START_WIDTH + OFFS_WIDTH));
+                        for (; writerIdx<WRITERS_WIDTH; writerIdx++, writer<<=1)
+                        {
+                            if (((state & writer) == 0) && (m_ww[writerIdx] != null))
+                            {
+                                newState = state;
+                                newState -= failedWriter;
+                                newState |= writer;
+                                if (m_state.compareAndSet(state, newState))
+                                {
+                                    state = newState;
+                                    break loop;
+                                }
+                            }
+                        }
+                        state = m_state.get();
+                    }
+                    ww = m_ww[writerIdx];
+                }
             }
 
             ww.position( (int) offs );
             ww.put( data );
 
-            state = newState;
             for (;;)
             {
-                newState = (state - writer);
+                newState = state;
+                newState -= writer;
                 long start = ((state & START_MASK) >> OFFS_WIDTH);
                 if ((newState & WRITERS_MASK) == 0)
                 {
