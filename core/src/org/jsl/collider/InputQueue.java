@@ -69,6 +69,42 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
     }
 
+    private class Stopper extends Collider.SelectorThreadRunnable implements Runnable
+    {
+        public void runInSelectorThread()
+        {
+            int interestOps = m_selectionKey.interestOps();
+            if ((interestOps & SelectionKey.OP_READ) == 0)
+            {
+                assert( false );
+            }
+            else
+            {
+                interestOps &= ~SelectionKey.OP_READ;
+                m_selectionKey.interestOps( interestOps );
+                m_collider.executeInThreadPool( this );
+            }
+        }
+
+        public void run()
+        {
+            m_session.onReaderStopped();
+
+            long state = m_state.get();
+            for (;;)
+            {
+                assert( (state & CLOSED) == 0);
+                long newState = (state | CLOSED);
+                if (m_state.compareAndSet(state, newState))
+                    break;
+                state = m_state.get();
+            }
+
+            if ((state & LENGTH_MASK) == 0)
+                m_listener.onConnectionClosed();
+        }
+    }
+
     private static final ThreadLocal<DataBlock> s_tlsDataBlock = new ThreadLocal<DataBlock>();
 
     private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
@@ -187,7 +223,8 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             int blockSize,
             SessionImpl session,
             SocketChannel socketChannel,
-            SelectionKey selectionKey )
+            SelectionKey selectionKey,
+            Session.Listener listener )
     {
         m_collider = collider;
         m_useDirectBuffers = collider.getConfig().useDirectBuffers;
@@ -195,16 +232,9 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         m_session = session;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-        m_listener = null;
+        m_listener = listener;
         m_state = new AtomicLong();
         m_tail = null;
-    }
-
-
-    public void setListenerAndStart( Session.Listener listener )
-    {
-        m_listener = listener;
-        m_collider.executeInSelectorThread( this );
     }
 
 
@@ -241,7 +271,10 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             tailLock = true;
 
             if (m_state.compareAndSet(state, newState))
+            {
+                state = newState;
                 break;
+            }
 
             state = m_state.get();
         }
@@ -289,7 +322,11 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
 
         long bytesReceived;
-        try { bytesReceived = m_socketChannel.read( iov, 0, iovCnt ); }
+        try
+        {
+            bytesReceived = m_socketChannel.read( iov, 0, iovCnt );
+            assert( bytesReceived != 0 );
+        }
         catch (Exception ignored) { bytesReceived = 0; }
 
         if (bytesReceived > 0)
@@ -395,8 +432,8 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         iov[1] = null;
     }
 
-
     public void stop()
     {
+        m_collider.executeInSelectorThread( new Stopper() );
     }
 }

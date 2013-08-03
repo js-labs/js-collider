@@ -49,7 +49,7 @@ public class Collider
 
         public Config()
         {
-            threadPoolThreads = 0;
+            threadPoolThreads = 4; //0;
             useDirectBuffers  = true;
             shutdownTimeout   = 60;
 
@@ -110,16 +110,38 @@ public class Collider
                         emitters[idx] = it.next();
                 }
             }
+
             if (emitters != null)
             {
-                for (SessionEmitter emitter : emitters)
-                    removeEmitter( emitter );
+                boolean interrupted = false;
+                try
+                {
+                    for (SessionEmitter emitter : emitters)
+                    {
+                        try
+                        {
+                            removeEmitter( emitter );
+                        }
+                        catch (InterruptedException ex)
+                        {
+                            if (s_logger.isLoggable(Level.WARNING))
+                                s_logger.warning( ex.toString() );
+                            interrupted = true;
+                        }
+                    }
+                }
+                finally
+                {
+                    if (interrupted)
+                        Thread.currentThread().interrupt();
+                }
             }
+
             executeInSelectorThread( this );
         }
     }
 
-    private void removeEmitter( SessionEmitter emitter )
+    private void removeEmitter( SessionEmitter emitter ) throws InterruptedException
     {
         SessionEmitterImpl emitterImpl;
         synchronized (m_emitters)
@@ -186,14 +208,12 @@ public class Collider
             m_selector.select();
 
             Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
-            Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
-            while (keyIterator.hasNext())
+            for (SelectionKey key : selectedKeys)
             {
-                SelectionKey key = keyIterator.next();
                 ChannelHandler channelHandler = (ChannelHandler) key.attachment();
                 channelHandler.handleReadyOps( m_executor );
-                keyIterator.remove();
             }
+            selectedKeys.clear();
 
             while (m_strHead != null)
             {
@@ -316,7 +336,7 @@ public class Collider
     }
 
 
-    public void removeAcceptor( Acceptor acceptor )
+    public void removeAcceptor( Acceptor acceptor ) throws InterruptedException
     {
         removeEmitter( acceptor );
     }

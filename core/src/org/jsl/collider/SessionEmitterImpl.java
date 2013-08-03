@@ -22,5 +22,5 @@ package org.jsl.collider;
 
 public interface SessionEmitterImpl
 {
-    public void stop();
+    public void stop() throws InterruptedException;
 }

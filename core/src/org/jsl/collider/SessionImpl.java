@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -35,10 +36,11 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 {
     private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
     private static final long CLOSED        = 0x0000010000000000L;
-    private static final long IQ_STATE_MASK = 0x0000300000000000L;
-    private static final long IQ_STARTING   = 0x0000000000000000L;
-    private static final long IQ_STARTED    = 0x0000100000000000L;
-    private static final long IQ_STOPPED    = 0x0000200000000000L;
+    private static final long WAIT_WRITE    = 0x0000020000000000L;
+    private static final long STATE_MASK    = 0x0000300000000000L;
+    private static final long ST_STARTING   = 0x0000000000000000L;
+    private static final long ST_RUNNING    = 0x0000100000000000L;
+    private static final long ST_STOPPED    = 0x0000200000000000L;
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
@@ -76,17 +78,18 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         if ((state & CLOSED) != 0)
             ret += "CLOSED ";
 
-        long iqState = (state & IQ_STATE_MASK);
-        if (iqState == IQ_STARTING)
-            ret += "IQ_STARTING ";
-        else if (iqState == IQ_STARTED)
-            ret += "IQ_STARTED ";
-        else if (iqState == IQ_STOPPED)
-            ret += "IQ_STOPPED ";
-        else
-            ret += "UNKNOWN ";
+        long length = (state & LENGTH_MASK);
 
-        ret += (state & LENGTH_MASK);
+        state &= STATE_MASK;
+        if (state == ST_STARTING)
+            ret += "STARTING ";
+        else if (state == ST_RUNNING)
+            ret += "STARTED ";
+        else if (state == ST_STOPPED)
+            ret += "STOPPED ";
+        else
+
+        ret += length;
         ret += ")";
         return ret;
     }
@@ -96,12 +99,12 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         long state = m_state.get();
         for (;;)
         {
-            assert( (state & IQ_STATE_MASK) != IQ_STOPPED );
+            assert( (state & STATE_MASK) == ST_RUNNING );
             long newState = state;
 
             newState |= CLOSED;
-            newState &= ~IQ_STATE_MASK;
-            newState |= IQ_STOPPED;
+            newState &= ~STATE_MASK;
+            newState |= ST_STOPPED;
 
             if (m_state.compareAndSet(state, newState))
                 break;
@@ -119,17 +122,9 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             m_collider.executeInSelectorThread( new SelectorDeregistrator() );
     }
 
-    public SessionImpl(
-            Collider collider,
-            SessionEmitter sessionEmitter,
-            SocketChannel socketChannel,
-            SelectionKey selectionKey )
+    public SessionImpl( Collider collider, SessionEmitter sessionEmitter, SocketChannel socketChannel )
     {
         Collider.Config colliderConfig = collider.getConfig();
-
-        int inputQueueBlockSize = sessionEmitter.inputQueueBlockSize;
-        if (inputQueueBlockSize == 0)
-            inputQueueBlockSize = colliderConfig.inputQueueBlockSize;
 
         int sendBufSize = sessionEmitter.socketSendBufSize;
         if (sendBufSize == 0)
@@ -143,17 +138,9 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
         m_collider = collider;
         m_socketChannel = socketChannel;
-        m_selectionKey = selectionKey;
-        m_state = new AtomicLong( IQ_STARTING );
-        m_inputQueue = new InputQueue( collider, inputQueueBlockSize, this, socketChannel, selectionKey );
+        m_state = new AtomicLong( ST_STARTING );
         m_outputQueue = new OutputQueue( colliderConfig.useDirectBuffers, outputQueueBlockSize );
         m_iov = new ByteBuffer[sendIovMax];
-
-        if (s_logger.isLoggable(Level.FINE))
-        {
-            s_logger.fine( socketChannel.socket().getRemoteSocketAddress().toString()
-                           + ": session created." );
-        }
     }
 
     public Collider getCollider() { return m_collider; }
@@ -208,8 +195,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             if ((state & CLOSED) != 0)
                 return false;
 
-            long newState = state;
-            newState |= CLOSED;
+            long newState = (state | CLOSED);
 
             if (m_state.compareAndSet(state, newState))
                 break;
@@ -223,27 +209,53 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                            + ": closeConnection: " + stateToString(state) );
         }
 
-        if ((state & IQ_STATE_MASK) == IQ_STARTED)
+        if ((state & STATE_MASK) == ST_RUNNING)
             m_inputQueue.stop();
 
         return true;
     }
 
-    public void setListener( Listener listener )
+    public SocketChannel register( Selector selector )
+    {
+        try
+        {
+            m_selectionKey = m_socketChannel.register( selector, 0, this );
+            return null;
+        }
+        catch (IOException ex)
+        {
+            s_logger.warning( ex.toString() );
+            SocketChannel socketChannel = m_socketChannel;
+            m_socketChannel = null;
+            return socketChannel;
+        }
+    }
+
+    public void initialize( int inputQueueBlockSize, Listener listener )
     {
         if (listener == null)
             listener = new DummyListener();
-        m_inputQueue.setListenerAndStart( listener );
+
+        m_inputQueue = new InputQueue( m_collider,
+                                       inputQueueBlockSize,
+                                       this,
+                                       m_socketChannel,
+                                       m_selectionKey,
+                                       listener );
 
         long state = m_state.get();
         for (;;)
         {
-            if ((state & IQ_STATE_MASK) != IQ_STARTING)
-                break;
+            assert( (state & STATE_MASK) == ST_STARTING );
 
             long newState = state;
-            newState &= ~IQ_STATE_MASK;
-            newState |= IQ_STARTED;
+            if ((state & CLOSED) == 0)
+            {
+                newState &= ~STATE_MASK;
+                newState |= ST_RUNNING;
+            }
+            else
+                break;
 
             if (m_state.compareAndSet(state, newState))
                 break;
@@ -251,12 +263,13 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             state = m_state.get();
         }
 
-        if (((state & CLOSED) != 0) &&
-            ((state & IQ_STATE_MASK) == IQ_STARTING))
-        {
-            /* closeConnection() called */
-            m_inputQueue.stop();
-        }
+        if ((state & CLOSED) == 0)
+            m_collider.executeInSelectorThread( m_inputQueue );
+        else
+            listener.onConnectionClosed();
+
+        if ((state & WAIT_WRITE) != 0)
+            m_collider.executeInSelectorThread( this );
     }
 
     public void handleReadyOps( Executor executor )
@@ -299,15 +312,31 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                 System.out.println( "strange" );
 
             m_outputQueue.removeData( pos0, bytesSent );
+
+            assert( bytesSent <= (state & STATE_MASK) );
             state = m_state.addAndGet( -bytesSent );
 
             if (bytesSent < bytesReady)
-                m_collider.executeInSelectorThread( this );
+            {
+                for (;;)
+                {
+                    if ((state & STATE_MASK) != ST_STARTING)
+                    {
+                        m_collider.executeInSelectorThread( this );
+                        break;
+                    }
+                    /* SelectionKey is not initialized yet. */
+                    long newState = (state | WAIT_WRITE);
+                    if (m_state.compareAndSet(state, newState))
+                        break;
+                    state = m_state.get();
+                }
+            }
             else if ((state & LENGTH_MASK) > 0)
                 m_collider.executeInThreadPool( this );
             else if ((state & CLOSED) != 0)
             {
-                if ((state & IQ_STATE_MASK) == IQ_STOPPED)
+                if ((state & STATE_MASK) == ST_STOPPED)
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );
             }
         }
@@ -329,7 +358,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                         + ": run: exception caught:" + ex.toString() + ", " + stateToString(state) );
             }
 
-            if ((state & IQ_STATE_MASK) == IQ_STOPPED)
+            if ((state & STATE_MASK) == ST_STOPPED)
                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
             /* else { socket channel read listener will be notified soon } */
         }

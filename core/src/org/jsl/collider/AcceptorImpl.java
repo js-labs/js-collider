@@ -20,78 +20,104 @@
 package org.jsl.collider;
 
 import java.io.IOException;
-import java.net.StandardSocketOptions;
 import java.nio.channels.*;
 import java.util.HashSet;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 public class AcceptorImpl extends Collider.SelectorThreadRunnable
         implements Runnable, Collider.ChannelHandler, SessionEmitterImpl
 {
-    private class SessionRegistrator extends Collider.SelectorThreadRunnable implements Runnable
+    private class SessionStarter extends Collider.SelectorThreadRunnable implements Runnable
     {
+        private SessionImpl m_sessionImpl;
         private SocketChannel m_socketChannel;
-        private SelectionKey m_selectionKey;
 
-        public SessionRegistrator( SocketChannel socketChannel )
+        public SessionStarter( SessionImpl sessionImpl )
         {
-            m_socketChannel = socketChannel;
+            m_sessionImpl = sessionImpl;
+            m_socketChannel = null;
         }
 
         public void runInSelectorThread()
         {
-            try
-            {
-                m_selectionKey = m_socketChannel.register( m_selector, 0, null );
-                m_collider.executeInThreadPool( this );
-            }
-            catch (IOException ex)
-            {
-                System.out.println( ex.toString() );
-                m_lock.lock();
-                assert( m_state > 0 );
-                if ((--m_state == 0) && (m_stop > 0))
-                    m_cond.signalAll();
-                m_lock.unlock();
-            }
+            m_socketChannel = m_sessionImpl.register( m_selector );
+            m_collider.executeInThreadPool( this );
         }
 
         public void run()
         {
-            SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, m_socketChannel, m_selectionKey );
-            m_selectionKey.attach( sessionImpl );
-
-            Thread currentThread = Thread.currentThread();
-            m_lock.lock();
-            m_callbackThreads.add( currentThread );
-            m_lock.unlock();
-
-            Session.Listener sessionListener = m_acceptor.createSessionListener( sessionImpl );
-
-            m_lock.lock();
-            if (m_callbackThreads.remove(currentThread))
+            if (m_socketChannel == null)
             {
-                assert( m_state > 0 );
-                if ((--m_state == 0) && (m_stop > 0))
-                    m_cond.signalAll();
-            }
-            /* else stop() called from the listener callback. */
-            m_lock.unlock();
+                Thread currentThread = Thread.currentThread();
 
-            sessionImpl.setListener( sessionListener );
+                m_lock.lock();
+                try
+                {
+                    m_callbackThreads.add(currentThread);
+                }
+                finally
+                {
+                    m_lock.unlock();
+                }
+
+                Session.Listener sessionListener = m_acceptor.createSessionListener( m_sessionImpl );
+
+                m_lock.lock();
+                try
+                {
+                    if (m_callbackThreads.remove(currentThread))
+                    {
+                        int pendingOps = m_pendingOps.decrementAndGet();
+                        assert( pendingOps >= 0 );
+                        if (pendingOps == 0)
+                        {
+                            m_running = false;
+                            m_cond.signalAll();
+                        }
+                    }
+                }
+                finally
+                {
+                    m_lock.unlock();
+                }
+
+                int inputQueueBlockSize = m_acceptor.inputQueueBlockSize;
+                if (inputQueueBlockSize == 0)
+                    inputQueueBlockSize = m_collider.getConfig().inputQueueBlockSize;
+
+                m_sessionImpl.initialize( inputQueueBlockSize, sessionListener );
+                m_sessionImpl = null;
+            }
+            else
+            {
+                pendingOpsDec();
+                try
+                {
+                    m_socketChannel.close();
+                }
+                catch (IOException ex)
+                {
+                    if (s_logger.isLoggable(Level.WARNING))
+                        s_logger.warning( ex.toString() );
+                }
+                m_socketChannel = null;
+            }
         }
     }
 
     private class ErrorNotifier implements Runnable
     {
-        String m_errorText;
+        IOException m_exception;
 
-        public ErrorNotifier( String errorText )
+        public ErrorNotifier( IOException exception )
         {
-            m_errorText = errorText;
+            m_exception = exception;
         }
 
         public void run()
@@ -99,81 +125,109 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             Thread currentThread = Thread.currentThread();
 
             m_lock.lock();
-            assert( m_callbackThreads.contains(currentThread) );
-            m_callbackThreads.add( currentThread );
-            m_lock.unlock();
+            try
+            {
+                m_callbackThreads.add( currentThread );
+            }
+            finally
+            {
+                m_lock.unlock();
+            }
 
-            m_acceptor.onAcceptorStartingFailure( m_errorText );
+            m_acceptor.onAcceptorStartingFailure( m_exception.toString() );
 
             m_lock.lock();
-            if (m_callbackThreads.remove(currentThread))
+            try
             {
-                m_state = 0;
-                if (m_stop > 0)
-                    m_cond.signalAll();
+                if (m_callbackThreads.remove(currentThread))
+                {
+                    m_pendingOps.set( 0 );
+                    m_running = false;
+                    m_cond.signalAll(); /* May be some thread waiting. */
+                }
             }
-            /* else stop() was called from the listener callback. */
-            m_lock.unlock();
+            finally
+            {
+                m_lock.unlock();
+            }
 
-            try { m_channel.close(); }
-            catch (IOException ignored) { }
+            try
+            {
+                m_channel.close();
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
+            }
             m_channel = null;
         }
     }
 
-    private class ListenerNotifier extends Collider.SelectorThreadRunnable implements Runnable
+    private class ChannelCloser extends Collider.SelectorThreadRunnable
     {
-        public void run()
-        {
-            Thread currentThread = Thread.currentThread();
-
-            m_lock.lock();
-            m_callbackThreads.add( currentThread );
-            m_lock.unlock();
-
-            m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
-
-            m_lock.lock();
-            m_callbackThreads.remove( currentThread );
-            if (m_stop > 0)
-            {
-                m_state = 0;
-                m_cond.signalAll();
-                m_lock.unlock();
-                m_collider.executeInSelectorThread( this );
-            }
-            else
-            {
-                m_state = 2;
-                m_lock.unlock();
-                m_collider.executeInSelectorThread( AcceptorImpl.this );
-            }
-        }
-
         public void runInSelectorThread()
         {
-            m_selectionKey.cancel();
-            m_selectionKey = null;
-
-            try { m_channel.close(); }
-            catch (IOException ignored) {}
-            m_channel = null;
+            closeSelectionKeyAndChannel();
         }
     }
 
-    private class Starter extends Collider.SelectorThreadRunnable
+    private class Starter extends Collider.SelectorThreadRunnable implements Runnable
     {
         public void runInSelectorThread()
         {
             try
             {
                 m_selectionKey = m_channel.register( m_selector, 0, AcceptorImpl.this );
-                m_collider.executeInThreadPool( new ListenerNotifier() );
+                m_collider.executeInThreadPool( this );
             }
-            catch ( IOException ex )
+            catch (IOException ex)
             {
-                m_collider.executeInThreadPool( new ErrorNotifier(ex.getMessage()) );
+                m_collider.executeInThreadPool( new ErrorNotifier(ex) );
             }
+        }
+
+        public void run()
+        {
+            Thread currentThread = Thread.currentThread();
+
+            m_lock.lock();
+            try
+            {
+                m_callbackThreads.add( currentThread );
+            }
+            finally
+            {
+                m_lock.unlock();
+            }
+
+            m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
+
+            boolean startIt = false;
+            m_lock.lock();
+            try
+            {
+                if (m_callbackThreads.remove(currentThread))
+                {
+                    if (m_run)
+                        startIt = true;
+                    else
+                    {
+                        m_pendingOps.set(0);
+                        m_running = false;
+                        m_cond.signalAll();
+                    }
+                }
+            }
+            finally
+            {
+                m_lock.unlock();
+            }
+
+            if (startIt)
+                m_collider.executeInSelectorThread( AcceptorImpl.this );
+            else
+                m_collider.executeInSelectorThread( new ChannelCloser() );
         }
     }
 
@@ -181,24 +235,55 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
-            int interestOps = m_selectionKey.interestOps();
-            if ((interestOps & SelectionKey.OP_ACCEPT) != 0)
+            SelectionKey selectionKey = m_selectionKey;
+            if (selectionKey != null)
             {
-                m_lock.lock();
-                m_state -= 2;
-                if (m_state == 0)
-                    m_cond.signalAll();
-                m_lock.unlock();
+                int interestOps = m_selectionKey.interestOps();
+                if ((interestOps & SelectionKey.OP_ACCEPT) != 0)
+                {
+                    pendingOpsDec();
+                    closeSelectionKeyAndChannel();
+                }
             }
-
-            m_selectionKey.cancel();
-            m_selectionKey = null;
-
-            try { m_channel.close(); }
-            catch (IOException ignored) {}
-            m_channel = null;
         }
     }
+
+    void closeSelectionKeyAndChannel()
+    {
+        m_selectionKey.cancel();
+        m_selectionKey = null;
+        try
+        {
+            m_channel.close();
+        }
+        catch (IOException ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( ex.toString() );
+        }
+        m_channel = null;
+    }
+
+    void pendingOpsDec()
+    {
+        int pendingOps = m_pendingOps.decrementAndGet();
+        if (pendingOps == 0)
+        {
+            m_lock.lock();
+            try
+            {
+                assert( m_running );
+                m_running = false;
+                m_cond.signalAll();
+            }
+            finally
+            {
+                m_lock.unlock();
+            }
+        }
+    }
+
+    private static final Logger s_logger = Logger.getLogger( AcceptorImpl.class.getName() );
 
     private Collider m_collider;
     private Selector m_selector;
@@ -206,11 +291,21 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
     private SelectionKey m_selectionKey;
     private Acceptor m_acceptor;
 
+    private AtomicInteger m_pendingOps;
     private ReentrantLock m_lock;
     private Condition m_cond;
-    private int m_stop;
-    private int m_state;
+    private volatile boolean m_run;
+    private boolean m_running;
     private HashSet<Thread> m_callbackThreads;
+
+    /*
+    protected void finalize() throws Throwable
+    {
+        if (m_channel != null)
+            s_logger.warning( "ACCEPTOR " + m_acceptor.getAddr() + ": not stopped properly." );
+        super.finalize();
+    }
+    */
 
     public AcceptorImpl(
             Collider collider,
@@ -223,36 +318,47 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
         m_channel = channel;
         m_acceptor = acceptor;
 
+        m_pendingOps = new AtomicInteger();
         m_lock = new ReentrantLock();
         m_cond = m_lock.newCondition();
-        m_stop = 0;
-        m_state = 1;
+        m_run = true;
+        m_running = true;
         m_callbackThreads = new HashSet<Thread>();
     }
 
     public void start()
     {
+        m_pendingOps.set(1);
         m_collider.executeInSelectorThread( new Starter() );
     }
 
-    public void stop()
+    public void stop() throws InterruptedException
     {
         Thread currentThread = Thread.currentThread();
-
         m_lock.lock();
-        int stop = ++m_stop;
-        if ((stop == 1) && (m_state > 1))
-            m_collider.executeInSelectorThread( new Stopper() );
-
-        if (m_callbackThreads.remove(currentThread))
-            m_state--;
-
-        while (m_state > 0)
+        try
         {
-            try { m_cond.await(); }
-            catch (InterruptedException ignored) {}
+            if (m_run)
+            {
+                m_run = false;
+                m_collider.executeInSelectorThread( new Stopper() );
+            }
+
+            if (m_callbackThreads.remove(currentThread))
+            {
+                /* Called from the listener callback. */
+                int pendingOps = m_pendingOps.decrementAndGet();
+                if (pendingOps == 0)
+                    m_running = false;
+            }
+
+            while (m_running)
+                m_cond.await();
         }
-        m_lock.unlock();
+        finally
+        {
+            m_lock.unlock();
+        }
     }
 
     public void handleReadyOps( Executor executor )
@@ -263,62 +369,59 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
     public void runInSelectorThread()
     {
-        assert( (m_selectionKey.interestOps() & SelectionKey.OP_ACCEPT) == 0 );
-        m_selectionKey.interestOps( SelectionKey.OP_ACCEPT );
+        SelectionKey selectionKey = m_selectionKey;
+        if (selectionKey != null)
+        {
+            assert( (selectionKey.interestOps() & SelectionKey.OP_ACCEPT) == 0 );
+            if (m_run)
+            {
+                m_selectionKey.interestOps( SelectionKey.OP_ACCEPT );
+            }
+            else
+            {
+                pendingOpsDec();
+                closeSelectionKeyAndChannel();
+            }
+        }
     }
 
     public void run()
     {
-        boolean run = true;
-        while (run)
+        while (m_run)
         {
-            SocketChannel socketChannel = null;
+            SocketChannel socketChannel;
 
-            try { socketChannel = m_channel.accept(); }
-            catch (IOException ignored) {}
-
-            m_lock.lock();
-            if (socketChannel == null)
+            try
             {
-                if (m_stop > 0)
-                {
-                    m_state -= 2;
-                    if (m_state == 0)
-                        m_cond.signalAll();
-                    m_lock.unlock();
-                }
-                else
-                {
-                    m_lock.unlock();
-                    m_collider.executeInSelectorThread( this );
-                }
+                socketChannel = m_channel.accept();
+                if (socketChannel == null)
+                    break;
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
                 break;
             }
-            m_state++;
-            if (m_stop > 0)
-            {
-                m_state -= 2;
-                run = false;
-            }
-            m_lock.unlock();
 
             try { socketChannel.configureBlocking( false ); }
             catch (IOException ex)
             {
-                /* Having unblocking mode is critical */
+                /* Having unblocking mode is critical, can't work with this socket. */
                 try { socketChannel.close(); }
                 catch (IOException ignored) {}
-                System.out.println( ex.toString() );
-
-                m_lock.lock();
-                if (--m_state == 0)
-                    m_cond.signalAll();
-                m_lock.unlock();
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
                 continue;
             }
 
+            m_pendingOps.incrementAndGet();
             m_acceptor.configureSocketChannel( m_collider, socketChannel );
-            m_collider.executeInSelectorThread( new SessionRegistrator(socketChannel) );
+
+            SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, socketChannel );
+            m_collider.executeInSelectorThread( new SessionStarter(sessionImpl) );
         }
+
+        m_collider.executeInSelectorThread( this );
     }
 }
