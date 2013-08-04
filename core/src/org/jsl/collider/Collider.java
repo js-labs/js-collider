@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -84,10 +85,10 @@ public class Collider
                 if (attachment instanceof SessionImpl)
                     ((SessionImpl)attachment).closeConnection();
                 /*
-                 * else if (attachement instanceof AcceptorImpl)
+                 * else if (attachment instanceof AcceptorImpl)
                  * {
                  *     Can happen, canceled SelectionKey is not removed from the
-                 *     Selector ritgh at the SelectionKey.cancel() call,
+                 *     Selector right at the SelectionKey.cancel() call,
                  *     but will present in the keys set till the next
                  *     Selector.select() call.
                  * }
@@ -99,7 +100,8 @@ public class Collider
         public void run()
         {
             SessionEmitter [] emitters = null;
-            synchronized (m_emitters)
+            m_lock.lock();
+            try
             {
                 int size = m_emitters.size();
                 if (size > 0)
@@ -109,6 +111,10 @@ public class Collider
                     for (int idx=0; idx<size; idx++)
                         emitters[idx] = it.next();
                 }
+            }
+            finally
+            {
+                m_lock.unlock();
             }
 
             if (emitters != null)
@@ -144,14 +150,18 @@ public class Collider
     private void removeEmitter( SessionEmitter emitter ) throws InterruptedException
     {
         SessionEmitterImpl emitterImpl;
-        synchronized (m_emitters)
+        m_lock.lock();
+        try
         {
-            if (!m_emitters.containsKey(emitter))
-                return;
             emitterImpl = m_emitters.get( emitter );
+            if (emitterImpl == null)
+                return;
             m_emitters.remove( emitter );
         }
-        assert( emitterImpl != null );
+        finally
+        {
+            m_lock.unlock();
+        }
         emitterImpl.stop();
     }
 
@@ -164,8 +174,11 @@ public class Collider
     private Selector m_selector;
     private ExecutorService m_executor;
     private int m_state;
+
+    private ReentrantLock m_lock;
     private boolean m_stop;
-    private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
+    private Map<SessionEmitter, SessionEmitterImpl> m_emitters;
+
     private volatile SelectorThreadRunnable m_strHead;
     private AtomicReference<SelectorThreadRunnable> m_strTail;
 
@@ -187,8 +200,11 @@ public class Collider
         m_executor = Executors.newFixedThreadPool( threadPoolThreads );
 
         m_state = ST_RUNNING;
+
+        m_lock = new ReentrantLock();
         m_stop = false;
-        m_emitters = Collections.synchronizedMap( new HashMap<SessionEmitter, SessionEmitterImpl>() );
+        m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
+
         m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
     }
@@ -259,12 +275,18 @@ public class Collider
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "Collider.stop() called." );
 
-        synchronized (m_emitters)
+        m_lock.lock();
+        try
         {
             if (m_stop)
                 return;
             m_stop = true;
         }
+        finally
+        {
+            m_lock.unlock();
+        }
+
         executeInThreadPool( new Stopper() );
     }
 
@@ -291,47 +313,53 @@ public class Collider
 
     public void addAcceptor( Acceptor acceptor )
     {
-        boolean stop;
-        boolean alreadyRegistered = false;
-
-        synchronized (m_emitters)
-        {
-            stop = m_stop;
-            if (!stop)
-            {
-                if (m_emitters.containsKey(acceptor))
-                    alreadyRegistered = true;
-                else
-                    m_emitters.put( acceptor, null );
-            }
-        }
-
-        if (stop)
-        {
-            acceptor.onAcceptorStartingFailure( "Collider is not running." );
-            return;
-        }
-        else if (alreadyRegistered)
-        {
-            acceptor.onAcceptorStartingFailure( "Acceptor already registered" );
-            return;
-        }
+        ServerSocketChannel channel;
 
         try
         {
-            ServerSocketChannel channel = ServerSocketChannel.open();
+            channel = ServerSocketChannel.open();
             channel.configureBlocking( false );
             channel.setOption( StandardSocketOptions.SO_REUSEADDR, acceptor.reuseAddr );
             channel.socket().bind( acceptor.getAddr() );
-
-            AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );
-            synchronized (m_emitters) { m_emitters.put( acceptor, acceptorImpl ); }
-            acceptorImpl.start();
         }
-        catch (IOException e)
+        catch (IOException ex)
         {
-            synchronized (m_emitters) { m_emitters.remove( acceptor ); }
-            acceptor.onAcceptorStartingFailure( e.getMessage() );
+            acceptor.onAcceptorStartingFailure( ex.toString() );
+            return;
+        }
+
+        AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );
+        String errorMessage = null;
+
+        m_lock.lock();
+        try
+        {
+            if (m_stop)
+                errorMessage = "Collider stopped.";
+            else if (m_emitters.containsKey(acceptor))
+                errorMessage = "Acceptor already registered.";
+            else
+                m_emitters.put( acceptor, acceptorImpl );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        if (errorMessage == null)
+            acceptorImpl.start();
+        else
+        {
+            acceptor.onAcceptorStartingFailure( errorMessage );
+            try
+            {
+                channel.close();
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
+            }
         }
     }
 
