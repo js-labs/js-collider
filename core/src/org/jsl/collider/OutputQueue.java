@@ -69,6 +69,69 @@ public class OutputQueue
         return 0;
     }
 
+    private long addDataLocked( long state, ByteBuffer data, int dataSize, int bytesRest )
+    {
+        DataBlock head = null;
+        DataBlock tail = null;
+        ByteBuffer ww = null;
+        try
+        {
+            head = new DataBlock( m_useDirectBuffers, m_blockSize );
+            tail = head;
+            for (;;)
+            {
+                ww = tail.buf.duplicate();
+                if (bytesRest <= m_blockSize)
+                {
+                    data.limit( data.position() + bytesRest );
+                    ww.put( data );
+                    bytesRest = 0;
+                    break;
+                }
+
+                data.limit( data.position() + m_blockSize );
+                ww.put( data );
+                bytesRest -= m_blockSize;
+
+                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
+                tail.next = dataBlock;
+                tail = dataBlock;
+            }
+        }
+        finally
+        {
+            if (bytesRest == 0)
+            {
+                for (int idx=0; idx<WRITERS_WIDTH; idx++)
+                    m_ww[idx] = null;
+
+                m_tail.next = head;
+                m_tail = tail;
+                m_ww[0] = ww;
+
+                long newState = (state & OFFS_MASK);
+                newState += dataSize;
+                if (newState > OFFS_MASK)
+                {
+                    newState %= m_blockSize;
+                    if (newState == 0)
+                        newState = m_blockSize;
+                }
+
+                m_state.set( newState );
+            }
+            else
+            {
+                /* Looks like something went wrong, most probably out of memory.
+                 * The best solution is to unlock the queue.
+                 * May be we will lucky and application will survive.
+                 */
+                m_state.set( state );
+            }
+        }
+        return dataSize;
+    }
+
     public OutputQueue( boolean useDirectBuffers, int blockSize )
     {
         m_useDirectBuffers = useDirectBuffers;
@@ -114,52 +177,18 @@ public class OutputQueue
                     continue;
                 }
 
+                int bytesRest = dataSize;
+
                 if (space > 0)
                 {
                     ByteBuffer ww = m_ww[0];
                     ww.position( (int) offs );
-                    ww.limit( m_blockSize );
                     data.limit( data.position() + (int)space );
                     ww.put( data );
+                    bytesRest -= space;
                 }
 
-                for (int idx=0; idx<WRITERS_WIDTH; idx++)
-                    m_ww[idx] = null;
-
-                int bytesRest = (dataSize - (int)space);
-                for (;;)
-                {
-                    DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                    ByteBuffer ww = dataBlock.buf.duplicate();
-                    m_tail.next = dataBlock;
-                    m_tail = dataBlock;
-
-                    if (bytesRest <= m_blockSize)
-                    {
-                        data.limit( data.position() + bytesRest );
-                        ww.put( data );
-                        m_ww[0] = ww;
-                        break;
-                    }
-
-                    data.limit( data.position() + m_blockSize );
-                    ww.put( data );
-                    bytesRest -= m_blockSize;
-                }
-
-                long newState = (state & OFFS_MASK);
-                newState += dataSize;
-                if (newState > OFFS_MASK)
-                {
-                    newState %= m_blockSize;
-                    if (newState == 0)
-                        newState = m_blockSize;
-                }
-
-                boolean res = m_state.compareAndSet( -1, newState );
-                assert( res );
-
-                return dataSize;
+                return addDataLocked( state, data, dataSize, bytesRest );
             }
 
             final long writers = (state & WRITERS_MASK);
