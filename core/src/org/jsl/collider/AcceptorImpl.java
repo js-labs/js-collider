@@ -54,6 +54,9 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
         {
             if (m_socketChannel == null)
             {
+                if (s_logger.isLoggable(Level.FINE))
+                    s_logger.fine( m_sessionImpl.getRemoteAddress().toString() );
+
                 Thread currentThread = Thread.currentThread();
 
                 m_lock.lock();
@@ -325,6 +328,9 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
     public void start()
     {
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( m_channel.socket().getLocalSocketAddress().toString() );
+
         m_collider.executeInSelectorThread( new Starter() );
     }
 

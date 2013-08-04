@@ -40,6 +40,7 @@ public class LogFormatter extends Formatter
         sb.append( logRecord.getSourceClassName() );
         sb.append( "." );
         sb.append( logRecord.getSourceMethodName() );
+        sb.append( " " );
 
         sb.append( logRecord.getMessage() );
         sb.append( "\n" );
