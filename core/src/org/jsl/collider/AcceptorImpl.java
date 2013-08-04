@@ -203,19 +203,19 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
             m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
 
-            boolean startIt = false;
+            Collider.SelectorThreadRunnable nextRunnable = AcceptorImpl.this;
+
             m_lock.lock();
             try
             {
                 if (m_callbackThreads.remove(currentThread))
                 {
-                    if (m_run)
-                        startIt = true;
-                    else
+                    if (!m_run)
                     {
                         m_pendingOps.set(0);
                         m_running = false;
                         m_cond.signalAll();
+                        nextRunnable = new ChannelCloser();
                     }
                 }
             }
@@ -224,10 +224,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
                 m_lock.unlock();
             }
 
-            if (startIt)
-                m_collider.executeInSelectorThread( AcceptorImpl.this );
-            else
-                m_collider.executeInSelectorThread( new ChannelCloser() );
+            m_collider.executeInSelectorThread( nextRunnable );
         }
     }
 
@@ -318,7 +315,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
         m_channel = channel;
         m_acceptor = acceptor;
 
-        m_pendingOps = new AtomicInteger();
+        m_pendingOps = new AtomicInteger(1);
         m_lock = new ReentrantLock();
         m_cond = m_lock.newCondition();
         m_run = true;
@@ -328,12 +325,14 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
     public void start()
     {
-        m_pendingOps.set(1);
         m_collider.executeInSelectorThread( new Starter() );
     }
 
     public void stop() throws InterruptedException
     {
+        /* Stop can actually be called even before start(),
+         * but it is not a problem, should work properly.
+         */
         Thread currentThread = Thread.currentThread();
         m_lock.lock();
         try
