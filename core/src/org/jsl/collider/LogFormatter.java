@@ -19,23 +19,31 @@
 
 package org.jsl.collider;
 
+import java.util.Calendar;
 import java.util.Date;
 import java.util.logging.Formatter;
 import java.util.logging.LogRecord;
 
 public class LogFormatter extends Formatter
 {
+    private static final Calendar s_calendar = Calendar.getInstance();
+
     public String format( LogRecord logRecord )
     {
         StringBuilder sb = new StringBuilder();
 
-        Date date = new Date( logRecord.getMillis() );
-        sb.append( date.toString() );
-        sb.append( " " );
+        s_calendar.setTime(new Date(logRecord.getMillis()));
 
-        sb.append( "t@" );
-        sb.append( logRecord.getThreadID() );
-        sb.append( " " );
+        String str = String.format( "%04d-%02d-%02d %02d:%02d:%02d.%03d t@%02d ",
+                s_calendar.get(Calendar.YEAR),
+                s_calendar.get(Calendar.MONTH),
+                s_calendar.get(Calendar.DAY_OF_MONTH),
+                s_calendar.get(Calendar.HOUR_OF_DAY),
+                s_calendar.get(Calendar.MINUTE),
+                s_calendar.get(Calendar.SECOND),
+                s_calendar.get(Calendar.MILLISECOND),
+                logRecord.getThreadID() );
+        sb.append( str );
 
         sb.append( logRecord.getSourceClassName() );
         sb.append( "." );

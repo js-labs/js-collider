@@ -207,7 +207,6 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
 
             Collider.SelectorThreadRunnable nextRunnable = AcceptorImpl.this;
-
             m_lock.lock();
             try
             {
@@ -226,7 +225,6 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             {
                 m_lock.unlock();
             }
-
             m_collider.executeInSelectorThread( nextRunnable );
         }
     }

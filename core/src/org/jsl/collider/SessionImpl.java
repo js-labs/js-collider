@@ -78,6 +78,9 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         if ((state & CLOSED) != 0)
             ret += "CLOSED ";
 
+        if ((state & WAIT_WRITE) != 0)
+            ret += "WAIT_WRITE ";
+
         long length = (state & LENGTH_MASK);
 
         state &= STATE_MASK;
@@ -88,6 +91,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         else if (state == ST_STOPPED)
             ret += "STOPPED ";
         else
+            ret += "???";
 
         ret += length;
         ret += ")";
@@ -97,10 +101,11 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     public void onReaderStopped()
     {
         long state = m_state.get();
+        long newState;
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_RUNNING );
-            long newState = state;
+            newState = state;
 
             newState |= CLOSED;
             newState &= ~STATE_MASK;
@@ -115,7 +120,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         if (s_logger.isLoggable(Level.FINE))
         {
             s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                    + ": onReaderStopped: " + stateToString(state) );
+                    + ": " + stateToString(state) + " -> " + stateToString(newState) );
         }
 
         if ((state & LENGTH_MASK) == 0)
@@ -206,7 +211,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         if (s_logger.isLoggable(Level.FINE))
         {
             s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                           + ": closeConnection: " + stateToString(state) );
+                           + ": " + stateToString(state) );
         }
 
         if ((state & STATE_MASK) == ST_RUNNING)
@@ -248,25 +253,24 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         {
             assert( (state & STATE_MASK) == ST_STARTING );
 
-            long newState = state;
-            if ((state & CLOSED) == 0)
+            if ((state & CLOSED) != 0)
             {
-                newState &= ~STATE_MASK;
-                newState |= ST_RUNNING;
-            }
-            else
+                listener.onConnectionClosed();
                 break;
+            }
+
+            long newState = state;
+            newState &= ~STATE_MASK;
+            newState |= ST_RUNNING;
 
             if (m_state.compareAndSet(state, newState))
+            {
+                m_collider.executeInSelectorThread( m_inputQueue );
                 break;
+            }
 
             state = m_state.get();
         }
-
-        if ((state & CLOSED) == 0)
-            m_collider.executeInSelectorThread( m_inputQueue );
-        else
-            listener.onConnectionClosed();
 
         if ((state & WAIT_WRITE) != 0)
             m_collider.executeInSelectorThread( this );
@@ -320,15 +324,18 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             {
                 for (;;)
                 {
-                    if ((state & STATE_MASK) != ST_STARTING)
+                    if ((state & STATE_MASK) == ST_STARTING)
+                    {
+                        /* SelectionKey is not initialized yet. */
+                        long newState = (state | WAIT_WRITE);
+                        if (m_state.compareAndSet(state, newState))
+                            break;
+                    }
+                    else
                     {
                         m_collider.executeInSelectorThread( this );
                         break;
                     }
-                    /* SelectionKey is not initialized yet. */
-                    long newState = (state | WAIT_WRITE);
-                    if (m_state.compareAndSet(state, newState))
-                        break;
                     state = m_state.get();
                 }
             }
@@ -338,6 +345,12 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             {
                 if ((state & STATE_MASK) == ST_STOPPED)
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+            }
+
+            if (s_logger.isLoggable(Level.FINE))
+            {
+                s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
+                        + ": sent " + bytesSent + " bytes, " + stateToString(state) + "." );
             }
         }
         catch (IOException ex)
@@ -355,7 +368,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             if (s_logger.isLoggable(Level.FINE))
             {
                 s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                        + ": run: exception caught:" + ex.toString() + ", " + stateToString(state) );
+                        + ": " + ex.toString() + ", " + stateToString(state) + "." );
             }
 
             if ((state & STATE_MASK) == ST_STOPPED)
