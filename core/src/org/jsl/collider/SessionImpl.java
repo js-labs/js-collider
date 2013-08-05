@@ -63,11 +63,21 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
+            if (s_logger.isLoggable(Level.FINE))
+                s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString() );
+
             m_selectionKey.cancel();
             m_selectionKey = null;
 
-            try { m_socketChannel.close(); }
-            catch (IOException e) { e.printStackTrace(); }
+            try
+            {
+                m_socketChannel.close();
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
+            }
             m_socketChannel = null;
         }
     }
@@ -229,7 +239,9 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         }
         catch (IOException ex)
         {
-            s_logger.warning( ex.toString() );
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( ex.toString() );
+
             SocketChannel socketChannel = m_socketChannel;
             m_socketChannel = null;
             return socketChannel;
