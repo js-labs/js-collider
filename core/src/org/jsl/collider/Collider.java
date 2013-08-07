@@ -46,11 +46,12 @@ public class Collider
         public int socketSendBufSize;
         public int socketRecvBufSize;
         public int inputQueueBlockSize;
+        public int inputQueueCacheMaxSize;
         public int outputQueueBlockSize;
 
         public Config()
         {
-            threadPoolThreads = 4; //0;
+            threadPoolThreads = 0; /* by default = number of cores */
             useDirectBuffers  = true;
             shutdownTimeout   = 60;
 
@@ -58,8 +59,9 @@ public class Collider
             socketSendBufSize = 0;
             socketRecvBufSize = 0;
 
-            inputQueueBlockSize   = (32 * 1024);
-            outputQueueBlockSize  = (16 * 1024);
+            inputQueueBlockSize    = (32 * 1024);
+            inputQueueCacheMaxSize = 0; /* by default = (threadPoolThreads*3) */
+            outputQueueBlockSize   = (16 * 1024);
         }
     }
 
@@ -175,9 +177,10 @@ public class Collider
     private ExecutorService m_executor;
     private int m_state;
 
-    private ReentrantLock m_lock;
+    private final ReentrantLock m_lock;
+    private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
+    private final Map<Integer, InputQueue.DataBlockCache> m_inputQueueDataBlockCache;
     private boolean m_stop;
-    private Map<SessionEmitter, SessionEmitterImpl> m_emitters;
 
     private volatile SelectorThreadRunnable m_strHead;
     private AtomicReference<SelectorThreadRunnable> m_strTail;
@@ -199,11 +202,15 @@ public class Collider
             threadPoolThreads = 4;
         m_executor = Executors.newFixedThreadPool( threadPoolThreads );
 
+        if (config.inputQueueCacheMaxSize == 0)
+            config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
+
         m_state = ST_RUNNING;
 
         m_lock = new ReentrantLock();
-        m_stop = false;
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
+        m_inputQueueDataBlockCache = new HashMap<Integer, InputQueue.DataBlockCache>();
+        m_stop = false;
 
         m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
@@ -317,8 +324,31 @@ public class Collider
 
     public void addAcceptor( Acceptor acceptor )
     {
-        ServerSocketChannel channel;
+        int inputQueueBlockSize = acceptor.inputQueueBlockSize;
+        if (inputQueueBlockSize == 0)
+        {
+            inputQueueBlockSize = m_config.inputQueueBlockSize;
+            assert( inputQueueBlockSize > 0 );
+        }
 
+        InputQueue.DataBlockCache inputQueueDataBlockCache;
+        m_lock.lock();
+        try
+        {
+            inputQueueDataBlockCache = m_inputQueueDataBlockCache.get( inputQueueBlockSize );
+            if (inputQueueDataBlockCache == null)
+            {
+                inputQueueDataBlockCache = new InputQueue.DataBlockCache(
+                        m_config.useDirectBuffers, inputQueueBlockSize, m_config.inputQueueCacheMaxSize );
+                m_inputQueueDataBlockCache.put( inputQueueBlockSize, inputQueueDataBlockCache );
+            }
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        ServerSocketChannel channel;
         try
         {
             channel = ServerSocketChannel.open();
@@ -332,7 +362,7 @@ public class Collider
             return;
         }
 
-        AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, channel, acceptor );
+        AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, inputQueueDataBlockCache, acceptor, channel );
         String errorMessage = null;
 
         m_lock.lock();

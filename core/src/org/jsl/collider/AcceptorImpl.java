@@ -90,11 +90,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
                     m_lock.unlock();
                 }
 
-                int inputQueueBlockSize = m_acceptor.inputQueueBlockSize;
-                if (inputQueueBlockSize == 0)
-                    inputQueueBlockSize = m_collider.getConfig().inputQueueBlockSize;
-
-                m_sessionImpl.initialize( inputQueueBlockSize, sessionListener );
+                m_sessionImpl.initialize( m_inputQueueDataBlockCache, sessionListener );
                 m_sessionImpl = null;
             }
             else
@@ -283,18 +279,20 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
 
     private static final Logger s_logger = Logger.getLogger( AcceptorImpl.class.getName() );
 
-    private Collider m_collider;
-    private Selector m_selector;
+    private final Collider m_collider;
+    private final Selector m_selector;
+    private final InputQueue.DataBlockCache m_inputQueueDataBlockCache;
+    private final Acceptor m_acceptor;
+
     private ServerSocketChannel m_channel;
     private SelectionKey m_selectionKey;
-    private Acceptor m_acceptor;
 
-    private AtomicInteger m_pendingOps;
-    private ReentrantLock m_lock;
-    private Condition m_cond;
+    private final AtomicInteger m_pendingOps;
+    private final ReentrantLock m_lock;
+    private final Condition m_cond;
+    private final HashSet<Thread> m_callbackThreads;
     private volatile boolean m_run;
     private boolean m_running;
-    private HashSet<Thread> m_callbackThreads;
 
     /*
     protected void finalize() throws Throwable
@@ -308,20 +306,23 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
     public AcceptorImpl(
             Collider collider,
             Selector selector,
-            ServerSocketChannel channel,
-            Acceptor acceptor )
+            InputQueue.DataBlockCache inputQueueDataBlockCache,
+            Acceptor acceptor,
+            ServerSocketChannel channel )
     {
         m_collider = collider;
         m_selector = selector;
-        m_channel = channel;
+        m_inputQueueDataBlockCache = inputQueueDataBlockCache;
         m_acceptor = acceptor;
+
+        m_channel = channel;
 
         m_pendingOps = new AtomicInteger(1);
         m_lock = new ReentrantLock();
         m_cond = m_lock.newCondition();
+        m_callbackThreads = new HashSet<Thread>();
         m_run = true;
         m_running = true;
-        m_callbackThreads = new HashSet<Thread>();
     }
 
     public void start()

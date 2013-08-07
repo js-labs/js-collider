@@ -22,7 +22,9 @@ package org.jsl.collider;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 public class InputQueue extends Collider.SelectorThreadRunnable implements Runnable
@@ -54,6 +56,96 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             rw.limit(0);
             ww.clear();
             return dataBlock;
+        }
+    }
+
+    public static class DataBlockCache
+    {
+        private final boolean m_useDirectBuffers;
+        private final int m_blockSize;
+        private final int m_maxSize;
+        private final AtomicInteger m_size;
+        private final AtomicReference<DataBlock> m_top;
+        private final ThreadLocal<DataBlock> m_tls;
+
+        public DataBlockCache( boolean useDirectBuffers, int blockSize, int maxSize )
+        {
+            m_useDirectBuffers = useDirectBuffers;
+            m_blockSize = blockSize;
+            m_maxSize = maxSize;
+            m_size = new AtomicInteger();
+            m_top = new AtomicReference<DataBlock>();
+            m_tls = new ThreadLocal<DataBlock>();
+        }
+
+        public final int getBlockSize()
+        {
+            return m_blockSize;
+        }
+
+        public final void put( DataBlock dataBlock )
+        {
+            assert( dataBlock.next == null );
+
+            if (m_tls.get() == null)
+                m_tls.set( dataBlock );
+            else
+            {
+                int size = m_size.get();
+                for (;;)
+                {
+                    if (size >= m_maxSize)
+                        return;
+
+                    int newSize = (size + 1);
+                    if (m_size.compareAndSet(size, newSize))
+                        break;
+                    size = m_size.get();
+                }
+
+                DataBlock top = m_top.get();
+                for (;;)
+                {
+                    dataBlock.next = top;
+                    if (m_top.compareAndSet(top, dataBlock))
+                        break;
+                    top = m_top.get();
+                }
+            }
+        }
+
+        public final DataBlock get()
+        {
+            DataBlock dataBlock = m_tls.get();
+            if (dataBlock != null)
+            {
+                m_tls.set( null );
+                return dataBlock;
+            }
+
+            DataBlock top = m_top.get();
+            for (;;)
+            {
+                if (top == null)
+                    return new DataBlock( m_useDirectBuffers, m_blockSize );
+
+                DataBlock next = top.next;
+                if (m_top.compareAndSet(top, next))
+                    break;
+                top = m_top.get();
+            }
+            top.next = null;
+
+            int size = m_size.get();
+            for (;;)
+            {
+                int newSize = (size - 1);
+                if (m_size.compareAndSet(size, newSize))
+                    break;
+                size = m_size.get();
+            }
+
+            return top;
         }
     }
 
@@ -105,8 +197,6 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
     }
 
-    private static final ThreadLocal<DataBlock> s_tlsDataBlock = new ThreadLocal<DataBlock>();
-
     private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
     {
         protected ByteBuffer [] initialValue() { return new ByteBuffer[2]; }
@@ -116,27 +206,17 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     private static final long TAIL_LOCK   = 0x0000000100000000L;
     private static final long CLOSED      = 0x0000000200000000L;
 
-    private Collider m_collider;
-    private final boolean m_useDirectBuffers;
+    private final Collider m_collider;
+    private final DataBlockCache m_dataBlockCache;
     private final int m_blockSize;
-    private SessionImpl m_session;
-    private SocketChannel m_socketChannel;
-    private SelectionKey m_selectionKey;
-    private Session.Listener m_listener;
+    private final SessionImpl m_session;
+    private final SocketChannel m_socketChannel;
+    private final SelectionKey m_selectionKey;
+    private final Session.Listener m_listener;
 
     private AtomicLong m_state;
     private DataBlock m_tail;
     private DeferredHandler m_deferredHandler;
-
-    private DataBlock createDataBlock()
-    {
-        DataBlock dataBlock = s_tlsDataBlock.get();
-        if (dataBlock == null)
-            dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-        else
-            s_tlsDataBlock.set( null );
-        return dataBlock;
-    }
 
     private void handleData( DataBlock dataBlock, long state )
     {
@@ -164,7 +244,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             m_listener.onDataReceived( rw );
 
             DataBlock next = dataBlock.reset();
-            s_tlsDataBlock.set( dataBlock );
+            m_dataBlockCache.put( dataBlock );
             dataBlock = next;
             rw = dataBlock.rw;
             pos = 0;
@@ -210,7 +290,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
                 DataBlock next = tail.reset();
                 assert( next == null );
-                s_tlsDataBlock.set( tail );
+                m_dataBlockCache.put( tail );
             }
 
             if ((state & CLOSED) != 0)
@@ -220,15 +300,15 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
     public InputQueue(
             Collider collider,
-            int blockSize,
+            DataBlockCache dataBlockCache,
             SessionImpl session,
             SocketChannel socketChannel,
             SelectionKey selectionKey,
             Session.Listener listener )
     {
         m_collider = collider;
-        m_useDirectBuffers = collider.getConfig().useDirectBuffers;
-        m_blockSize = blockSize;
+        m_dataBlockCache = dataBlockCache;
+        m_blockSize = dataBlockCache.getBlockSize();
         m_session = session;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
@@ -296,7 +376,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             else if (space > 0)
             {
                 prev = null;
-                dataBlock1 = createDataBlock();
+                dataBlock1 = m_dataBlockCache.get();
                 iov[0] = dataBlock0.ww;
                 iov[1] = dataBlock1.ww;
                 iovCnt = 2;
@@ -304,7 +384,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             else
             {
                 prev = dataBlock0;
-                dataBlock0 = createDataBlock();
+                dataBlock0 = m_dataBlockCache.get();
                 dataBlock1 = null;
                 pos0 = 0;
                 iov[0] = dataBlock0.ww;
@@ -314,7 +394,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         else
         {
             prev = null;
-            dataBlock0 = createDataBlock();
+            dataBlock0 = m_dataBlockCache.get();
             dataBlock1 = null;
             pos0 = 0;
             iov[0] = dataBlock0.ww;
@@ -396,7 +476,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             if (dataBlock1 != null)
             {
                 assert( dataBlock1.ww.position() == 0 );
-                s_tlsDataBlock.set( dataBlock1 );
+                m_dataBlockCache.put( dataBlock1 );
             }
         }
         else

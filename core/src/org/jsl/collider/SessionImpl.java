@@ -44,14 +44,14 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
-    private Collider m_collider;
+    private final Collider m_collider;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
 
-    private AtomicLong m_state;
+    private final AtomicLong m_state;
+    private final OutputQueue m_outputQueue;
+    private final ByteBuffer [] m_iov;
     private InputQueue m_inputQueue;
-    private OutputQueue m_outputQueue;
-    private ByteBuffer [] m_iov;
 
     private static class DummyListener implements Listener
     {
@@ -248,13 +248,13 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         }
     }
 
-    public void initialize( int inputQueueBlockSize, Listener listener )
+    public void initialize( InputQueue.DataBlockCache inputQueueDataBlockCache, Listener listener )
     {
         if (listener == null)
             listener = new DummyListener();
 
         m_inputQueue = new InputQueue( m_collider,
-                                       inputQueueBlockSize,
+                                       inputQueueDataBlockCache,
                                        this,
                                        m_socketChannel,
                                        m_selectionKey,
@@ -321,6 +321,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         try
         {
             long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+
             for (int idx=0; idx<iovc; idx++)
                 m_iov[idx] = null;
 
@@ -359,11 +360,13 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );
             }
 
+            /*
             if (s_logger.isLoggable(Level.FINE))
             {
                 s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
                         + ": sent " + bytesSent + " bytes, " + stateToString(state) + "." );
             }
+            */
         }
         catch (IOException ex)
         {
