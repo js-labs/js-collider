@@ -24,7 +24,10 @@ import java.net.StandardSocketOptions;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
-import java.util.*;
+import java.util.Set;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
@@ -172,8 +175,8 @@ public class Collider
 
     private static final Logger s_logger = Logger.getLogger( Collider.class.getName() );
 
-    private Config m_config;
-    private Selector m_selector;
+    private final Config m_config;
+    private final Selector m_selector;
     private ExecutorService m_executor;
     private int m_state;
 
