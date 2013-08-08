@@ -23,9 +23,9 @@ public class Main
 {
     public static void print_res( String str, long [] res, int skip )
     {
-        long min = 0;
-        long max = 0;
-        long sum = 0;
+        long min = res[skip];
+        long max = res[skip];
+        long sum = res[skip];
 
         for (int idx=skip; idx<res.length; idx++)
         {
