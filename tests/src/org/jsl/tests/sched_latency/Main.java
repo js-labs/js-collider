@@ -36,9 +36,9 @@ public class Main
                 max = tt;
             sum += tt;
             tt /= 1000;
-            //System.out.print( tt + " " );
+            System.out.print( tt + " " );
         }
-        //System.out.println();
+        System.out.println();
 
         min /= 1000;
         max /= 1000;
@@ -50,8 +50,8 @@ public class Main
 
     public static void main( String args [] )
     {
-        final int OPS = 100;
-        final int SKIP = 10;
+        final int OPS = 50;
+        final int SKIP = 0;
         long res [] = new long[OPS];
 
         new SL_Semaphore(res).start();
@@ -59,5 +59,11 @@ public class Main
 
         new SL_Cond(res).start();
         print_res( "Cond", res, SKIP );
+
+        new SL_Executor(res).start();
+        print_res( "Executor", res, SKIP );
+
+        new SL_ThreadPool(res).start();
+        print_res( "ThreadPool", res, SKIP );
     }
 }
