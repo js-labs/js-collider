@@ -65,7 +65,13 @@ public class ThreadPool
                         if (m_head.compareAndSet(head, next))
                         {
                             if (next == null)
-                                m_tail.compareAndSet( head, null );
+                            {
+                                if (!m_tail.compareAndSet(head, null))
+                                {
+                                    while (head.nextThreadPoolTask == null);
+                                    m_head.set( head.nextThreadPoolTask );
+                                }
+                            }
                             break;
                         }
 
