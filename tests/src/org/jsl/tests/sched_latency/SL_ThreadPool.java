@@ -19,6 +19,7 @@
 
 package org.jsl.tests.sched_latency;
 
+import org.jsl.collider.Collider;
 import org.jsl.collider.ThreadPool;
 import java.util.concurrent.Semaphore;
 
@@ -30,9 +31,9 @@ public class SL_ThreadPool
     private long m_time;
     private int m_idx;
 
-    private class TestRunnable extends ThreadPool.Task
+    private class TestRunnable extends Collider.ThreadPoolRunnable
     {
-        public void run()
+        public void runInThreadPool()
         {
             if (m_idx < m_res.length)
             {
@@ -57,10 +58,10 @@ public class SL_ThreadPool
     {
         TestRunnable runnable = new TestRunnable();
         m_threadPool = new ThreadPool[2];
-        m_threadPool[0] = new ThreadPool();
-        m_threadPool[1] = new ThreadPool();
-        m_threadPool[0].start(1);
-        m_threadPool[1].start(1);
+        m_threadPool[0] = new ThreadPool( "TP1", 1 );
+        m_threadPool[1] = new ThreadPool( "TP2", 1 );
+        m_threadPool[0].start();
+        m_threadPool[1].start();
 
         m_time = System.nanoTime();
         m_threadPool[0].execute( runnable );
