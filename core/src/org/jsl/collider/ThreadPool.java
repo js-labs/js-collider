@@ -19,26 +19,117 @@
 
 package org.jsl.collider;
 
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
 public class ThreadPool
 {
-    public static abstract class Task
+    private static class Sync extends AbstractQueuedSynchronizer
     {
-        public volatile Task nextThreadPoolTask;
-        public abstract void run();
+        private int m_maxState;
+
+        public Sync( int maxState )
+        {
+            m_maxState = maxState;
+        }
+
+        protected final int tryAcquireShared( int acquires )
+        {
+            for (;;)
+            {
+                int state = getState();
+                int newState = (state - 1);
+                if ((newState < 0) || compareAndSetState(state, newState))
+                    return newState;
+            }
+        }
+
+        protected final boolean tryReleaseShared( int releases )
+        {
+            for (;;)
+            {
+                int state = getState();
+                if (state == m_maxState)
+                    return true;
+                int newState = (state + releases);
+                if (compareAndSetState(state, newState))
+                    return true;
+            }
+        }
     }
 
-    private class SvcThread extends Thread
+    private static class Queue
     {
-        public SvcThread( int id )
+        private final AtomicReference<Collider.ThreadPoolRunnable> m_head;
+        private final AtomicReference<Collider.ThreadPoolRunnable> m_tail;
+
+        public Queue()
         {
-            super( "CTPT-" + id );
+            m_head = new AtomicReference<Collider.ThreadPoolRunnable>();
+            m_tail = new AtomicReference<Collider.ThreadPoolRunnable>();
+        }
+
+        public final Collider.ThreadPoolRunnable get()
+        {
+            Collider.ThreadPoolRunnable head = m_head.get();
+            for (;;)
+            {
+                if (head == null)
+                    return null;
+
+                Collider.ThreadPoolRunnable next = head.nextThreadPoolRunnable;
+                if (m_head.compareAndSet(head, next))
+                {
+                    if (next == null)
+                    {
+                        if (!m_tail.compareAndSet(head, null))
+                        {
+                            while (head.nextThreadPoolRunnable == null);
+                            m_head.set( head.nextThreadPoolRunnable );
+                        }
+                    }
+                    head.nextThreadPoolRunnable = null;
+                    return head;
+                }
+                head = m_head.get();
+            }
+        }
+
+        public final void put( Collider.ThreadPoolRunnable runnable )
+        {
+            Collider.ThreadPoolRunnable tail = m_tail.getAndSet( runnable );
+            if (tail == null)
+                m_head.set( runnable );
+            else
+                tail.nextThreadPoolRunnable = runnable;
+        }
+    }
+
+    private static class Tls
+    {
+        private int m_idx;
+
+        public Tls()
+        {
+            m_idx = 0;
+        }
+
+        public final int getNext()
+        {
+            if (++m_idx < 0)
+                m_idx = 0;
+            return m_idx;
+        }
+    }
+
+    private class Worker extends Thread
+    {
+        public Worker( String name )
+        {
+            super( name );
         }
 
         public void run()
@@ -46,47 +137,26 @@ public class ThreadPool
             if (s_logger.isLoggable(Level.FINE))
                 s_logger.fine( Thread.currentThread().getName() + ": started." );
 
-            mainLoop: for (;;)
+            int queueIdx = 0;
+            while (m_run)
             {
-                taskLoop: for (;;)
+                m_sync.acquireShared(1);
+                int cc = m_contentionFactor;
+                for (;;)
                 {
-                    Task head = m_head.get();
-                    for (;;)
+                    Collider.ThreadPoolRunnable runnable = m_queue[queueIdx].get();
+                    if (runnable == null)
                     {
-                        if (head == null)
-                        {
-                            if (m_stop)
-                                break mainLoop;
-                            else
-                                break taskLoop;
-                        }
-
-                        Task next = head.nextThreadPoolTask;
-                        if (m_head.compareAndSet(head, next))
-                        {
-                            if (next == null)
-                                m_tail.compareAndSet( head, null );
+                        if (--cc == 0)
                             break;
-                        }
-
-                        head = m_head.get();
                     }
-
-                    head.nextThreadPoolTask = null;
-                    head.run();
-                }
-
-                m_idleThreads.incrementAndGet();
-
-                try
-                {
-                    m_sem.acquire();
-                }
-                catch (InterruptedException ex)
-                {
-                    if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( Thread.currentThread().getName() + ": " + ex.toString() );
-                    break;
+                    else
+                    {
+                        runnable.runInThreadPool();
+                        cc = m_contentionFactor;
+                    }
+                    queueIdx++;
+                    queueIdx %= m_contentionFactor;
                 }
             }
 
@@ -97,53 +167,50 @@ public class ThreadPool
 
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
 
-    private Thread [] m_thread;
-    private volatile boolean m_stop;
-    private final Semaphore m_sem;
-    private final AtomicInteger m_idleThreads;
-    private final AtomicReference<Task> m_head;
-    private final AtomicReference<Task> m_tail;
+    private final int m_contentionFactor;
+    private final Sync m_sync;
+    private final Thread [] m_thread;
+    private final Queue [] m_queue;
+    private final ThreadLocal<Tls> m_tls;
+    private volatile boolean m_run;
 
-    public ThreadPool()
+    public ThreadPool( String name, int threads, int contentionFactor )
     {
-        m_thread = null;
-        m_stop = false;
-        m_sem = new Semaphore(0);
-        m_idleThreads = new AtomicInteger();
-        m_head = new AtomicReference<Task>();
-        m_tail = new AtomicReference<Task>();
-    }
+        m_contentionFactor = contentionFactor;
+        m_sync = new Sync( threads );
 
-    public final void start( int threads )
-    {
-        assert( m_thread == null );
         m_thread = new Thread[threads];
         for (int idx=0; idx<threads; idx++)
         {
-            Thread thread = new SvcThread( idx );
-            m_thread[idx] = thread;
-            thread.start();
+            String workerName = (name + "-" + idx);
+            m_thread[idx] = new Worker( workerName );
         }
+
+        m_queue = new Queue[contentionFactor];
+        for (int idx=0; idx<contentionFactor; idx++)
+            m_queue[idx] = new Queue();
+
+        m_tls = new ThreadLocal<Tls>() { protected Tls initialValue() { return new Tls(); } };
+        m_run = true;
+    }
+
+    public ThreadPool( String name, int threads )
+    {
+        this( name, threads, 8 );
+    }
+
+    public final void start()
+    {
+        for (Thread thread : m_thread)
+            thread.start();
     }
 
     public final void stopAndWait() throws InterruptedException
     {
         assert( m_thread != null );
 
-        m_stop = true;
-
-        for (;;)
-        {
-            int idleThreads = m_idleThreads.get();
-            if (idleThreads == 0)
-                break;
-
-            if (m_idleThreads.compareAndSet(idleThreads, 0))
-            {
-                m_sem.release( idleThreads );
-                break;
-            }
-        }
+        m_run = false;
+        m_sync.releaseShared( m_thread.length );
 
         for (int idx=0; idx<m_thread.length; idx++)
         {
@@ -153,34 +220,13 @@ public class ThreadPool
                 m_thread[idx] = null;
             }
         }
-
-        m_thread = null;
     }
 
-    public void execute( Task task )
+    public void execute( Collider.ThreadPoolRunnable runnable )
     {
-        assert( task.nextThreadPoolTask == null );
-
-        Task tail = m_tail.getAndSet( task );
-        if (tail == null)
-            m_head.set( task );
-        else
-            tail.nextThreadPoolTask = task;
-
-        int idleThreads = m_idleThreads.get();
-        for (;;)
-        {
-            if (idleThreads == 0)
-                break;
-
-            int newIdleThreads = (idleThreads - 1);
-            if (m_idleThreads.compareAndSet(idleThreads, newIdleThreads))
-            {
-                m_sem.release();
-                break;
-            }
-
-            idleThreads = m_idleThreads.get();
-        }
+        assert( runnable.nextThreadPoolRunnable == null );
+        int idx = (m_tls.get().getNext() % m_contentionFactor);
+        m_queue[idx].put( runnable );
+        m_sync.releaseShared(1);
     }
 }
