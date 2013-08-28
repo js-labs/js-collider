@@ -196,7 +196,7 @@ public class ThreadPool
 
     public ThreadPool( String name, int threads )
     {
-        this( name, threads, 8 );
+        this( name, threads, threads*2 );
     }
 
     public final void start()
@@ -214,11 +214,8 @@ public class ThreadPool
 
         for (int idx=0; idx<m_thread.length; idx++)
         {
-            if (m_thread[idx] != null)
-            {
-                m_thread[idx].join();
-                m_thread[idx] = null;
-            }
+            m_thread[idx].join();
+            m_thread[idx] = null;
         }
     }
 
