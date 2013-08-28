@@ -18,16 +18,31 @@
  */
 
 package org.jsl.tests.session_latency;
-
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.channel.ChannelFuture;
-import io.netty.channel.ChannelOption;
-import io.netty.channel.EventLoopGroup;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+
 
 public class NettyTest extends Test
 {
+    public class ServerHandler extends ChannelInboundHandlerAdapter
+    {
+        public void messageReceived(ChannelHandlerContext ctx, MessageList<Object> msgs) throws Exception
+        {
+            ByteBuf bb = (ByteBuf) msgs.get(0);
+            ctx.write( bb );
+        }
+
+        public void exceptionCaught( ChannelHandlerContext ctx, Throwable cause )
+        {
+            cause.printStackTrace();
+            ctx.close();
+        }
+    }
+
     public NettyTest( int sessions, int messages, int messageLength )
     {
         super( sessions, messages, messageLength );
@@ -35,26 +50,24 @@ public class NettyTest extends Test
 
     public void runTest()
     {
-        /*
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         try {
             ServerBootstrap b = new ServerBootstrap();
             b.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
-                    .option(ChannelOption.SO_BACKLOG, 100)
-                    .handler(new LoggingHandler(LogLevel.INFO))
                     .childHandler(new ChannelInitializer<SocketChannel>() {
                         @Override
                         public void initChannel(SocketChannel ch) throws Exception {
-                            ch.pipeline().addLast(
-                                    new MessageDecoder(), //new LoggingHandler(LogLevel.INFO),
-                                    new Handler());
+                            ch.pipeline().addLast( new ServerHandler() );
                         }
-                    });
+                    }).option(ChannelOption.TCP_NODELAY, true);
 
             // Start the server.
             ChannelFuture f = b.bind(666).sync();
+            Thread.sleep(1000);
+            Client client = new Client( 666, m_sessions, m_messages, m_messageLength );
+            client.start();
             f.channel().closeFuture().sync();
         }
         catch (InterruptedException ex)
@@ -67,6 +80,5 @@ public class NettyTest extends Test
             bossGroup.shutdownGracefully();
             workerGroup.shutdownGracefully();
         }
-        */
     }
 }

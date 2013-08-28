@@ -28,17 +28,19 @@ public class Main
         int MESSAGES = 100;
         int MESSAGE_LENGTH = 250;
 
+        Test test;
+
         try
         {
-            Test test = new ColliderTest( SESSIONS, MESSAGES, MESSAGE_LENGTH );
-            test.runTest();
-
-            test = new NettyTest( SESSIONS, MESSAGES, MESSAGE_LENGTH );
+            test = new ColliderTest( SESSIONS, MESSAGES, MESSAGE_LENGTH );
             test.runTest();
         }
         catch (IOException ex)
         {
             ex.printStackTrace();
         }
+
+        test = new NettyTest( SESSIONS, MESSAGES, MESSAGE_LENGTH );
+        test.runTest();
     }
 }
