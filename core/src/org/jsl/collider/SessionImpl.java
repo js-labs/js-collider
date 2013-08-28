@@ -47,6 +47,8 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     private final Collider m_collider;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
+    private final SocketAddress m_localSocketAddress;
+    private final SocketAddress m_remoteSocketAddress;
 
     private final AtomicLong m_state;
     private final OutputQueue m_outputQueue;
@@ -153,14 +155,16 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
         m_collider = collider;
         m_socketChannel = socketChannel;
+        m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
+        m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
         m_state = new AtomicLong( ST_STARTING );
         m_outputQueue = new OutputQueue( colliderConfig.useDirectBuffers, outputQueueBlockSize );
         m_iov = new ByteBuffer[sendIovMax];
     }
 
     public Collider getCollider() { return m_collider; }
-    public SocketAddress getLocalAddress() { return m_socketChannel.socket().getLocalSocketAddress(); }
-    public SocketAddress getRemoteAddress() { return m_socketChannel.socket().getRemoteSocketAddress(); }
+    public SocketAddress getLocalAddress() { return m_localSocketAddress; }
+    public SocketAddress getRemoteAddress() { return m_remoteSocketAddress; }
 
     public boolean sendData( ByteBuffer data )
     {
