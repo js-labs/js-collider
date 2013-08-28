@@ -230,14 +230,22 @@ public class Collider
         return m_config;
     }
 
-    public void run() throws IOException
+    public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "Collider started." );
 
         for (;;)
         {
-            m_selector.select();
+            try
+            {
+                m_selector.select();
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex.toString() );
+            }
 
             Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
             for (SelectionKey key : selectedKeys)
@@ -289,7 +297,6 @@ public class Collider
             s_logger.fine( "Collider stopped." );
     }
 
-
     public void stop()
     {
         if (s_logger.isLoggable(Level.FINE))
@@ -310,7 +317,6 @@ public class Collider
         executeInThreadPool( new Stopper() );
     }
 
-
     public void executeInSelectorThread( SelectorThreadRunnable runnable )
     {
         assert( runnable.nextSelectorThreadRunnable == null );
@@ -324,12 +330,10 @@ public class Collider
             tail.nextSelectorThreadRunnable = runnable;
     }
 
-
     public void executeInThreadPool( Runnable runnable )
     {
         m_executor.execute( runnable );
     }
-
 
     public void addAcceptor( Acceptor acceptor )
     {
@@ -405,7 +409,6 @@ public class Collider
             }
         }
     }
-
 
     public void removeAcceptor( Acceptor acceptor ) throws InterruptedException
     {
