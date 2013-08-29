@@ -31,7 +31,7 @@ public class SL_ThreadPool
     private long m_time;
     private int m_idx;
 
-    private class TestRunnable extends Collider.ThreadPoolRunnable
+    private class TestRunnable extends ThreadPool.Runnable
     {
         public void runInThreadPool()
         {

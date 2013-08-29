@@ -34,7 +34,7 @@ public class ThreadPoolTest extends Test
     private long m_startTime;
     private long m_endTime;
 
-    private class TestRunnable extends Collider.ThreadPoolRunnable
+    private class TestRunnable extends ThreadPool.Runnable
     {
         private int m_value;
 
