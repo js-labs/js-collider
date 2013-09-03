@@ -18,7 +18,7 @@
 package org.jsl.tests.output_queue;
 
 import org.jsl.collider.OutputQueue;
-import org.jsl.collider.PacketHandler;
+import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
 import java.nio.ByteBuffer;
@@ -29,34 +29,24 @@ import java.util.concurrent.atomic.AtomicLong;
 public class Main
 {
     private static final int MESSAGE_MAGIC = 0x1A2B3C4D;
-    private Semaphore m_sema;
-    private AtomicLong m_state;
-    private OutputQueue m_outputQueue;
-    private Handler m_handler;
+    private final Semaphore m_sema;
+    private final AtomicLong m_state;
+    private final OutputQueue m_outputQueue;
+    private final Stream m_stream;
     private int m_waitMessages;
     private int m_messages;
 
-    private class Handler extends PacketHandler
+    private class Stream extends StreamDefragger
     {
-        public Handler()
+        public Stream()
         {
             super( 4 );
         }
 
-        protected int onValidateHeader( ByteBuffer header )
+        protected int validateHeader( ByteBuffer header )
         {
             return header.getInt();
         }
-
-        protected void onPacketReceived( ByteBuffer packet )
-        {
-            packet.getInt(); // skip length
-            int magic = packet.getInt();
-            assert( magic == MESSAGE_MAGIC );
-            m_messages++;
-        }
-
-        public void onConnectionClosed() {}
     }
 
     private Main()
@@ -64,7 +54,7 @@ public class Main
         m_sema = new Semaphore(0);
         m_state = new AtomicLong(0);
         m_outputQueue = new OutputQueue( false, 1000 );
-        m_handler = new Handler();
+        m_stream = new Stream();
         m_waitMessages = 0;
         m_messages = 0;
     }
@@ -77,24 +67,33 @@ public class Main
 
     private void run()
     {
-        final int MESSAGES = 100000;
+        final int MESSAGES = 10000;
 
         this.startGenerator( MESSAGES, 5000 );
         this.startGenerator( MESSAGES, 3280 );
-        this.startGenerator( MESSAGES, 128 );
+        this.startGenerator( MESSAGES, 126 );
         this.startGenerator( MESSAGES, 1000 );
         this.startGenerator( MESSAGES, 300 );
         this.startGenerator( MESSAGES, 510 );
         this.startGenerator( MESSAGES, 4576 );
+        this.startGenerator( MESSAGES, 777 );
 
         ByteBuffer [] iov = new ByteBuffer[4];
         long bytesProcessed = 0;
         int waits = 0;
 
+        /*
+        try { Thread.sleep(4000); }
+        catch (InterruptedException ignored) {}
+        */
+
         long startTime = System.nanoTime();
         while (m_messages < m_waitMessages)
         {
-            try { m_sema.acquire(); } catch (InterruptedException ignored) {}
+            try { m_sema.acquire(); }
+            catch (InterruptedException ex)
+            { System.out.println(ex.toString()); }
+
             long state = m_state.get();
             assert( state > 0 );
             while (state > 0)
@@ -102,7 +101,17 @@ public class Main
                 long bytesReady = m_outputQueue.getData( iov, state );
                 int pos0 = iov[0].position();
                 for (int idx=0; idx<iov.length && iov[idx]!=null; idx++)
-                    m_handler.onDataReceived( iov[idx] );
+                {
+                    ByteBuffer msg = m_stream.getNext( iov[idx] );
+                    while (msg != null)
+                    {
+                        msg.getInt(); // skip length
+                        int magic = msg.getInt();
+                        assert( magic == MESSAGE_MAGIC );
+                        m_messages++;
+                        msg = m_stream.getNext();
+                    }
+                }
                 for (int idx=0; idx<iov.length; idx++)
                     iov[idx] = null;
                 m_outputQueue.removeData( pos0, bytesReady );
