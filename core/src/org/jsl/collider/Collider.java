@@ -79,12 +79,6 @@ public class Collider
         abstract public void runInSelectorThread();
     }
 
-    public static abstract class ThreadPoolRunnable
-    {
-        public volatile ThreadPoolRunnable nextThreadPoolRunnable;
-        public abstract void runInThreadPool();
-    }
-
     private class Stopper extends SelectorThreadRunnable implements Runnable
     {
         public void runInSelectorThread()

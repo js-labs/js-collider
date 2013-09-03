@@ -215,6 +215,7 @@ public class InputQueue extends ThreadPool.Runnable
 
     private final SelectorRegistrator m_selectorRegistrator;
     private final AtomicLong m_state;
+    private boolean m_speculativeRead;
     private DataBlock m_tail;
 
     private void handleData( DataBlock dataBlock, long state )
@@ -373,7 +374,8 @@ public class InputQueue extends ThreadPool.Runnable
         }
 
         int pos0;
-        int iovCnt;
+        int iovc;
+        long space;
         DataBlock prev;
         DataBlock dataBlock0;
         DataBlock dataBlock1;
@@ -384,13 +386,13 @@ public class InputQueue extends ThreadPool.Runnable
             dataBlock0 = m_tail;
             pos0 = dataBlock0.ww.position();
 
-            long space = (m_blockSize - pos0);
+            space = (m_blockSize - pos0);
             if (space > m_blockSize/2)
             {
                 prev = null;
                 dataBlock1 = null;
                 iov[0] = dataBlock0.ww;
-                iovCnt = 1;
+                iovc = 1;
             }
             else if (space > 0)
             {
@@ -398,7 +400,8 @@ public class InputQueue extends ThreadPool.Runnable
                 dataBlock1 = m_dataBlockCache.get();
                 iov[0] = dataBlock0.ww;
                 iov[1] = dataBlock1.ww;
-                iovCnt = 2;
+                iovc = 2;
+                space += m_blockSize;
             }
             else
             {
@@ -407,7 +410,8 @@ public class InputQueue extends ThreadPool.Runnable
                 dataBlock1 = null;
                 pos0 = 0;
                 iov[0] = dataBlock0.ww;
-                iovCnt = 1;
+                iovc = 1;
+                space = m_blockSize;
             }
         }
         else
@@ -417,14 +421,15 @@ public class InputQueue extends ThreadPool.Runnable
             dataBlock1 = null;
             pos0 = 0;
             iov[0] = dataBlock0.ww;
-            iovCnt = 1;
+            iovc = 1;
+            space = m_blockSize;
         }
 
         long bytesReceived;
         try
         {
             //System.out.println( getPT() + " iov[0]=" + iov[0] + " iov[1]=" + iov[1] );
-            bytesReceived = m_socketChannel.read( iov, 0, iovCnt );
+            bytesReceived = m_socketChannel.read( iov, 0, iovc );
             assert( bytesReceived != 0 );
         }
         catch (Exception ignored) { bytesReceived = 0; }
@@ -478,18 +483,22 @@ public class InputQueue extends ThreadPool.Runnable
             }
 
             /*
-             * if (bytesReceived == space)
-             *     m_collider.executeInThreadPool( this );
-             * else
-             *     m_collider.executInSelectorThread( this );
-             * Wrong!
-             */
-            m_collider.executeInSelectorThread( m_selectorRegistrator );
-
-            /*
-            System.out.println( getPT() + " bytesReceived=" + bytesReceived +
+            System.out.println( getPT() + " space=" + space
+                    + " bytesReceived=" + bytesReceived +
+                    (m_speculativeRead ? " SR" : "") +
                     " length=" + (state & LENGTH_MASK) );
             */
+
+            if (bytesReceived == space)
+            {
+                m_speculativeRead = true;
+                m_collider.executeInThreadPool( this );
+            }
+            else
+            {
+                m_speculativeRead = false;
+                m_collider.executeInSelectorThread( m_selectorRegistrator );
+            }
 
             if ((state & LENGTH_MASK) == bytesReceived)
             {
@@ -503,6 +512,11 @@ public class InputQueue extends ThreadPool.Runnable
                 assert( dataBlock1.ww.position() == 0 );
                 m_dataBlockCache.put( dataBlock1 );
             }
+        }
+        else if (m_speculativeRead)
+        {
+            m_speculativeRead = false;
+            m_collider.executeInSelectorThread( m_selectorRegistrator );
         }
         else
         {
