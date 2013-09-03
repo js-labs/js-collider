@@ -28,8 +28,8 @@ public class OutputQueue
     private static class DataBlock
     {
         public DataBlock next;
-        public ByteBuffer buf;
-        public ByteBuffer rw;
+        public final ByteBuffer buf;
+        public final ByteBuffer rw;
 
         public DataBlock( boolean useDirectBuffers, int blockSize )
         {
@@ -53,7 +53,7 @@ public class OutputQueue
     private boolean m_useDirectBuffers;
     private int m_blockSize;
 
-    private AtomicLong m_state;
+    private final AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
     private ByteBuffer [] m_ww;
