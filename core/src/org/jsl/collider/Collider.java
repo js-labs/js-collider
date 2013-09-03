@@ -183,7 +183,8 @@ public class Collider
 
     private final Config m_config;
     private final Selector m_selector;
-    private ExecutorService m_executor;
+    private final ExecutorService m_executor;
+    private final ThreadPool m_threadPool;
     private int m_state;
 
     private final ReentrantLock m_lock;
@@ -209,7 +210,8 @@ public class Collider
             threadPoolThreads = Runtime.getRuntime().availableProcessors();
         if (threadPoolThreads < 4)
             threadPoolThreads = 4;
-        m_executor = Executors.newFixedThreadPool( threadPoolThreads );
+        m_executor = Executors.newFixedThreadPool( 2 );
+        m_threadPool = new ThreadPool( "CTP", threadPoolThreads );
 
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
@@ -235,11 +237,15 @@ public class Collider
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "Collider started." );
 
+        m_threadPool.start();
         for (;;)
         {
             try
             {
+                //long startTime = System.nanoTime();
                 m_selector.select();
+                //long endTime = System.nanoTime();
+                //System.out.println( "selector.select() " + Util.formatDelay(startTime, endTime) );
             }
             catch (IOException ex)
             {
@@ -286,6 +292,7 @@ public class Collider
             if (!m_executor.awaitTermination(m_config.shutdownTimeout, TimeUnit.SECONDS))
                 m_executor.shutdownNow();
             m_executor.awaitTermination( m_config.shutdownTimeout, TimeUnit.SECONDS );
+            m_threadPool.stopAndWait();
         }
         catch (InterruptedException ex)
         {
@@ -333,6 +340,11 @@ public class Collider
     public void executeInThreadPool( Runnable runnable )
     {
         m_executor.execute( runnable );
+    }
+
+    public void executeInThreadPool( ThreadPool.Runnable runnable )
+    {
+        m_threadPool.execute( runnable );
     }
 
     public void addAcceptor( Acceptor acceptor )

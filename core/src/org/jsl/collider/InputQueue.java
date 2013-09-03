@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 
-public class InputQueue extends Collider.SelectorThreadRunnable implements Runnable
+public class InputQueue extends ThreadPool.Runnable
 {
     private static class DataBlock
     {
@@ -149,18 +149,6 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
     }
 
-    private class DeferredHandler implements Runnable
-    {
-        public DataBlock dataBlock;
-
-        public void run()
-        {
-            assert( dataBlock != null );
-            long state = m_state.get();
-            InputQueue.this.handleData( dataBlock, state );
-        }
-    }
-
     private class Stopper extends Collider.SelectorThreadRunnable implements Runnable
     {
         public void runInSelectorThread()
@@ -197,6 +185,17 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
     }
 
+    private class SelectorRegistrator extends Collider.SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            int interestOps = m_selectionKey.interestOps();
+            assert( (interestOps & SelectionKey.OP_READ) == 0 );
+            //System.out.println( getPT() + " runInSelectorThread()" );
+            m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+        }
+    }
+
     private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
     {
         protected ByteBuffer [] initialValue() { return new ByteBuffer[2]; }
@@ -214,88 +213,95 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
     private final SelectionKey m_selectionKey;
     private final Session.Listener m_listener;
 
-    private AtomicLong m_state;
+    private final SelectorRegistrator m_selectorRegistrator;
+    private final AtomicLong m_state;
     private DataBlock m_tail;
-    private DeferredHandler m_deferredHandler;
 
     private void handleData( DataBlock dataBlock, long state )
     {
-        ByteBuffer rw = dataBlock.rw;
-        assert( rw.position() == rw.limit() );
-
-        long bytesReady = (state & LENGTH_MASK);
-        long bytesRest = bytesReady;
-
-        int pos = rw.position();
-        for (;;)
-        {
-            long bb = (m_blockSize - pos);
-            if (bytesRest <= bb)
-            {
-                int limit = pos + (int) bytesRest;
-                rw.limit( limit );
-                m_listener.onDataReceived( rw );
-                rw.position( limit );
-                break;
-            }
-
-            bytesRest -= bb;
-            rw.limit( m_blockSize );
-            m_listener.onDataReceived( rw );
-
-            DataBlock next = dataBlock.reset();
-            m_dataBlockCache.put( dataBlock );
-            dataBlock = next;
-            rw = dataBlock.rw;
-            pos = 0;
-        }
-
         boolean tailLock;
-        for (;;)
+        long bytesReady = (state & LENGTH_MASK);
+
+        do
         {
-            long newState = state;
-            newState -= bytesReady;
+            ByteBuffer rw = dataBlock.rw;
+            assert( rw.position() == rw.limit() );
 
-            if (((newState & LENGTH_MASK) == 0) && ((newState & TAIL_LOCK) == 0))
+            long bytesRest = bytesReady;
+            int pos = rw.position();
+            for (;;)
             {
-                newState |= TAIL_LOCK;
-                tailLock = true;
-            }
-            else
-                tailLock = false;
+                long bb = (m_blockSize - pos);
+                if (bytesRest <= bb)
+                {
+                    int limit = pos + (int) bytesRest;
+                    rw.limit( limit );
+                    m_listener.onDataReceived( rw );
+                    rw.position( limit );
+                    break;
+                }
 
-            if (m_state.compareAndSet(state, newState))
-            {
-                state = newState;
-                break;
-            }
+                bytesRest -= bb;
+                rw.limit( m_blockSize );
+                m_listener.onDataReceived( rw );
 
-            state = m_state.get();
-        }
-
-        if ((state & LENGTH_MASK) > 0)
-        {
-            if (m_deferredHandler == null)
-                m_deferredHandler = new DeferredHandler();
-            m_deferredHandler.dataBlock = dataBlock;
-            m_collider.executeInThreadPool( m_deferredHandler );
-        }
-        else
-        {
-            if (tailLock)
-            {
-                DataBlock tail = m_tail;
-                m_tail = null;
-                m_state.addAndGet( -TAIL_LOCK );
-
-                DataBlock next = tail.reset();
-                assert( next == null );
-                m_dataBlockCache.put( tail );
+                DataBlock next = dataBlock.reset();
+                m_dataBlockCache.put( dataBlock );
+                dataBlock = next;
+                rw = dataBlock.rw;
+                pos = 0;
             }
 
-            if ((state & CLOSED) != 0)
-                m_listener.onConnectionClosed();
+            for (;;)
+            {
+                long newState = state;
+                newState -= bytesReady;
+
+                if (((newState & LENGTH_MASK) == 0) && ((newState & TAIL_LOCK) == 0))
+                {
+                    newState |= TAIL_LOCK;
+                    tailLock = true;
+                }
+                else
+                    tailLock = false;
+
+                if (m_state.compareAndSet(state, newState))
+                {
+                    state = newState;
+                    break;
+                }
+
+                state = m_state.get();
+            }
+
+            bytesReady = (state & LENGTH_MASK);
         }
+        while (bytesReady > 0);
+
+        if (tailLock)
+        {
+            DataBlock tail = m_tail;
+            m_tail = null;
+
+            for (;;)
+            {
+                assert( (state & TAIL_LOCK) != 0 );
+                long newState = (state - TAIL_LOCK);
+                if (m_state.compareAndSet(state, newState))
+                {
+                    state = newState;
+                    break;
+                }
+                state = m_state.get();
+            }
+
+            DataBlock next = tail.reset();
+            assert( next == null );
+            m_dataBlockCache.put( tail );
+        }
+
+        if ((state & CLOSED) != 0)
+            m_listener.onConnectionClosed();
     }
 
     public InputQueue(
@@ -313,34 +319,41 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
         m_listener = listener;
+        m_selectorRegistrator = new SelectorRegistrator();
         m_state = new AtomicLong();
         m_tail = null;
     }
 
+    private long m_pt = 0;
 
-    public void runInSelectorThread()
+    private long getPT()
     {
-        int interestOps = m_selectionKey.interestOps();
-        assert( (interestOps & SelectionKey.OP_READ) == 0 );
-        m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+        long ret;
+        if (m_pt == 0)
+        {
+            m_pt = System.nanoTime();
+            ret = 0;
+        }
+        else
+        {
+            ret = System.nanoTime();
+            ret -= m_pt;
+        }
+        return (ret / 1000);
     }
 
-
-    public void run()
+    public void runInThreadPool()
     {
-        ByteBuffer [] iov = s_tlsIov.get();
-        int iovCnt;
-        DataBlock prev;
-        DataBlock dataBlock0;
-        DataBlock dataBlock1;
-
-        boolean tailLock;
+        int tailLock;
         long state = m_state.get();
         for (;;)
         {
             if ((state & LENGTH_MASK) == 0)
             {
-                tailLock = false;
+                if ((state & TAIL_LOCK) == 0)
+                    tailLock = 0;
+                else
+                    tailLock = -1;
                 break;
             }
 
@@ -348,7 +361,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
             long newState = state;
             newState |= TAIL_LOCK;
-            tailLock = true;
+            tailLock = 1;
 
             if (m_state.compareAndSet(state, newState))
             {
@@ -360,7 +373,13 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         }
 
         int pos0;
-        if (tailLock)
+        int iovCnt;
+        DataBlock prev;
+        DataBlock dataBlock0;
+        DataBlock dataBlock1;
+        ByteBuffer [] iov = s_tlsIov.get();
+
+        if (tailLock > 0)
         {
             dataBlock0 = m_tail;
             pos0 = dataBlock0.ww.position();
@@ -404,6 +423,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         long bytesReceived;
         try
         {
+            //System.out.println( getPT() + " iov[0]=" + iov[0] + " iov[1]=" + iov[1] );
             bytesReceived = m_socketChannel.read( iov, 0, iovCnt );
             assert( bytesReceived != 0 );
         }
@@ -414,13 +434,13 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             if (prev != null)
                 prev.next = dataBlock0;
 
-            if ((state & LENGTH_MASK) == 0)
+            if (tailLock < 0)
             {
                 for (;;)
                 {
+                    state = m_state.get();
                     if ((state & TAIL_LOCK) == 0)
                         break;
-                    state = m_state.get();
                 }
             }
 
@@ -443,7 +463,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
 
                 newState |= (state & ~LENGTH_MASK);
 
-                if (tailLock)
+                if (tailLock > 0)
                 {
                     assert( (newState & TAIL_LOCK) != 0 );
                     newState -= TAIL_LOCK;
@@ -464,7 +484,12 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
              *     m_collider.executInSelectorThread( this );
              * Wrong!
              */
-            m_collider.executeInSelectorThread( this );
+            m_collider.executeInSelectorThread( m_selectorRegistrator );
+
+            /*
+            System.out.println( getPT() + " bytesReceived=" + bytesReceived +
+                    " length=" + (state & LENGTH_MASK) );
+            */
 
             if ((state & LENGTH_MASK) == bytesReceived)
             {
@@ -488,7 +513,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
                 long newState = state;
                 newState |= CLOSED;
 
-                if (tailLock)
+                if (tailLock > 0)
                 {
                     assert( (newState & TAIL_LOCK) != 0 );
                     newState -= TAIL_LOCK;
@@ -503,7 +528,7 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
             if ((state & LENGTH_MASK) == 0)
             {
                 m_listener.onConnectionClosed();
-                if (tailLock)
+                if (tailLock > 0)
                     m_tail = null;
             }
         }
@@ -512,7 +537,12 @@ public class InputQueue extends Collider.SelectorThreadRunnable implements Runna
         iov[1] = null;
     }
 
-    public void stop()
+    public final void start()
+    {
+        m_collider.executeInSelectorThread( m_selectorRegistrator );
+    }
+
+    public final void stop()
     {
         m_collider.executeInSelectorThread( new Stopper() );
     }

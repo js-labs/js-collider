@@ -281,7 +281,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
 
             if (m_state.compareAndSet(state, newState))
             {
-                m_collider.executeInSelectorThread( m_inputQueue );
+                m_inputQueue.start();
                 break;
             }
 
@@ -298,7 +298,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
-            executor.execute( m_inputQueue );
+            m_collider.executeInThreadPool( m_inputQueue );
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
             executor.execute( this );
