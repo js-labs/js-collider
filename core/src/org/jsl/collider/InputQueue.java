@@ -32,9 +32,9 @@ public class InputQueue extends ThreadPool.Runnable
     private static class DataBlock
     {
         public DataBlock next;
-        public ByteBuffer buf;
-        public ByteBuffer rw;
-        public ByteBuffer ww;
+        public final ByteBuffer buf;
+        public final ByteBuffer rw;
+        public final ByteBuffer ww;
 
         public DataBlock( boolean useDirectBuffers, int blockSize )
         {
