@@ -56,7 +56,7 @@ public class OutputQueue
     private final AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
-    private ByteBuffer [] m_ww;
+    private final ByteBuffer [] m_ww;
 
     private static long getOffs( long state, int blockSize )
     {
@@ -145,6 +145,7 @@ public class OutputQueue
         m_head = new DataBlock( m_useDirectBuffers, m_blockSize );
         m_tail = m_head;
         m_ww = new ByteBuffer[WRITERS_WIDTH];
+
         m_ww[0] = m_tail.buf.duplicate();
     }
 
