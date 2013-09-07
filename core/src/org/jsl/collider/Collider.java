@@ -49,6 +49,7 @@ public class Collider
         public int socketSendBufSize;
         public int socketRecvBufSize;
         public int inputQueueBlockSize;
+        public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
         public int outputQueueBlockSize;
 
@@ -62,9 +63,10 @@ public class Collider
             socketSendBufSize = 0;
             socketRecvBufSize = 0;
 
-            inputQueueBlockSize    = (32 * 1024);
-            inputQueueCacheMaxSize = 0; /* by default = (threadPoolThreads*3) */
-            outputQueueBlockSize   = (16 * 1024);
+            inputQueueBlockSize        = (32 * 1024);
+            inputQueueCacheInitialSize = 0;
+            inputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
+            outputQueueBlockSize       = (16 * 1024);
         }
     }
 
@@ -358,7 +360,10 @@ public class Collider
             if (inputQueueDataBlockCache == null)
             {
                 inputQueueDataBlockCache = new InputQueue.DataBlockCache(
-                        m_config.useDirectBuffers, inputQueueBlockSize, m_config.inputQueueCacheMaxSize );
+                        m_config.useDirectBuffers,
+                        inputQueueBlockSize,
+                        m_config.inputQueueCacheInitialSize,
+                        m_config.inputQueueCacheMaxSize );
                 m_inputQueueDataBlockCache.put( inputQueueBlockSize, inputQueueDataBlockCache );
             }
         }

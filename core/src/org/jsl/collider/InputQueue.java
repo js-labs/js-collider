@@ -68,7 +68,7 @@ public class InputQueue extends ThreadPool.Runnable
         private final AtomicReference<DataBlock> m_top;
         private final ThreadLocal<DataBlock> m_tls;
 
-        public DataBlockCache( boolean useDirectBuffers, int blockSize, int maxSize )
+        public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
         {
             m_useDirectBuffers = useDirectBuffers;
             m_blockSize = blockSize;
@@ -76,6 +76,13 @@ public class InputQueue extends ThreadPool.Runnable
             m_size = new AtomicInteger();
             m_top = new AtomicReference<DataBlock>();
             m_tls = new ThreadLocal<DataBlock>();
+
+            for (int idx=0; idx<initialSize; idx++)
+            {
+                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
+                dataBlock.next = m_top.get();
+                m_top.set( dataBlock );
+            }
         }
 
         public final int getBlockSize()
@@ -149,6 +156,16 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
+    private class Starter extends Collider.SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            int interestOps = m_selectionKey.interestOps();
+            assert( (interestOps & SelectionKey.OP_READ) == 0 );
+            m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+        }
+    }
+
     private class Stopper extends Collider.SelectorThreadRunnable implements Runnable
     {
         public void runInSelectorThread()
@@ -185,17 +202,6 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
-    private class SelectorRegistrator extends Collider.SelectorThreadRunnable
-    {
-        public void runInSelectorThread()
-        {
-            int interestOps = m_selectionKey.interestOps();
-            assert( (interestOps & SelectionKey.OP_READ) == 0 );
-            //System.out.println( getPT() + " runInSelectorThread()" );
-            m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
-        }
-    }
-
     private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
     {
         protected ByteBuffer [] initialValue() { return new ByteBuffer[2]; }
@@ -213,7 +219,7 @@ public class InputQueue extends ThreadPool.Runnable
     private final SelectionKey m_selectionKey;
     private final Session.Listener m_listener;
 
-    private final SelectorRegistrator m_selectorRegistrator;
+    private final Starter m_starter;
     private final AtomicLong m_state;
     private boolean m_speculativeRead;
     private DataBlock m_tail;
@@ -302,8 +308,14 @@ public class InputQueue extends ThreadPool.Runnable
         }
 
         if ((state & CLOSED) != 0)
+        {
             m_listener.onConnectionClosed();
+            printStats();
+        }
     }
+
+    private int m_statReads;
+    private int m_statHandleData;
 
     public InputQueue(
             Collider collider,
@@ -320,27 +332,16 @@ public class InputQueue extends ThreadPool.Runnable
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
         m_listener = listener;
-        m_selectorRegistrator = new SelectorRegistrator();
+        m_starter = new Starter();
         m_state = new AtomicLong();
         m_tail = null;
     }
 
-    private long m_pt = 0;
-
-    private long getPT()
+    private void printStats()
     {
-        long ret;
-        if (m_pt == 0)
-        {
-            m_pt = System.nanoTime();
-            ret = 0;
-        }
-        else
-        {
-            ret = System.nanoTime();
-            ret -= m_pt;
-        }
-        return (ret / 1000);
+        System.out.println( m_session.getRemoteAddress() + ":" +
+                " reads=" + m_statReads +
+                " handleData=" + m_statHandleData );
     }
 
     public void runInThreadPool()
@@ -385,16 +386,8 @@ public class InputQueue extends ThreadPool.Runnable
         {
             dataBlock0 = m_tail;
             pos0 = dataBlock0.ww.position();
-
             space = (m_blockSize - pos0);
-            if (space > m_blockSize/2)
-            {
-                prev = null;
-                dataBlock1 = null;
-                iov[0] = dataBlock0.ww;
-                iovc = 1;
-            }
-            else if (space > 0)
+            if (space > 0)
             {
                 prev = null;
                 dataBlock1 = m_dataBlockCache.get();
@@ -407,30 +400,42 @@ public class InputQueue extends ThreadPool.Runnable
             {
                 prev = dataBlock0;
                 dataBlock0 = m_dataBlockCache.get();
-                dataBlock1 = null;
+                dataBlock1 = m_dataBlockCache.get();
                 pos0 = 0;
                 iov[0] = dataBlock0.ww;
-                iovc = 1;
-                space = m_blockSize;
+                iov[1] = dataBlock1.ww;
+                iovc = 2;
+                space = m_blockSize * 2;
             }
         }
         else
         {
             prev = null;
             dataBlock0 = m_dataBlockCache.get();
-            dataBlock1 = null;
+            dataBlock1 = m_dataBlockCache.get();
             pos0 = 0;
             iov[0] = dataBlock0.ww;
-            iovc = 1;
-            space = m_blockSize;
+            iov[1] = dataBlock1.ww;
+            iovc = 2;
+            space = m_blockSize * 2;
         }
 
         long bytesReceived;
         try
         {
             //System.out.println( getPT() + " iov[0]=" + iov[0] + " iov[1]=" + iov[1] );
+            //long startTime = System.nanoTime();
             bytesReceived = m_socketChannel.read( iov, 0, iovc );
-            assert( bytesReceived != 0 );
+            //long endTime = System.nanoTime();
+            /*
+            System.out.println( m_session.getRemoteAddress() +
+                                ": " +
+                                //+ Util.formatDelay(startTime, endTime) +
+                                " space=" + space +
+                                " bytesReceived=" + bytesReceived +
+                                " SR=" + m_speculativeRead );
+            */
+            m_statReads++;
         }
         catch (Exception ignored) { bytesReceived = 0; }
 
@@ -482,13 +487,6 @@ public class InputQueue extends ThreadPool.Runnable
                 state = m_state.get();
             }
 
-            /*
-            System.out.println( getPT() + " space=" + space
-                    + " bytesReceived=" + bytesReceived +
-                    (m_speculativeRead ? " SR" : "") +
-                    " length=" + (state & LENGTH_MASK) );
-            */
-
             if (bytesReceived == space)
             {
                 m_speculativeRead = true;
@@ -497,11 +495,20 @@ public class InputQueue extends ThreadPool.Runnable
             else
             {
                 m_speculativeRead = false;
-                m_collider.executeInSelectorThread( m_selectorRegistrator );
+                m_collider.executeInSelectorThread( m_starter );
             }
+
+            /*
+            System.out.println( m_session.getRemoteAddress() +
+                    " space=" + space +
+                    " bytesReceived=" + bytesReceived +
+                    " length=" + (state & LENGTH_MASK) +
+                    (m_speculativeRead ? " SR" : "") );
+            */
 
             if ((state & LENGTH_MASK) == bytesReceived)
             {
+                m_statHandleData++;
                 handleData( dataBlock0, state );
                 if (prev != null)
                     prev.next = null;
@@ -513,38 +520,62 @@ public class InputQueue extends ThreadPool.Runnable
                 m_dataBlockCache.put( dataBlock1 );
             }
         }
-        else if (m_speculativeRead)
-        {
-            m_speculativeRead = false;
-            m_collider.executeInSelectorThread( m_selectorRegistrator );
-        }
         else
         {
-            m_session.onReaderStopped();
-
-            for (;;)
+            if (m_speculativeRead)
             {
-                long newState = state;
-                newState |= CLOSED;
-
                 if (tailLock > 0)
                 {
-                    assert( (newState & TAIL_LOCK) != 0 );
-                    newState -= TAIL_LOCK;
+                    for (;;)
+                    {
+                        assert( (state & TAIL_LOCK) != 0 );
+                        long newState = (state - TAIL_LOCK);
+                        if (m_state.compareAndSet(state, newState))
+                            break;
+                        state = m_state.get();
+                    }
+                }
+                m_speculativeRead = false;
+                m_collider.executeInSelectorThread( m_starter );
+            }
+            else
+            {
+                m_session.onReaderStopped();
+
+                for (;;)
+                {
+                    long newState = state;
+                    newState |= CLOSED;
+
+                    if (tailLock > 0)
+                    {
+                        assert( (newState & TAIL_LOCK) != 0 );
+                        newState -= TAIL_LOCK;
+                    }
+
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        state = newState;
+                        break;
+                    }
+
+                    state = m_state.get();
                 }
 
-                if (m_state.compareAndSet(state, newState))
-                    break;
-
-                state = m_state.get();
+                if ((state & LENGTH_MASK) == 0)
+                {
+                    m_listener.onConnectionClosed();
+                    printStats();
+                    if (tailLock > 0)
+                        m_tail = null;
+                }
             }
 
-            if ((state & LENGTH_MASK) == 0)
-            {
-                m_listener.onConnectionClosed();
-                if (tailLock > 0)
-                    m_tail = null;
-            }
+            if (prev != null)
+                m_dataBlockCache.put( dataBlock0 );
+
+            if (dataBlock1 != null)
+                m_dataBlockCache.put( dataBlock1 );
         }
 
         iov[0] = null;
@@ -553,7 +584,7 @@ public class InputQueue extends ThreadPool.Runnable
 
     public final void start()
     {
-        m_collider.executeInSelectorThread( m_selectorRegistrator );
+        m_collider.executeInSelectorThread( m_starter );
     }
 
     public final void stop()
