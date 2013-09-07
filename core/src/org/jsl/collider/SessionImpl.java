@@ -234,7 +234,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         return true;
     }
 
-    public SocketChannel register( Selector selector )
+    public final SocketChannel register( Selector selector )
     {
         try
         {
