@@ -19,7 +19,7 @@
 
 package org.jsl.collider;
 
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -127,29 +127,27 @@ public class ThreadPool
     private Runnable getNext( int rqIdx )
     {
         rqIdx *= 2;
-        AtomicReference<Runnable> rqh = m_rq[rqIdx];
-        Runnable head = rqh.get();
+        Runnable head = m_rq.get( rqIdx );
         for (;;)
         {
             if (head == null)
                 return null;
 
             Runnable next = head.nextThreadPoolRunnable;
-            if (rqh.compareAndSet(head, next))
+            if (m_rq.compareAndSet(rqIdx, head, next))
             {
                 if (next == null)
                 {
-                    AtomicReference<Runnable> rqt = m_rq[rqIdx+1];
-                    if (!rqt.compareAndSet(head, null))
+                    if (!m_rq.compareAndSet(rqIdx+1, head, null))
                     {
                         while (head.nextThreadPoolRunnable == null);
-                        rqh.set( head.nextThreadPoolRunnable );
+                        m_rq.set( rqIdx, head.nextThreadPoolRunnable );
                     }
                 }
                 head.nextThreadPoolRunnable = null;
                 return head;
             }
-            head = rqh.get();
+            head = m_rq.get( rqIdx );
         }
     }
 
@@ -158,7 +156,7 @@ public class ThreadPool
     private final int m_contentionFactor;
     private final Sync m_sync;
     private final Thread [] m_thread;
-    private final AtomicReference<Runnable> [] m_rq;
+    private final AtomicReferenceArray<Runnable> m_rq;
     private final ThreadLocal<Tls> m_tls;
     private volatile boolean m_run;
 
@@ -178,11 +176,7 @@ public class ThreadPool
             m_thread[idx] = new Worker( workerName );
         }
 
-        int cc = (contentionFactor * 2);
-        m_rq = new AtomicReference[cc];
-        for (int idx=0; idx<cc; idx++)
-            m_rq[idx] = new AtomicReference<Runnable>();
-
+        m_rq = new AtomicReferenceArray<Runnable>( contentionFactor * 2 );
         m_tls = new ThreadLocal<Tls>() { protected Tls initialValue() { return new Tls(); } };
         m_run = true;
     }
@@ -219,9 +213,9 @@ public class ThreadPool
         int idx = (m_tls.get().getNext() % m_contentionFactor);
         idx *= 2;
 
-        Runnable tail = m_rq[idx+1].getAndSet( runnable );
+        Runnable tail = m_rq.getAndSet( idx+1, runnable );
         if (tail == null)
-            m_rq[idx].set( runnable );
+            m_rq.set( idx, runnable );
         else
             tail.nextThreadPoolRunnable = runnable;
 
