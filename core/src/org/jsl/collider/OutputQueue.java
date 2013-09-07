@@ -20,7 +20,9 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 public class OutputQueue
@@ -41,6 +43,118 @@ public class OutputQueue
             rw = buf.duplicate();
             rw.limit(0);
         }
+
+        public final DataBlock reset()
+        {
+            DataBlock dataBlock = next;
+            next = null;
+            rw.clear();
+            rw.limit();
+            return dataBlock;
+        }
+    }
+
+    public static class DataBlockCache
+    {
+        private final boolean m_useDirectBuffers;
+        private final int m_blockSize;
+        private final int m_maxSize;
+        private final AtomicInteger m_size;
+        private final AtomicReference<DataBlock> m_top;
+        private final ThreadLocal<DataBlock> m_tls;
+
+        public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
+        {
+            m_useDirectBuffers = useDirectBuffers;
+
+            long maxBlockSize = (START_MASK >> OFFS_WIDTH);
+            if (blockSize > maxBlockSize)
+                m_blockSize = (int) maxBlockSize;
+            else
+                m_blockSize = blockSize;
+
+            m_maxSize = maxSize;
+            m_size = new AtomicInteger();
+            m_top = new AtomicReference<DataBlock>();
+            m_tls = new ThreadLocal<DataBlock>();
+
+            for (int idx=0; idx<initialSize; idx++)
+            {
+                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
+                dataBlock.next = m_top.get();
+                m_top.set( dataBlock );
+            }
+        }
+
+        public final int getBlockSize()
+        {
+            return m_blockSize;
+        }
+
+        public final void put( DataBlock dataBlock )
+        {
+            assert( dataBlock.next == null );
+
+            if (m_tls.get() == null)
+                m_tls.set( dataBlock );
+            else
+            {
+                int size = m_size.get();
+                for (;;)
+                {
+                    if (size >= m_maxSize)
+                        return;
+
+                    int newSize = (size + 1);
+                    if (m_size.compareAndSet(size, newSize))
+                        break;
+                    size = m_size.get();
+                }
+
+                DataBlock top = m_top.get();
+                for (;;)
+                {
+                    dataBlock.next = top;
+                    if (m_top.compareAndSet(top, dataBlock))
+                        break;
+                    top = m_top.get();
+                }
+            }
+        }
+
+        public final DataBlock get()
+        {
+            DataBlock dataBlock = m_tls.get();
+            if (dataBlock != null)
+            {
+                m_tls.set( null );
+                return dataBlock;
+            }
+
+            DataBlock top = m_top.get();
+            for (;;)
+            {
+                if (top == null)
+                    return new DataBlock( m_useDirectBuffers, m_blockSize );
+
+                DataBlock next = top.next;
+                if (m_top.compareAndSet(top, next))
+                    break;
+                top = m_top.get();
+            }
+            top.next = null;
+
+            int size = m_size.get();
+            for (;;)
+            {
+                int newSize = (size - 1);
+                if (m_size.compareAndSet(size, newSize))
+                    break;
+                size = m_size.get();
+            }
+
+            return top;
+        }
     }
 
     private static final int OFFS_WIDTH    = 36;
@@ -50,9 +164,8 @@ public class OutputQueue
     private static final long START_MASK   = (((1L << START_WIDTH) -1) << OFFS_WIDTH);
     private static final long WRITERS_MASK = (((1L << WRITERS_WIDTH) - 1) << (START_WIDTH + OFFS_WIDTH));
 
-    private boolean m_useDirectBuffers;
-    private int m_blockSize;
-
+    private final DataBlockCache m_dataBlockCache;
+    private final int m_blockSize;
     private final AtomicLong m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
@@ -76,7 +189,7 @@ public class OutputQueue
         ByteBuffer ww = null;
         try
         {
-            head = new DataBlock( m_useDirectBuffers, m_blockSize );
+            head = m_dataBlockCache.get();
             tail = head;
             for (;;)
             {
@@ -93,7 +206,7 @@ public class OutputQueue
                 ww.put( data );
                 bytesRest -= m_blockSize;
 
-                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
+                DataBlock dataBlock = m_dataBlockCache.get();
                 tail.next = dataBlock;
                 tail = dataBlock;
             }
@@ -132,17 +245,12 @@ public class OutputQueue
         return dataSize;
     }
 
-    public OutputQueue( boolean useDirectBuffers, int blockSize )
+    public OutputQueue( DataBlockCache dataBlockCache )
     {
-        m_useDirectBuffers = useDirectBuffers;
-        long maxBlockSize = (START_MASK >> OFFS_WIDTH);
-        if (blockSize > maxBlockSize)
-            m_blockSize = (int) maxBlockSize;
-        else
-            m_blockSize = blockSize;
-
+        m_dataBlockCache = dataBlockCache;
+        m_blockSize = dataBlockCache.getBlockSize();
         m_state = new AtomicLong();
-        m_head = new DataBlock( m_useDirectBuffers, m_blockSize );
+        m_head = dataBlockCache.get();
         m_tail = m_head;
         m_ww = new ByteBuffer[WRITERS_WIDTH];
 
@@ -375,8 +483,8 @@ public class OutputQueue
             assert( dataBlock.next != null );
 
             bytesRest -= rwb;
-            m_head = dataBlock.next;
-            dataBlock.next = null;
+            m_head = dataBlock.reset();
+            m_dataBlockCache.put( dataBlock );
             pos = 0;
         }
     }

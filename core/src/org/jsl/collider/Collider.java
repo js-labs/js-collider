@@ -52,6 +52,8 @@ public class Collider
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
         public int outputQueueBlockSize;
+        public int outputQueueCacheInitialSize;
+        public int outputQueueCacheMaxSize;
 
         public Config()
         {
@@ -63,10 +65,12 @@ public class Collider
             socketSendBufSize = 0;
             socketRecvBufSize = 0;
 
-            inputQueueBlockSize        = (32 * 1024);
-            inputQueueCacheInitialSize = 0;
-            inputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
-            outputQueueBlockSize       = (16 * 1024);
+            inputQueueBlockSize         = (32 * 1024);
+            inputQueueCacheInitialSize  = 0;
+            inputQueueCacheMaxSize      = 0; /* by default = (threadPoolThreads*3) */
+            outputQueueBlockSize        = (16 * 1024);
+            outputQueueCacheInitialSize = 0;
+            outputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
         }
     }
 
@@ -186,6 +190,7 @@ public class Collider
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<Integer, InputQueue.DataBlockCache> m_inputQueueDataBlockCache;
+    private final Map<Integer, OutputQueue.DataBlockCache> m_outputQueueDataBlockCache;
     private boolean m_stop;
 
     private volatile SelectorThreadRunnable m_strHead;
@@ -217,6 +222,7 @@ public class Collider
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
         m_inputQueueDataBlockCache = new HashMap<Integer, InputQueue.DataBlockCache>();
+        m_outputQueueDataBlockCache = new HashMap<Integer, OutputQueue.DataBlockCache>();
         m_stop = false;
 
         m_strHead = null;
@@ -352,7 +358,16 @@ public class Collider
             assert( inputQueueBlockSize > 0 );
         }
 
+        int outputQueueBlockSize = acceptor.outputQueueBlockSize;
+        if (outputQueueBlockSize == 0)
+        {
+            outputQueueBlockSize = m_config.outputQueueBlockSize;
+            assert( outputQueueBlockSize > 0 );
+        }
+
         InputQueue.DataBlockCache inputQueueDataBlockCache;
+        OutputQueue.DataBlockCache outputQueueDataBlockCache;
+
         m_lock.lock();
         try
         {
@@ -365,6 +380,17 @@ public class Collider
                         m_config.inputQueueCacheInitialSize,
                         m_config.inputQueueCacheMaxSize );
                 m_inputQueueDataBlockCache.put( inputQueueBlockSize, inputQueueDataBlockCache );
+            }
+
+            outputQueueDataBlockCache = m_outputQueueDataBlockCache.get( outputQueueBlockSize );
+            if (outputQueueDataBlockCache == null)
+            {
+                outputQueueDataBlockCache = new OutputQueue.DataBlockCache(
+                        m_config.useDirectBuffers,
+                        outputQueueBlockSize,
+                        m_config.outputQueueCacheInitialSize,
+                        m_config.outputQueueCacheMaxSize );
+                m_outputQueueDataBlockCache.put( outputQueueBlockSize, outputQueueDataBlockCache );
             }
         }
         finally
@@ -386,7 +412,14 @@ public class Collider
             return;
         }
 
-        AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, inputQueueDataBlockCache, acceptor, channel );
+        AcceptorImpl acceptorImpl = new AcceptorImpl(
+                this,
+                m_selector,
+                inputQueueDataBlockCache,
+                outputQueueDataBlockCache,
+                acceptor,
+                channel );
+
         String errorMessage = null;
 
         m_lock.lock();
