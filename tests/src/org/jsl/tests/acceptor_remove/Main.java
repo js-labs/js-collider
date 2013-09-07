@@ -40,8 +40,18 @@ public class Main
     private static class ServerSessionListener implements Session.Listener
     {
         private Session m_session;
-        public ServerSessionListener( Session session ) { m_session = session; }
-        public void onDataReceived( ByteBuffer data ) { m_session.sendData( data ); }
+
+        public ServerSessionListener( Session session )
+        {
+            m_session = session;
+        }
+
+        public void onDataReceived( ByteBuffer data )
+        {
+            final int bytesReceived = data.remaining();
+            m_session.sendData( data );
+        }
+
         public void onConnectionClosed() { }
     }
 
@@ -55,7 +65,8 @@ public class Main
         public void onAcceptorStarted( int localPort )
         {
             System.out.println( "Acceptor1 listening port " + localPort );
-            m_collider.removeAcceptor( this );
+            try { m_collider.removeAcceptor( this ); }
+            catch (InterruptedException ignored) {}
         }
 
         public Session.Listener createSessionListener( Session session )
@@ -123,6 +134,7 @@ public class Main
             m_scheduler.schedule( new Timer(), 1, TimeUnit.SECONDS );
             m_collider.addAcceptor( new TestAcceptor1() );
             m_collider.run();
+            m_scheduler.shutdownNow();
         }
         catch (IOException ex)
         {
