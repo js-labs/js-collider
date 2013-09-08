@@ -85,30 +85,9 @@ public class Collider
         abstract public void runInSelectorThread();
     }
 
-    private class Stopper extends SelectorThreadRunnable implements Runnable
+    private class Stopper1 extends ThreadPool.Runnable
     {
-        public void runInSelectorThread()
-        {
-            Set<SelectionKey> keys = m_selector.keys();
-            for (SelectionKey key : keys)
-            {
-                Object attachment = key.attachment();
-                if (attachment instanceof SessionImpl)
-                    ((SessionImpl)attachment).closeConnection();
-                /*
-                 * else if (attachment instanceof AcceptorImpl)
-                 * {
-                 *     Can happen, canceled SelectionKey is not removed from the
-                 *     Selector right at the SelectionKey.cancel() call,
-                 *     but will present in the keys set till the next
-                 *     Selector.select() call.
-                 * }
-                 */
-            }
-            m_state = ST_STOPPING;
-        }
-
-        public void run()
+        public void runInThreadPool()
         {
             SessionEmitter [] emitters = null;
             m_lock.lock();
@@ -154,7 +133,31 @@ public class Collider
                 }
             }
 
-            executeInSelectorThread( this );
+            executeInSelectorThread( new Stopper2() );
+        }
+    }
+
+    private class Stopper2 extends SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            Set<SelectionKey> keys = m_selector.keys();
+            for (SelectionKey key : keys)
+            {
+                Object attachment = key.attachment();
+                if (attachment instanceof SessionImpl)
+                    ((SessionImpl)attachment).closeConnection();
+                /*
+                 * else if (attachment instanceof AcceptorImpl)
+                 * {
+                 *     Can happen, canceled SelectionKey is not removed from the
+                 *     Selector right at the SelectionKey.cancel() call,
+                 *     but will present in the keys set till the next
+                 *     Selector.select() call.
+                 * }
+                 */
+            }
+            m_state = ST_STOPPING;
         }
     }
 
@@ -237,7 +240,7 @@ public class Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider started." );
+            s_logger.fine( "Starting collider." );
 
         m_threadPool.start();
         for (;;)
@@ -309,7 +312,7 @@ public class Collider
     public void stop()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider.stop() called." );
+            s_logger.fine( "Stopping collider." );
 
         m_lock.lock();
         try
@@ -323,7 +326,7 @@ public class Collider
             m_lock.unlock();
         }
 
-        executeInThreadPool( new Stopper() );
+        executeInThreadPool( new Stopper1() );
     }
 
     public void executeInSelectorThread( SelectorThreadRunnable runnable )
