@@ -220,6 +220,9 @@ public class Collider
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
 
+        if (config.outputQueueCacheMaxSize == 0)
+            config.outputQueueCacheMaxSize = (threadPoolThreads * 3);
+
         m_state = ST_RUNNING;
 
         m_lock = new ReentrantLock();
@@ -240,7 +243,7 @@ public class Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Starting collider." );
+            s_logger.fine( "starting." );
 
         m_threadPool.start();
         for (;;)
@@ -306,13 +309,13 @@ public class Collider
         }
 
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider stopped." );
+            s_logger.fine( "stopped." );
     }
 
     public void stop()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Stopping collider." );
+            s_logger.fine( "stopping..." );
 
         m_lock.lock();
         try
