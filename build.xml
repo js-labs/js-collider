@@ -83,8 +83,4 @@
         <run-test name="acceptor_perf"/>
     </target>
 
-    <target name="test.netty_acceptor_perf" depends="compile_tests">
-        <run-test name="netty_acceptor_perf"/>
-    </target>
-
 </project>
