@@ -27,6 +27,16 @@ import java.util.logging.LogRecord;
 public class LogFormatter extends Formatter
 {
     private static final Calendar s_calendar = Calendar.getInstance();
+    private static final String s_packageName = getPackageName();
+
+    private static String getPackageName()
+    {
+        Class cls = LogFormatter.class;
+        String canonicalName = cls.getCanonicalName();
+        String simpleName = cls.getSimpleName();
+        int length = (canonicalName.length() - simpleName.length());
+        return canonicalName.substring( 0, length );
+    }
 
     public String format( LogRecord logRecord )
     {
@@ -45,10 +55,13 @@ public class LogFormatter extends Formatter
                 logRecord.getThreadID() );
         sb.append( str );
 
-        sb.append( logRecord.getSourceClassName() );
+        String className = logRecord.getSourceClassName();
+        if (className.startsWith(s_packageName))
+            sb.append( className.substring(s_packageName.length()) );
+
         sb.append( "." );
         sb.append( logRecord.getSourceMethodName() );
-        sb.append( " " );
+        sb.append( "(): " );
 
         sb.append( logRecord.getMessage() );
         sb.append( "\n" );

@@ -56,9 +56,11 @@ public class Client implements Runnable
                 socket.setTcpNoDelay( true );
                 socket.getOutputStream().write( msgOut );
                 int rc = socket.getInputStream().read( msgIn );
-                assert( rc == m_messageSize );
-                for (int idx=0; idx<m_messageSize; idx++)
-                    assert( msgIn[idx] == msgOut[idx] );
+                if (rc == m_messageSize)
+                {
+                    for (int idx=0; idx<m_messageSize; idx++)
+                        assert( msgIn[idx] == msgOut[idx] );
+                }
                 socket.close();
             }
             catch (IOException ignored)

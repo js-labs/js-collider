@@ -282,6 +282,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
     private final Collider m_collider;
     private final Selector m_selector;
     private final InputQueue.DataBlockCache m_inputQueueDataBlockCache;
+    private final OutputQueue.DataBlockCache m_outputQueueDataBlockCache;
     private final Acceptor m_acceptor;
 
     private ServerSocketChannel m_channel;
@@ -307,12 +308,14 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             Collider collider,
             Selector selector,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
+            OutputQueue.DataBlockCache outputQueueDataBlockCache,
             Acceptor acceptor,
             ServerSocketChannel channel )
     {
         m_collider = collider;
         m_selector = selector;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
+        m_outputQueueDataBlockCache = outputQueueDataBlockCache;
         m_acceptor = acceptor;
 
         m_channel = channel;
@@ -422,7 +425,7 @@ public class AcceptorImpl extends Collider.SelectorThreadRunnable
             m_pendingOps.incrementAndGet();
             m_acceptor.configureSocketChannel( m_collider, socketChannel );
 
-            SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, socketChannel );
+            SessionImpl sessionImpl = new SessionImpl( m_collider, m_acceptor, socketChannel, m_outputQueueDataBlockCache );
             m_collider.executeInSelectorThread( new SessionStarter(sessionImpl) );
         }
 

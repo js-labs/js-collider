@@ -139,7 +139,11 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             m_collider.executeInSelectorThread( new SelectorDeregistrator() );
     }
 
-    public SessionImpl( Collider collider, SessionEmitter sessionEmitter, SocketChannel socketChannel )
+    public SessionImpl(
+                Collider collider,
+                SessionEmitter sessionEmitter,
+                SocketChannel socketChannel,
+                OutputQueue.DataBlockCache outputQueueDataBlockCache )
     {
         Collider.Config colliderConfig = collider.getConfig();
 
@@ -148,17 +152,15 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             sendBufSize = colliderConfig.socketSendBufSize;
         if (sendBufSize == 0)
             sendBufSize = (64 * 1024);
-        int outputQueueBlockSize = sessionEmitter.outputQueueBlockSize;
-        if (outputQueueBlockSize == 0)
-            outputQueueBlockSize = colliderConfig.outputQueueBlockSize;
-        int sendIovMax = (sendBufSize / outputQueueBlockSize) + 1;
+        int sendIovMax = (sendBufSize / outputQueueDataBlockCache.getBlockSize()) + 1;
 
         m_collider = collider;
         m_socketChannel = socketChannel;
         m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
+
         m_state = new AtomicLong( ST_STARTING );
-        m_outputQueue = new OutputQueue( colliderConfig.useDirectBuffers, outputQueueBlockSize );
+        m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
         m_iov = new ByteBuffer[sendIovMax];
     }
 

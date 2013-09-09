@@ -166,7 +166,7 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
-    private class Stopper extends Collider.SelectorThreadRunnable implements Runnable
+    private class Stopper1 extends Collider.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -179,11 +179,14 @@ public class InputQueue extends ThreadPool.Runnable
             {
                 interestOps &= ~SelectionKey.OP_READ;
                 m_selectionKey.interestOps( interestOps );
-                m_collider.executeInThreadPool( this );
+                m_collider.executeInThreadPool( new Stopper2() );
             }
         }
+    }
 
-        public void run()
+    private class Stopper2 extends ThreadPool.Runnable
+    {
+        public void runInThreadPool()
         {
             m_session.onReaderStopped();
 
@@ -589,6 +592,6 @@ public class InputQueue extends ThreadPool.Runnable
 
     public final void stop()
     {
-        m_collider.executeInSelectorThread( new Stopper() );
+        m_collider.executeInSelectorThread( new Stopper1() );
     }
 }

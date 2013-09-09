@@ -31,6 +31,7 @@ public class Main
     private static final int MESSAGE_MAGIC = 0x1A2B3C4D;
     private final Semaphore m_sema;
     private final AtomicLong m_state;
+    private final OutputQueue.DataBlockCache m_outputQueueDataBlockCache;
     private final OutputQueue m_outputQueue;
     private final Stream m_stream;
     private int m_waitMessages;
@@ -53,7 +54,8 @@ public class Main
     {
         m_sema = new Semaphore(0);
         m_state = new AtomicLong(0);
-        m_outputQueue = new OutputQueue( false, 1000 );
+        m_outputQueueDataBlockCache = new OutputQueue.DataBlockCache( false, 1000, 0, 100 );
+        m_outputQueue = new OutputQueue( m_outputQueueDataBlockCache );
         m_stream = new Stream();
         m_waitMessages = 0;
         m_messages = 0;

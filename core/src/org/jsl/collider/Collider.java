@@ -52,6 +52,8 @@ public class Collider
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
         public int outputQueueBlockSize;
+        public int outputQueueCacheInitialSize;
+        public int outputQueueCacheMaxSize;
 
         public Config()
         {
@@ -63,10 +65,12 @@ public class Collider
             socketSendBufSize = 0;
             socketRecvBufSize = 0;
 
-            inputQueueBlockSize        = (32 * 1024);
-            inputQueueCacheInitialSize = 0;
-            inputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
-            outputQueueBlockSize       = (16 * 1024);
+            inputQueueBlockSize         = (32 * 1024);
+            inputQueueCacheInitialSize  = 0;
+            inputQueueCacheMaxSize      = 0; /* by default = (threadPoolThreads*3) */
+            outputQueueBlockSize        = (16 * 1024);
+            outputQueueCacheInitialSize = 0;
+            outputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
         }
     }
 
@@ -81,30 +85,9 @@ public class Collider
         abstract public void runInSelectorThread();
     }
 
-    private class Stopper extends SelectorThreadRunnable implements Runnable
+    private class Stopper1 extends ThreadPool.Runnable
     {
-        public void runInSelectorThread()
-        {
-            Set<SelectionKey> keys = m_selector.keys();
-            for (SelectionKey key : keys)
-            {
-                Object attachment = key.attachment();
-                if (attachment instanceof SessionImpl)
-                    ((SessionImpl)attachment).closeConnection();
-                /*
-                 * else if (attachment instanceof AcceptorImpl)
-                 * {
-                 *     Can happen, canceled SelectionKey is not removed from the
-                 *     Selector right at the SelectionKey.cancel() call,
-                 *     but will present in the keys set till the next
-                 *     Selector.select() call.
-                 * }
-                 */
-            }
-            m_state = ST_STOPPING;
-        }
-
-        public void run()
+        public void runInThreadPool()
         {
             SessionEmitter [] emitters = null;
             m_lock.lock();
@@ -150,7 +133,31 @@ public class Collider
                 }
             }
 
-            executeInSelectorThread( this );
+            executeInSelectorThread( new Stopper2() );
+        }
+    }
+
+    private class Stopper2 extends SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            Set<SelectionKey> keys = m_selector.keys();
+            for (SelectionKey key : keys)
+            {
+                Object attachment = key.attachment();
+                if (attachment instanceof SessionImpl)
+                    ((SessionImpl)attachment).closeConnection();
+                /*
+                 * else if (attachment instanceof AcceptorImpl)
+                 * {
+                 *     Can happen, canceled SelectionKey is not removed from the
+                 *     Selector right at the SelectionKey.cancel() call,
+                 *     but will present in the keys set till the next
+                 *     Selector.select() call.
+                 * }
+                 */
+            }
+            m_state = ST_STOPPING;
         }
     }
 
@@ -186,6 +193,7 @@ public class Collider
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<Integer, InputQueue.DataBlockCache> m_inputQueueDataBlockCache;
+    private final Map<Integer, OutputQueue.DataBlockCache> m_outputQueueDataBlockCache;
     private boolean m_stop;
 
     private volatile SelectorThreadRunnable m_strHead;
@@ -212,11 +220,15 @@ public class Collider
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
 
+        if (config.outputQueueCacheMaxSize == 0)
+            config.outputQueueCacheMaxSize = (threadPoolThreads * 3);
+
         m_state = ST_RUNNING;
 
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
         m_inputQueueDataBlockCache = new HashMap<Integer, InputQueue.DataBlockCache>();
+        m_outputQueueDataBlockCache = new HashMap<Integer, OutputQueue.DataBlockCache>();
         m_stop = false;
 
         m_strHead = null;
@@ -231,7 +243,7 @@ public class Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider started." );
+            s_logger.fine( "starting." );
 
         m_threadPool.start();
         for (;;)
@@ -297,13 +309,13 @@ public class Collider
         }
 
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider stopped." );
+            s_logger.fine( "stopped." );
     }
 
     public void stop()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "Collider.stop() called." );
+            s_logger.fine( "stopping..." );
 
         m_lock.lock();
         try
@@ -317,7 +329,7 @@ public class Collider
             m_lock.unlock();
         }
 
-        executeInThreadPool( new Stopper() );
+        executeInThreadPool( new Stopper1() );
     }
 
     public void executeInSelectorThread( SelectorThreadRunnable runnable )
@@ -352,7 +364,16 @@ public class Collider
             assert( inputQueueBlockSize > 0 );
         }
 
+        int outputQueueBlockSize = acceptor.outputQueueBlockSize;
+        if (outputQueueBlockSize == 0)
+        {
+            outputQueueBlockSize = m_config.outputQueueBlockSize;
+            assert( outputQueueBlockSize > 0 );
+        }
+
         InputQueue.DataBlockCache inputQueueDataBlockCache;
+        OutputQueue.DataBlockCache outputQueueDataBlockCache;
+
         m_lock.lock();
         try
         {
@@ -365,6 +386,17 @@ public class Collider
                         m_config.inputQueueCacheInitialSize,
                         m_config.inputQueueCacheMaxSize );
                 m_inputQueueDataBlockCache.put( inputQueueBlockSize, inputQueueDataBlockCache );
+            }
+
+            outputQueueDataBlockCache = m_outputQueueDataBlockCache.get( outputQueueBlockSize );
+            if (outputQueueDataBlockCache == null)
+            {
+                outputQueueDataBlockCache = new OutputQueue.DataBlockCache(
+                        m_config.useDirectBuffers,
+                        outputQueueBlockSize,
+                        m_config.outputQueueCacheInitialSize,
+                        m_config.outputQueueCacheMaxSize );
+                m_outputQueueDataBlockCache.put( outputQueueBlockSize, outputQueueDataBlockCache );
             }
         }
         finally
@@ -386,7 +418,14 @@ public class Collider
             return;
         }
 
-        AcceptorImpl acceptorImpl = new AcceptorImpl( this, m_selector, inputQueueDataBlockCache, acceptor, channel );
+        AcceptorImpl acceptorImpl = new AcceptorImpl(
+                this,
+                m_selector,
+                inputQueueDataBlockCache,
+                outputQueueDataBlockCache,
+                acceptor,
+                channel );
+
         String errorMessage = null;
 
         m_lock.lock();
