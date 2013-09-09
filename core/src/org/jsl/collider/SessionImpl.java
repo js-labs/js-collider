@@ -31,8 +31,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
-public class SessionImpl extends Collider.SelectorThreadRunnable
-        implements Session, Collider.ChannelHandler, Runnable
+public class SessionImpl extends ThreadPool.Runnable
+        implements Session, Collider.ChannelHandler
 {
     private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
     private static final long CLOSED        = 0x0000010000000000L;
@@ -50,6 +50,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
     private final SocketAddress m_localSocketAddress;
     private final SocketAddress m_remoteSocketAddress;
 
+    private final Starter m_starter;
     private final AtomicLong m_state;
     private final OutputQueue m_outputQueue;
     private final ByteBuffer [] m_iov;
@@ -81,6 +82,15 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                     s_logger.warning( ex.toString() );
             }
             m_socketChannel = null;
+        }
+    }
+
+    private class Starter extends Collider.SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            int interestOps = m_selectionKey.interestOps();
+            m_selectionKey.interestOps( interestOps | SelectionKey.OP_WRITE );
         }
     }
 
@@ -159,6 +169,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
+        m_starter = new Starter();
         m_state = new AtomicLong( ST_STARTING );
         m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
         m_iov = new ByteBuffer[sendIovMax];
@@ -291,7 +302,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
         }
 
         if ((state & WAIT_WRITE) != 0)
-            m_collider.executeInSelectorThread( this );
+            m_collider.executeInSelectorThread( m_starter );
     }
 
     public void handleReadyOps( Executor executor )
@@ -303,16 +314,10 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
             m_collider.executeInThreadPool( m_inputQueue );
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
-            executor.execute( this );
+            m_collider.executeInThreadPool( this );
     }
 
-    public void runInSelectorThread()
-    {
-        int interestOps = m_selectionKey.interestOps();
-        m_selectionKey.interestOps( interestOps | SelectionKey.OP_WRITE );
-    }
-
-    public void run()
+    public void runInThreadPool()
     {
         long state = m_state.get();
         long bytesReady = (state & LENGTH_MASK);
@@ -352,7 +357,7 @@ public class SessionImpl extends Collider.SelectorThreadRunnable
                     }
                     else
                     {
-                        m_collider.executeInSelectorThread( this );
+                        m_collider.executeInSelectorThread( m_starter );
                         break;
                     }
                     state = m_state.get();

@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ThreadPoolTest extends Test
 {
     private final ThreadPool m_threadPool;
+    private final Semaphore m_semReady;
+    private final Semaphore m_semStart;
     private final Semaphore m_semDone;
     private final AtomicInteger m_state;
     private long m_startTime;
@@ -73,6 +75,10 @@ public class ThreadPoolTest extends Test
                 runnable[idx] = new TestRunnable(idx);
             runnable[events-1] = new TestRunnable( Integer.MIN_VALUE );
 
+            m_semReady.release();
+            try { m_semStart.acquire(); }
+            catch (InterruptedException ignored) {}
+
             long startTime = System.nanoTime();
             for (int idx=0; idx<events; idx++)
                 m_threadPool.execute( runnable[idx] );
@@ -87,6 +93,9 @@ public class ThreadPoolTest extends Test
     {
         super( totalEvents, producers );
         m_threadPool = new ThreadPool( "TTP", workers );
+
+        m_semReady = new Semaphore(0);
+        m_semStart = new Semaphore(0);
         m_semDone = new Semaphore(0);
         m_state = new AtomicInteger();
     }
@@ -106,6 +115,9 @@ public class ThreadPoolTest extends Test
 
         try
         {
+            for (int idx=0; idx<m_producers; idx++)
+                m_semReady.acquire();
+            m_semStart.release( m_producers );
             m_semDone.acquire();
             m_threadPool.stopAndWait();
 
