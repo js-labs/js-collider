@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
 {
-    private AtomicInteger m_requests;
+    private final AtomicInteger m_requests;
     private boolean m_runClient;
     private long m_startTime;
     private int m_expectedRequests;
