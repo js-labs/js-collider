@@ -45,7 +45,7 @@ public class Main
             m_session = session;
         }
 
-        public void onDataReceived(ByteBuffer data)
+        public void onDataReceived( ByteBuffer data )
         {
             int requests = m_requests.incrementAndGet();
             if (requests == 1)
