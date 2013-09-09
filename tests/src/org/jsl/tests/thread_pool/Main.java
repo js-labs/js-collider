@@ -23,7 +23,7 @@ public class Main
 {
     private static final int WORKERS    = 4;
     private static final int PRODUCERS  = 4;
-    private int TOTAL_EVENTS = 4000000;
+    private int TOTAL_EVENTS = 1000000;
 
     private Main()
     {
