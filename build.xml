@@ -71,6 +71,10 @@
         <run-test name="output_queue"/>
     </target>
 
+    <target name="test.session_throughput" depends="compile_tests">
+        <run-test name="session_throughput"/>
+    </target>
+
     <target name="test.sched_latency" depends="compile_tests">
         <run-test name="sched_latency"/>
     </target>
