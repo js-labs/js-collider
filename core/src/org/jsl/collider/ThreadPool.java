@@ -126,7 +126,7 @@ public class ThreadPool
 
     private Runnable getNext( int rqIdx )
     {
-        rqIdx *= 2;
+        rqIdx *= (FS_PADDING * 2);
         Runnable head = m_rq.get( rqIdx );
         for (;;)
         {
@@ -138,9 +138,11 @@ public class ThreadPool
             {
                 if (next == null)
                 {
-                    if (!m_rq.compareAndSet(rqIdx+1, head, null))
+                    rqIdx += FS_PADDING;
+                    if (!m_rq.compareAndSet(rqIdx, head, null))
                     {
                         while (head.nextThreadPoolRunnable == null);
+                        rqIdx -= FS_PADDING;
                         m_rq.set( rqIdx, head.nextThreadPoolRunnable );
                     }
                 }
@@ -153,6 +155,7 @@ public class ThreadPool
 
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
 
+    private static final int FS_PADDING = 8;
     private final int m_contentionFactor;
     private final Sync m_sync;
     private final Thread [] m_thread;
@@ -176,7 +179,7 @@ public class ThreadPool
             m_thread[idx] = new Worker( workerName );
         }
 
-        m_rq = new AtomicReferenceArray<Runnable>( contentionFactor * 2 );
+        m_rq = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING * 2 );
         m_tls = new ThreadLocal<Tls>() { protected Tls initialValue() { return new Tls(); } };
         m_run = true;
     }
@@ -211,11 +214,15 @@ public class ThreadPool
         assert( runnable.nextThreadPoolRunnable == null );
 
         int idx = (m_tls.get().getNext() % m_contentionFactor);
-        idx *= 2;
+        idx *= (FS_PADDING * 2);
+        idx += FS_PADDING;
 
-        Runnable tail = m_rq.getAndSet( idx+1, runnable );
+        Runnable tail = m_rq.getAndSet( idx, runnable );
         if (tail == null)
+        {
+            idx -= FS_PADDING;
             m_rq.set( idx, runnable );
+        }
         else
             tail.nextThreadPoolRunnable = runnable;
 
