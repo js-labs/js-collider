@@ -107,10 +107,9 @@ public class Main
 
     public static void main( String args[] )
     {
-        int sessions = 8;
-        int messages = 1;
+        int sessions = 1;
+        int messages = 50;
         int messageLength = 250;
-
         new Main(sessions, messages, messageLength).run();
     }
 }
