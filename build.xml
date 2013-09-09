@@ -64,7 +64,7 @@
         </javac>
     </target>
 
-    <target name="run_tests" depends="test.output_queue ">
+    <target name="run_tests" depends="test.output_queue, test.sched_latency, test.thread_pool, test.session_latency">
     </target>
 
     <target name="test.output_queue" depends="compile_tests">
@@ -73,6 +73,18 @@
 
     <target name="test.sched_latency" depends="compile_tests">
         <run-test name="sched_latency"/>
+    </target>
+
+    <target name="test.thread_pool" depends="compile_tests">
+        <run-test name="thread_pool"/>
+    </target>
+
+    <target name="test.session_latency" depends="compile_tests">
+        <run-test name="session_latency"/>
+    </target>
+
+    <target name="test.session_throughput" depends="compile_tests">
+        <run-test name="session_throughput"/>
     </target>
 
     <target name="test.acceptor_perf" depends="compile_tests">
