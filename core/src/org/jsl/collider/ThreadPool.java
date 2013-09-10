@@ -96,14 +96,14 @@ public class ThreadPool
             if (s_logger.isLoggable(Level.FINE))
                 s_logger.fine( Thread.currentThread().getName() + ": started." );
 
-            int rqIdx = 0;
+            int idx = 0;
             while (m_run)
             {
                 m_sync.acquireShared(1);
                 int cc = m_contentionFactor;
                 for (;;)
                 {
-                    Runnable runnable = getNext( rqIdx );
+                    Runnable runnable = getNext( idx );
                     if (runnable == null)
                     {
                         if (--cc == 0)
@@ -114,8 +114,8 @@ public class ThreadPool
                         runnable.runInThreadPool();
                         cc = m_contentionFactor;
                     }
-                    rqIdx++;
-                    rqIdx %= m_contentionFactor;
+                    idx++;
+                    idx %= m_contentionFactor;
                 }
             }
 
@@ -124,42 +124,41 @@ public class ThreadPool
         }
     }
 
-    private Runnable getNext( int rqIdx )
+    private Runnable getNext( int idx )
     {
-        rqIdx *= (FS_PADDING * 2);
-        Runnable head = m_rq.get( rqIdx );
+        idx *= FS_PADDING;
+        Runnable head = m_hra.get( idx );
         for (;;)
         {
             if (head == null)
                 return null;
 
             Runnable next = head.nextThreadPoolRunnable;
-            if (m_rq.compareAndSet(rqIdx, head, next))
+            if (m_hra.compareAndSet(idx, head, next))
             {
                 if (next == null)
                 {
-                    rqIdx += FS_PADDING;
-                    if (!m_rq.compareAndSet(rqIdx, head, null))
+                    if (!m_tra.compareAndSet(idx, head, null))
                     {
                         while (head.nextThreadPoolRunnable == null);
-                        rqIdx -= FS_PADDING;
-                        m_rq.set( rqIdx, head.nextThreadPoolRunnable );
+                        m_hra.set( idx, head.nextThreadPoolRunnable );
                     }
                 }
                 head.nextThreadPoolRunnable = null;
                 return head;
             }
-            head = m_rq.get( rqIdx );
+            head = m_hra.get( idx );
         }
     }
 
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
+    private static final int FS_PADDING = 16;
 
-    private static final int FS_PADDING = 8;
     private final int m_contentionFactor;
     private final Sync m_sync;
     private final Thread [] m_thread;
-    private final AtomicReferenceArray<Runnable> m_rq;
+    private final AtomicReferenceArray<Runnable> m_hra;
+    private final AtomicReferenceArray<Runnable> m_tra;
     private final ThreadLocal<Tls> m_tls;
     private volatile boolean m_run;
 
@@ -179,14 +178,15 @@ public class ThreadPool
             m_thread[idx] = new Worker( workerName );
         }
 
-        m_rq = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING * 2 );
+        m_hra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
+        m_tra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
         m_tls = new ThreadLocal<Tls>() { protected Tls initialValue() { return new Tls(); } };
         m_run = true;
     }
 
     public ThreadPool( String name, int threads )
     {
-        this( name, threads, threads*2 );
+        this( name, threads, threads*4 );
     }
 
     public final void start()
@@ -214,15 +214,11 @@ public class ThreadPool
         assert( runnable.nextThreadPoolRunnable == null );
 
         int idx = (m_tls.get().getNext() % m_contentionFactor);
-        idx *= (FS_PADDING * 2);
-        idx += FS_PADDING;
+        idx *= FS_PADDING;
 
-        Runnable tail = m_rq.getAndSet( idx, runnable );
+        Runnable tail = m_tra.getAndSet( idx, runnable );
         if (tail == null)
-        {
-            idx -= FS_PADDING;
-            m_rq.set( idx, runnable );
-        }
+            m_hra.set( idx, runnable );
         else
             tail.nextThreadPoolRunnable = runnable;
 
