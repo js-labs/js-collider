@@ -22,7 +22,6 @@ package org.jsl.tests.acceptor_remove;
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.Random;
@@ -98,7 +97,7 @@ public class Main
         {
             if (--m_maxSessions == 0)
             {
-                //m_collider.removeAcceptor( this );
+                //m_colliderImpl.removeAcceptor( this );
                 m_collider.stop();
                 //m_scheduler.schedule( new Timer(), 1, TimeUnit.SECONDS );
             }
@@ -128,18 +127,11 @@ public class Main
 
     private void run( String[] args )
     {
-        try
-        {
-            m_collider = new Collider();
-            m_scheduler.schedule( new Timer(), 1, TimeUnit.SECONDS );
-            m_collider.addAcceptor( new TestAcceptor1() );
-            m_collider.run();
-            m_scheduler.shutdownNow();
-        }
-        catch (IOException ex)
-        {
-            System.out.println( ex.toString() );
-        }
+        m_collider = Collider.create();
+        m_scheduler.schedule( new Timer(), 1, TimeUnit.SECONDS );
+        m_collider.addAcceptor( new TestAcceptor1() );
+        m_collider.run();
+        m_scheduler.shutdownNow();
     }
 
 

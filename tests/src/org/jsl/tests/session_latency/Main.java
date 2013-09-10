@@ -22,8 +22,6 @@ package org.jsl.tests.session_latency;
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
-
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -92,17 +90,10 @@ public class Main
 
     private void run()
     {
-        try
-        {
-            Collider collider = new Collider();
-            collider.addAcceptor( new TestAcceptor() );
-            collider.run();
-            m_client.stopAndWait();
-        }
-        catch (IOException ex)
-        {
-            ex.printStackTrace();
-        }
+        Collider collider = Collider.create();
+        collider.addAcceptor( new TestAcceptor() );
+        collider.run();
+        m_client.stopAndWait();
     }
 
     public static void main( String args[] )

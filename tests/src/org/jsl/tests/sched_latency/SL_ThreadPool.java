@@ -19,7 +19,6 @@
 
 package org.jsl.tests.sched_latency;
 
-import org.jsl.collider.Collider;
 import org.jsl.collider.ThreadPool;
 import java.util.concurrent.Semaphore;
 

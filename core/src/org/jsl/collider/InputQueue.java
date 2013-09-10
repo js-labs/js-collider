@@ -156,7 +156,7 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
-    private class Starter extends Collider.SelectorThreadRunnable
+    private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -166,7 +166,7 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
-    private class Stopper1 extends Collider.SelectorThreadRunnable
+    private class Stopper1 extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -214,7 +214,7 @@ public class InputQueue extends ThreadPool.Runnable
     private static final long TAIL_LOCK   = 0x0000000100000000L;
     private static final long CLOSED      = 0x0000000200000000L;
 
-    private final Collider m_collider;
+    private final ColliderImpl m_collider;
     private final DataBlockCache m_dataBlockCache;
     private final int m_blockSize;
     private final SessionImpl m_session;
@@ -321,14 +321,14 @@ public class InputQueue extends ThreadPool.Runnable
     private int m_statHandleData;
 
     public InputQueue(
-            Collider collider,
+            ColliderImpl colliderImpl,
             DataBlockCache dataBlockCache,
             SessionImpl session,
             SocketChannel socketChannel,
             SelectionKey selectionKey,
             Session.Listener listener )
     {
-        m_collider = collider;
+        m_collider = colliderImpl;
         m_dataBlockCache = dataBlockCache;
         m_blockSize = dataBlockCache.getBlockSize();
         m_session = session;

@@ -6,7 +6,6 @@ import org.jsl.collider.Session;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -117,17 +116,10 @@ public class Main
 
     private void run()
     {
-        try
-        {
-            Collider collider = new Collider();
-            collider.addAcceptor( new TestAcceptor() );
-            collider.run();
-            m_client.stopAndWait();
-        }
-        catch (IOException ex)
-        {
-            ex.printStackTrace();
-        }
+        Collider collider = Collider.create();
+        collider.addAcceptor( new TestAcceptor() );
+        collider.run();
+        m_client.stopAndWait();
     }
 
     public static void main( String [] args )

@@ -32,7 +32,7 @@ import java.util.logging.Logger;
 
 
 public class SessionImpl extends ThreadPool.Runnable
-        implements Session, Collider.ChannelHandler
+        implements Session, ColliderImpl.ChannelHandler
 {
     private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
     private static final long CLOSED        = 0x0000010000000000L;
@@ -44,7 +44,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
-    private final Collider m_collider;
+    private final ColliderImpl m_collider;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
     private final SocketAddress m_localSocketAddress;
@@ -62,7 +62,7 @@ public class SessionImpl extends ThreadPool.Runnable
         public void onConnectionClosed() { }
     }
 
-    private class SelectorDeregistrator extends Collider.SelectorThreadRunnable
+    private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -85,7 +85,7 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    private class Starter extends Collider.SelectorThreadRunnable
+    private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -150,7 +150,7 @@ public class SessionImpl extends ThreadPool.Runnable
     }
 
     public SessionImpl(
-                Collider collider,
+                ColliderImpl collider,
                 SessionEmitter sessionEmitter,
                 SocketChannel socketChannel,
                 OutputQueue.DataBlockCache outputQueueDataBlockCache )
