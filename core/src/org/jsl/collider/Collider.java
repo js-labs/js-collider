@@ -29,7 +29,6 @@ public abstract class Collider
     {
         public int threadPoolThreads;
         public boolean useDirectBuffers;
-        public int shutdownTimeout;
 
         public int socketSendBufSize;
         public int socketRecvBufSize;
@@ -44,11 +43,9 @@ public abstract class Collider
         {
             threadPoolThreads = 0; /* by default = number of cores */
             useDirectBuffers  = true;
-            shutdownTimeout   = 60;
 
-            /* Use system default settings by default */
-            socketSendBufSize = 0;
-            socketRecvBufSize = 0;
+            socketSendBufSize = 0; /* Use system default settings by default */
+            socketRecvBufSize = 0; /* Use system default settings by default */
 
             inputQueueBlockSize         = (32 * 1024);
             inputQueueCacheInitialSize  = 0;

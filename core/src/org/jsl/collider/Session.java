@@ -35,5 +35,6 @@ public interface Session
     public SocketAddress getRemoteAddress();
 
     public boolean sendData( ByteBuffer data );
+    public boolean sendDataSync( ByteBuffer data );
     public boolean closeConnection();
 }

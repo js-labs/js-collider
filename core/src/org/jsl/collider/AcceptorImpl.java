@@ -22,7 +22,6 @@ package org.jsl.collider;
 import java.io.IOException;
 import java.nio.channels.*;
 import java.util.HashSet;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -30,27 +29,37 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
-public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
-        implements Runnable, ColliderImpl.ChannelHandler, SessionEmitterImpl
+public class AcceptorImpl extends ThreadPool.Runnable
+        implements ColliderImpl.ChannelHandler, SessionEmitterImpl
 {
-    private class SessionStarter extends ColliderImpl.SelectorThreadRunnable implements Runnable
+    private class SessionStarter1 extends ColliderImpl.SelectorThreadRunnable
     {
-        private SessionImpl m_sessionImpl;
-        private SocketChannel m_socketChannel;
+        private final SessionImpl m_sessionImpl;
 
-        public SessionStarter( SessionImpl sessionImpl )
+        public SessionStarter1( SessionImpl sessionImpl )
         {
             m_sessionImpl = sessionImpl;
-            m_socketChannel = null;
         }
 
         public void runInSelectorThread()
         {
-            m_socketChannel = m_sessionImpl.register( m_selector );
-            m_collider.executeInThreadPool( this );
+            SocketChannel socketChannel = m_sessionImpl.register( m_selector );
+            m_collider.executeInThreadPool( new SessionStarter2(m_sessionImpl, socketChannel) );
+        }
+    }
+
+    private class SessionStarter2 extends ThreadPool.Runnable
+    {
+        private final SessionImpl m_sessionImpl;
+        private final SocketChannel m_socketChannel;
+
+        public SessionStarter2( SessionImpl sessionImpl, SocketChannel socketChannel )
+        {
+            m_sessionImpl = sessionImpl;
+            m_socketChannel = socketChannel;
         }
 
-        public void run()
+        public void runInThreadPool()
         {
             if (m_socketChannel == null)
             {
@@ -91,7 +100,6 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
                 }
 
                 m_sessionImpl.initialize( m_inputQueueDataBlockCache, sessionListener );
-                m_sessionImpl = null;
             }
             else
             {
@@ -105,12 +113,11 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
                     if (s_logger.isLoggable(Level.WARNING))
                         s_logger.warning( ex.toString() );
                 }
-                m_socketChannel = null;
             }
         }
     }
 
-    private class ErrorNotifier implements Runnable
+    private class ErrorNotifier extends ThreadPool.Runnable
     {
         private final IOException m_exception;
 
@@ -119,7 +126,7 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
             m_exception = exception;
         }
 
-        public void run()
+        public void runInThreadPool()
         {
             Thread currentThread = Thread.currentThread();
 
@@ -171,22 +178,25 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
         }
     }
 
-    private class Starter extends ColliderImpl.SelectorThreadRunnable implements Runnable
+    private class Starter1 extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
             try
             {
                 m_selectionKey = m_channel.register( m_selector, 0, AcceptorImpl.this );
-                m_collider.executeInThreadPool( this );
+                m_collider.executeInThreadPool( new Starter2() );
             }
             catch (IOException ex)
             {
                 m_collider.executeInThreadPool( new ErrorNotifier(ex) );
             }
         }
+    }
 
-        public void run()
+    private class Starter2 extends ThreadPool.Runnable
+    {
+        public void runInThreadPool()
         {
             Thread currentThread = Thread.currentThread();
 
@@ -202,7 +212,7 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
 
             m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
 
-            ColliderImpl.SelectorThreadRunnable nextRunnable = AcceptorImpl.this;
+            ColliderImpl.SelectorThreadRunnable nextRunnable = m_selectorRegistrator;
             m_lock.lock();
             try
             {
@@ -229,11 +239,30 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
-            SelectionKey selectionKey = m_selectionKey;
-            if (selectionKey != null)
+            if (m_selectionKey != null)
             {
                 int interestOps = m_selectionKey.interestOps();
                 if ((interestOps & SelectionKey.OP_ACCEPT) != 0)
+                {
+                    pendingOpsDec();
+                    closeSelectionKeyAndChannel();
+                }
+            }
+        }
+    }
+
+    private class SelectorRegistrator extends ColliderImpl.SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+            if (m_selectionKey != null)
+            {
+                assert( (m_selectionKey.interestOps() & SelectionKey.OP_ACCEPT) == 0 );
+                if (m_run)
+                {
+                    m_selectionKey.interestOps( SelectionKey.OP_ACCEPT );
+                }
+                else
                 {
                     pendingOpsDec();
                     closeSelectionKeyAndChannel();
@@ -288,21 +317,13 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
     private ServerSocketChannel m_channel;
     private SelectionKey m_selectionKey;
 
+    private final SelectorRegistrator m_selectorRegistrator;
     private final AtomicInteger m_pendingOps;
     private final ReentrantLock m_lock;
     private final Condition m_cond;
     private final HashSet<Thread> m_callbackThreads;
     private volatile boolean m_run;
     private boolean m_running;
-
-    /*
-    protected void finalize() throws Throwable
-    {
-        if (m_channel != null)
-            s_logger.warning( "ACCEPTOR " + m_acceptor.getAddr() + ": not stopped properly." );
-        super.finalize();
-    }
-    */
 
     public AcceptorImpl(
             ColliderImpl colliderImpl,
@@ -320,6 +341,7 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
 
         m_channel = channel;
 
+        m_selectorRegistrator = new SelectorRegistrator();
         m_pendingOps = new AtomicInteger(1);
         m_lock = new ReentrantLock();
         m_cond = m_lock.newCondition();
@@ -332,7 +354,7 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
     {
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( m_channel.socket().getLocalSocketAddress().toString() );
-        m_collider.executeInSelectorThread( new Starter() );
+        m_collider.executeInSelectorThread( new Starter1() );
     }
 
     public void stop() throws InterruptedException
@@ -367,31 +389,13 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
         }
     }
 
-    public void handleReadyOps( Executor executor )
+    public void handleReadyOps( ThreadPool threadPool )
     {
         m_selectionKey.interestOps( 0 );
-        executor.execute( this );
+        threadPool.execute( this );
     }
 
-    public void runInSelectorThread()
-    {
-        SelectionKey selectionKey = m_selectionKey;
-        if (selectionKey != null)
-        {
-            assert( (selectionKey.interestOps() & SelectionKey.OP_ACCEPT) == 0 );
-            if (m_run)
-            {
-                m_selectionKey.interestOps( SelectionKey.OP_ACCEPT );
-            }
-            else
-            {
-                pendingOpsDec();
-                closeSelectionKeyAndChannel();
-            }
-        }
-    }
-
-    public void run()
+    public void runInThreadPool()
     {
         while (m_run)
         {
@@ -425,9 +429,9 @@ public class AcceptorImpl extends ColliderImpl.SelectorThreadRunnable
             m_acceptor.configureSocketChannel(m_collider, socketChannel );
 
             SessionImpl sessionImpl = new SessionImpl(m_collider, m_acceptor, socketChannel, m_outputQueueDataBlockCache );
-            m_collider.executeInSelectorThread( new SessionStarter(sessionImpl) );
+            m_collider.executeInSelectorThread( new SessionStarter1(sessionImpl) );
         }
 
-        m_collider.executeInSelectorThread( this );
+        m_collider.executeInSelectorThread( m_selectorRegistrator );
     }
 }

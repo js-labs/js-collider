@@ -219,6 +219,12 @@ public class SessionImpl extends ThreadPool.Runnable
         return true;
     }
 
+    public boolean sendDataSync( ByteBuffer data )
+    {
+        assert( false );
+        return false;
+    }
+
     public boolean closeConnection()
     {
         long state = m_state.get();
@@ -305,16 +311,16 @@ public class SessionImpl extends ThreadPool.Runnable
             m_collider.executeInSelectorThread( m_starter );
     }
 
-    public void handleReadyOps( Executor executor )
+    public void handleReadyOps( ThreadPool threadPool )
     {
         int readyOps = m_selectionKey.readyOps();
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
-            m_collider.executeInThreadPool( m_inputQueue );
+            threadPool.execute( m_inputQueue );
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
-            m_collider.executeInThreadPool( this );
+            threadPool.execute( this );
     }
 
     public void runInThreadPool()

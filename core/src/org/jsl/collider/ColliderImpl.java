@@ -28,10 +28,6 @@ import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -42,7 +38,7 @@ public class ColliderImpl extends Collider
 {
     public interface ChannelHandler
     {
-        public void handleReadyOps( Executor executor );
+        public void handleReadyOps( ThreadPool threadPool );
     }
 
     public static abstract class SelectorThreadRunnable
@@ -151,7 +147,6 @@ public class ColliderImpl extends Collider
     private static final Logger s_logger = Logger.getLogger( ColliderImpl.class.getName() );
 
     private final Selector m_selector;
-    private final ExecutorService m_executor;
     private final ThreadPool m_threadPool;
     private int m_state;
 
@@ -175,7 +170,6 @@ public class ColliderImpl extends Collider
             threadPoolThreads = Runtime.getRuntime().availableProcessors();
         if (threadPoolThreads < 4)
             threadPoolThreads = 4;
-        m_executor = Executors.newFixedThreadPool( 2 );
         m_threadPool = new ThreadPool( "CTP", threadPoolThreads );
 
         if (config.inputQueueCacheMaxSize == 0)
@@ -221,7 +215,7 @@ public class ColliderImpl extends Collider
             for (SelectionKey key : selectedKeys)
             {
                 ChannelHandler channelHandler = (ChannelHandler) key.attachment();
-                channelHandler.handleReadyOps( m_executor );
+                channelHandler.handleReadyOps( m_threadPool );
             }
             selectedKeys.clear();
 
@@ -250,13 +244,8 @@ public class ColliderImpl extends Collider
             }
         }
 
-        Config config = getConfig();
-        m_executor.shutdown();
         try
         {
-            if (!m_executor.awaitTermination(config.shutdownTimeout, TimeUnit.SECONDS))
-                m_executor.shutdownNow();
-            m_executor.awaitTermination( config.shutdownTimeout, TimeUnit.SECONDS );
             m_threadPool.stopAndWait();
         }
         catch (InterruptedException ex)
@@ -300,11 +289,6 @@ public class ColliderImpl extends Collider
         }
         else
             tail.nextSelectorThreadRunnable = runnable;
-    }
-
-    public final void executeInThreadPool( Runnable runnable )
-    {
-        m_executor.execute( runnable );
     }
 
     public final void executeInThreadPool( ThreadPool.Runnable runnable )
