@@ -30,7 +30,7 @@ public abstract class SessionEmitter
 {
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
-    private InetSocketAddress m_addr;
+    private final InetSocketAddress m_addr;
 
     public boolean reuseAddr;
     public boolean tcpNoDelay;
@@ -54,7 +54,10 @@ public abstract class SessionEmitter
         outputQueueBlockSize = 0;
     }
 
-    public InetSocketAddress getAddr() { return m_addr; }
+    public InetSocketAddress getAddr()
+    {
+        return m_addr;
+    }
 
     public void configureSocketChannel( Collider collider, SocketChannel socketChannel )
     {
