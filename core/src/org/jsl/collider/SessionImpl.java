@@ -25,7 +25,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -35,12 +34,13 @@ public class SessionImpl extends ThreadPool.Runnable
         implements Session, ColliderImpl.ChannelHandler
 {
     private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
-    private static final long CLOSED        = 0x0000010000000000L;
+    private static final long CLOSE         = 0x0000010000000000L;
     private static final long WAIT_WRITE    = 0x0000020000000000L;
     private static final long STATE_MASK    = 0x0000300000000000L;
     private static final long ST_STARTING   = 0x0000000000000000L;
     private static final long ST_RUNNING    = 0x0000100000000000L;
-    private static final long ST_STOPPED    = 0x0000200000000000L;
+    private static final long SOCK_RC_MASK  = 0x0003000000000000L;
+    private static final long SOCK_RC       = 0x0001000000000000L;
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
@@ -50,7 +50,7 @@ public class SessionImpl extends ThreadPool.Runnable
     private final SocketAddress m_localSocketAddress;
     private final SocketAddress m_remoteSocketAddress;
 
-    private final Starter m_starter;
+    private final SelectorRegistrator m_selectorRegistrator;
     private final AtomicLong m_state;
     private final OutputQueue m_outputQueue;
     private final ByteBuffer [] m_iov;
@@ -67,7 +67,7 @@ public class SessionImpl extends ThreadPool.Runnable
         public void runInSelectorThread()
         {
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString() );
+                s_logger.fine( m_remoteSocketAddress.toString() );
 
             m_selectionKey.cancel();
             m_selectionKey = null;
@@ -79,13 +79,13 @@ public class SessionImpl extends ThreadPool.Runnable
             catch (IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex.toString() );
+                    s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
             }
             m_socketChannel = null;
         }
     }
 
-    private class Starter extends ColliderImpl.SelectorThreadRunnable
+    private class SelectorRegistrator extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -96,42 +96,47 @@ public class SessionImpl extends ThreadPool.Runnable
 
     private static String stateToString( long state )
     {
-        String ret = "(";
-        if ((state & CLOSED) != 0)
-            ret += "CLOSED ";
+        String ret = "[";
+        if ((state & CLOSE) != 0)
+            ret += "CLOSE ";
 
         if ((state & WAIT_WRITE) != 0)
             ret += "WAIT_WRITE ";
 
         long length = (state & LENGTH_MASK);
+        long sockRC = (state & SOCK_RC_MASK);
 
         state &= STATE_MASK;
         if (state == ST_STARTING)
             ret += "STARTING ";
         else if (state == ST_RUNNING)
             ret += "STARTED ";
-        else if (state == ST_STOPPED)
-            ret += "STOPPED ";
         else
-            ret += "???";
+            ret += "??? ";
+
+        sockRC /= SOCK_RC;
+        ret += "RC=" + sockRC + " ";
 
         ret += length;
-        ret += ")";
+        ret += "]";
         return ret;
     }
 
-    public void onReaderStopped()
+    public final void handleReaderStopped()
     {
         long state = m_state.get();
         long newState;
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_RUNNING );
-            newState = state;
+            assert( (state & SOCK_RC_MASK) > 0 );
 
-            newState |= CLOSED;
-            newState &= ~STATE_MASK;
-            newState |= ST_STOPPED;
+            newState = state;
+            newState |= CLOSE;
+            newState -= SOCK_RC;
+
+            if ((state & LENGTH_MASK) == 0)
+                newState -= SOCK_RC;
 
             if (m_state.compareAndSet(state, newState))
                 break;
@@ -139,13 +144,14 @@ public class SessionImpl extends ThreadPool.Runnable
             state = m_state.get();
         }
 
-        if (s_logger.isLoggable(Level.FINE))
+        if (s_logger.isLoggable(Level.FINER))
         {
-            s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                    + ": " + stateToString(state) + " -> " + stateToString(newState) );
+            s_logger.finer(
+                    m_remoteSocketAddress.toString() +
+                    ": " + stateToString(state) + " -> " + stateToString(newState) );
         }
 
-        if ((state & LENGTH_MASK) == 0)
+        if ((newState & SOCK_RC_MASK) == 0)
             m_collider.executeInSelectorThread( new SelectorDeregistrator() );
     }
 
@@ -169,8 +175,8 @@ public class SessionImpl extends ThreadPool.Runnable
         m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
-        m_starter = new Starter();
-        m_state = new AtomicLong( ST_STARTING );
+        m_selectorRegistrator = new SelectorRegistrator();
+        m_state = new AtomicLong( ST_STARTING + SOCK_RC + SOCK_RC );
         m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
         m_iov = new ByteBuffer[sendIovMax];
     }
@@ -182,7 +188,7 @@ public class SessionImpl extends ThreadPool.Runnable
     public boolean sendData( ByteBuffer data )
     {
         long state = m_state.get();
-        if ((state & CLOSED) != 0)
+        if ((state & CLOSE) != 0)
             return false;
 
         long bytesReady = m_outputQueue.addData( data );
@@ -190,9 +196,6 @@ public class SessionImpl extends ThreadPool.Runnable
         {
             for (;;)
             {
-                if ((state & CLOSED) != 0)
-                    return false;
-
                 long newState = (state & LENGTH_MASK);
                 newState += bytesReady;
 
@@ -210,6 +213,8 @@ public class SessionImpl extends ThreadPool.Runnable
                 }
 
                 state = m_state.get();
+                if ((state & CLOSE) != 0)
+                    return false;
             }
 
             if ((state & LENGTH_MASK) == bytesReady)
@@ -228,12 +233,20 @@ public class SessionImpl extends ThreadPool.Runnable
     public boolean closeConnection()
     {
         long state = m_state.get();
+        long newState;
         for (;;)
         {
-            if ((state & CLOSED) != 0)
+            if ((state & CLOSE) != 0)
                 return false;
 
-            long newState = (state | CLOSED);
+            newState = state;
+            newState |= CLOSE;
+
+            if ((state & LENGTH_MASK) == 0)
+            {
+                assert( (newState & SOCK_RC_MASK) != 0 );
+                newState -= SOCK_RC;
+            }
 
             if (m_state.compareAndSet(state, newState))
                 break;
@@ -241,13 +254,16 @@ public class SessionImpl extends ThreadPool.Runnable
             state = m_state.get();
         }
 
-        if (s_logger.isLoggable(Level.FINE))
+        if (s_logger.isLoggable(Level.FINER))
         {
-            s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                           + ": " + stateToString(state) );
+            s_logger.finer(
+                    m_remoteSocketAddress.toString() +
+                    ": " + stateToString(state) + " -> " + stateToString(newState) );
         }
 
-        if ((state & STATE_MASK) == ST_RUNNING)
+        if ((state & SOCK_RC_MASK) == 0)
+            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+        else if ((state & STATE_MASK) == ST_RUNNING)
             m_inputQueue.stop();
 
         return true;
@@ -271,7 +287,7 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    public void initialize( InputQueue.DataBlockCache inputQueueDataBlockCache, Listener listener )
+    public final void initialize( InputQueue.DataBlockCache inputQueueDataBlockCache, Listener listener )
     {
         if (listener == null)
             listener = new DummyListener();
@@ -284,31 +300,49 @@ public class SessionImpl extends ThreadPool.Runnable
                                        listener );
 
         long state = m_state.get();
+        long newState;
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_STARTING );
+            assert( (state & SOCK_RC_MASK) == (SOCK_RC+SOCK_RC) );
 
-            if ((state & CLOSED) != 0)
+            newState = state;
+
+            if ((state & CLOSE) == 0)
             {
-                listener.onConnectionClosed();
-                break;
+                newState &= ~STATE_MASK;
+                newState |= ST_RUNNING;
+                if (m_state.compareAndSet(state, newState))
+                {
+                    m_inputQueue.start();
+                    break;
+                }
             }
-
-            long newState = state;
-            newState &= ~STATE_MASK;
-            newState |= ST_RUNNING;
-
-            if (m_state.compareAndSet(state, newState))
+            else
             {
-                m_inputQueue.start();
-                break;
+                newState -= SOCK_RC;
+                if ((state & WAIT_WRITE) == 0)
+                    newState -= SOCK_RC;
+                if (m_state.compareAndSet(state, newState))
+                {
+                    listener.onConnectionClosed();
+                    if ((newState & SOCK_RC_MASK) == 0)
+                        m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                    break;
+                }
             }
-
             state = m_state.get();
         }
 
+        if (s_logger.isLoggable(Level.FINER))
+        {
+            s_logger.finer(
+                    m_remoteSocketAddress.toString() +
+                    ": " + stateToString(state) + " -> " + stateToString(newState) );
+        }
+
         if ((state & WAIT_WRITE) != 0)
-            m_collider.executeInSelectorThread( m_starter );
+            m_collider.executeInSelectorThread( m_selectorRegistrator );
     }
 
     public void handleReadyOps( ThreadPool threadPool )
@@ -337,7 +371,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
         try
         {
-            long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+            final long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
 
             for (int idx=0; idx<iovc; idx++)
                 m_iov[idx] = null;
@@ -347,65 +381,85 @@ public class SessionImpl extends ThreadPool.Runnable
 
             m_outputQueue.removeData( pos0, bytesSent );
 
-            assert( bytesSent <= (state & STATE_MASK) );
-            state = m_state.addAndGet( -bytesSent );
-
-            if (bytesSent < bytesReady)
+            long newState;
+            for (;;)
             {
-                for (;;)
+                assert( (state & LENGTH_MASK) >= bytesSent );
+                assert( (state & SOCK_RC_MASK) > 0 );
+
+                newState = (state - bytesSent);
+                if ((newState & LENGTH_MASK) == 0)
                 {
-                    if ((state & STATE_MASK) == ST_STARTING)
+                    if ((state & CLOSE) == 0)
                     {
-                        /* SelectionKey is not initialized yet. */
-                        long newState = (state | WAIT_WRITE);
                         if (m_state.compareAndSet(state, newState))
                             break;
                     }
                     else
                     {
-                        m_collider.executeInSelectorThread( m_starter );
+                        newState -= SOCK_RC;
+                        if (m_state.compareAndSet(state, newState))
+                        {
+                            if ((newState & SOCK_RC_MASK) == 0)
+                                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                            break;
+                        }
+                    }
+                }
+                else if ((state & STATE_MASK) != ST_STARTING)
+                {
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        m_collider.executeInThreadPool( this );
                         break;
                     }
-                    state = m_state.get();
                 }
-            }
-            else if ((state & LENGTH_MASK) > 0)
-                m_collider.executeInThreadPool( this );
-            else if ((state & CLOSED) != 0)
-            {
-                if ((state & STATE_MASK) == ST_STOPPED)
-                    m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-            }
-
-            /*
-            if (s_logger.isLoggable(Level.FINE))
-            {
-                s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                        + ": sent " + bytesSent + " bytes, " + stateToString(state) + "." );
-            }
-            */
-        }
-        catch (IOException ex)
-        {
-            for (;;)
-            {
-                long newState = state;
-                newState |= CLOSED;
-                newState &= ~LENGTH_MASK;
-                if (m_state.compareAndSet(state, newState))
-                    break;
+                else /* ((state  & LENGTH_MASK) > 0) && ((state & STATE_MASK) == ST_STARTING) */
+                {
+                    newState |= WAIT_WRITE;
+                    if (m_state.compareAndSet(state, newState))
+                        break;
+                }
                 state = m_state.get();
             }
 
-            if (s_logger.isLoggable(Level.FINE))
+            if (s_logger.isLoggable(Level.FINEST))
             {
-                s_logger.fine( m_socketChannel.socket().getRemoteSocketAddress().toString()
-                        + ": " + ex.toString() + ", " + stateToString(state) + "." );
+                s_logger.finest(
+                        m_remoteSocketAddress.toString() +
+                        ": ready=" + bytesReady + " sent=" + bytesSent +
+                        " " + stateToString(state) + " -> " + stateToString(newState) );
+            }
+        }
+        catch (IOException ex)
+        {
+            long newState;
+            for (;;)
+            {
+                assert( (state & SOCK_RC_MASK) > 0 );
+
+                newState = state;
+                newState |= CLOSE;
+                newState -= SOCK_RC;
+                newState &= ~LENGTH_MASK;
+                if (m_state.compareAndSet(state, newState))
+                {
+                    state = newState;
+                    break;
+                }
+                state = m_state.get();
             }
 
-            if ((state & STATE_MASK) == ST_STOPPED)
+            if (s_logger.isLoggable(Level.FINER))
+            {
+                s_logger.finer(
+                        m_socketChannel.socket().getRemoteSocketAddress().toString() +
+                        ": " + ex.toString() +
+                        " " + stateToString(state) + " -> " + stateToString(newState) + "." );
+            }
+
+            if ((state & SOCK_RC_MASK) == 0)
                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-            /* else { socket channel read listener will be notified soon } */
         }
     }
 }

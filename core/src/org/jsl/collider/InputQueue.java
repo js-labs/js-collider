@@ -25,6 +25,8 @@ import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 public class InputQueue extends ThreadPool.Runnable
@@ -160,9 +162,17 @@ public class InputQueue extends ThreadPool.Runnable
     {
         public void runInSelectorThread()
         {
-            int interestOps = m_selectionKey.interestOps();
-            assert( (interestOps & SelectionKey.OP_READ) == 0 );
-            m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+            if (m_selectionKey != null)
+            {
+                int interestOps = m_selectionKey.interestOps();
+                assert( (interestOps & SelectionKey.OP_READ) == 0 );
+                m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+            }
+            else
+            {
+                m_socketChannel = null;
+                m_collider.executeInThreadPool( new Stopper2() );
+            }
         }
     }
 
@@ -171,14 +181,28 @@ public class InputQueue extends ThreadPool.Runnable
         public void runInSelectorThread()
         {
             int interestOps = m_selectionKey.interestOps();
+
+            if (s_logger.isLoggable(Level.FINER))
+            {
+                s_logger.finer(
+                        m_session.getRemoteAddress().toString() +
+                        ": interestOps=" + interestOps );
+            }
+
             if ((interestOps & SelectionKey.OP_READ) == 0)
             {
-                assert( false );
+                /* 3 possible cases:
+                 * (starter is scheduled) or (thread reading socket) or (socket already failed)
+                 */
+                m_selectionKey = null;
             }
             else
             {
+                /* Simplest case: no thread reading socket */
                 interestOps &= ~SelectionKey.OP_READ;
                 m_selectionKey.interestOps( interestOps );
+                m_socketChannel = null;
+                m_selectionKey = null;
                 m_collider.executeInThreadPool( new Stopper2() );
             }
         }
@@ -188,22 +212,29 @@ public class InputQueue extends ThreadPool.Runnable
     {
         public void runInThreadPool()
         {
-            m_session.onReaderStopped();
+            if (s_logger.isLoggable(Level.FINER))
+                s_logger.finer( m_session.getRemoteAddress().toString() );
+
+            m_session.handleReaderStopped();
 
             long state = m_state.get();
             for (;;)
             {
-                assert( (state & CLOSED) == 0);
+                assert( (state & CLOSED) == 0 );
                 long newState = (state | CLOSED);
                 if (m_state.compareAndSet(state, newState))
+                {
+                    state = newState;
+                    if ((state & LENGTH_MASK) == 0)
+                        m_listener.onConnectionClosed();
                     break;
+                }
                 state = m_state.get();
             }
-
-            if ((state & LENGTH_MASK) == 0)
-                m_listener.onConnectionClosed();
         }
     }
+
+    private static final Logger s_logger = Logger.getLogger( InputQueue.class.getName() );
 
     private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
     {
@@ -218,8 +249,8 @@ public class InputQueue extends ThreadPool.Runnable
     private final DataBlockCache m_dataBlockCache;
     private final int m_blockSize;
     private final SessionImpl m_session;
-    private final SocketChannel m_socketChannel;
-    private final SelectionKey m_selectionKey;
+    private SocketChannel m_socketChannel;
+    private SelectionKey m_selectionKey;
     private final Session.Listener m_listener;
 
     private final Starter m_starter;
@@ -378,12 +409,10 @@ public class InputQueue extends ThreadPool.Runnable
         }
 
         int pos0;
-        int iovc;
         long space;
         DataBlock prev;
         DataBlock dataBlock0;
         DataBlock dataBlock1;
-        ByteBuffer [] iov = s_tlsIov.get();
 
         if (tailLock > 0)
         {
@@ -394,9 +423,6 @@ public class InputQueue extends ThreadPool.Runnable
             {
                 prev = null;
                 dataBlock1 = m_dataBlockCache.get();
-                iov[0] = dataBlock0.ww;
-                iov[1] = dataBlock1.ww;
-                iovc = 2;
                 space += m_blockSize;
             }
             else
@@ -405,9 +431,6 @@ public class InputQueue extends ThreadPool.Runnable
                 dataBlock0 = m_dataBlockCache.get();
                 dataBlock1 = m_dataBlockCache.get();
                 pos0 = 0;
-                iov[0] = dataBlock0.ww;
-                iov[1] = dataBlock1.ww;
-                iovc = 2;
                 space = m_blockSize * 2;
             }
         }
@@ -417,18 +440,19 @@ public class InputQueue extends ThreadPool.Runnable
             dataBlock0 = m_dataBlockCache.get();
             dataBlock1 = m_dataBlockCache.get();
             pos0 = 0;
-            iov[0] = dataBlock0.ww;
-            iov[1] = dataBlock1.ww;
-            iovc = 2;
             space = m_blockSize * 2;
         }
+
+        ByteBuffer [] iov = s_tlsIov.get();
+        iov[0] = dataBlock0.ww;
+        iov[1] = dataBlock1.ww;
 
         long bytesReceived;
         try
         {
             //System.out.println( getPT() + " iov[0]=" + iov[0] + " iov[1]=" + iov[1] );
             //long startTime = System.nanoTime();
-            bytesReceived = m_socketChannel.read( iov, 0, iovc );
+            bytesReceived = m_socketChannel.read( iov, 0, 2 );
             //long endTime = System.nanoTime();
             /*
             System.out.println( m_session.getRemoteAddress() +
@@ -440,7 +464,16 @@ public class InputQueue extends ThreadPool.Runnable
             */
             m_statReads++;
         }
-        catch (Exception ignored) { bytesReceived = 0; }
+        catch (Exception ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+            {
+                s_logger.warning(
+                        m_socketChannel.socket().getRemoteSocketAddress().toString() +
+                        ": " + ex.toString() + "." );
+            }
+            bytesReceived = 0;
+        }
 
         if (bytesReceived > 0)
         {
@@ -459,7 +492,6 @@ public class InputQueue extends ThreadPool.Runnable
 
             if (bytesReceived > (m_blockSize - pos0))
             {
-                assert( dataBlock1 != null );
                 dataBlock0.next = dataBlock1;
                 m_tail = dataBlock1;
                 dataBlock1 = null;
@@ -543,7 +575,10 @@ public class InputQueue extends ThreadPool.Runnable
             }
             else
             {
-                m_session.onReaderStopped();
+                /* Should be called first to be sure sendData()
+                 * will be blocked before onConnectionClose().
+                 */
+                m_session.handleReaderStopped();
 
                 for (;;)
                 {
@@ -568,7 +603,6 @@ public class InputQueue extends ThreadPool.Runnable
                 if ((state & LENGTH_MASK) == 0)
                 {
                     m_listener.onConnectionClosed();
-                    printStats();
                     if (tailLock > 0)
                         m_tail = null;
                 }
