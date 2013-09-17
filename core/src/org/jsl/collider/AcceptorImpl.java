@@ -71,7 +71,7 @@ public class AcceptorImpl extends ThreadPool.Runnable
                 m_lock.lock();
                 try
                 {
-                    m_callbackThreads.add(currentThread);
+                    m_callbackThreads.add( currentThread );
                 }
                 finally
                 {
