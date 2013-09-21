@@ -69,19 +69,7 @@ public class ThreadPool
 
     private static class Tls
     {
-        private int m_idx;
-
-        public Tls()
-        {
-            m_idx = 0;
-        }
-
-        public final int getNext()
-        {
-            if (++m_idx < 0)
-                m_idx = 0;
-            return m_idx;
-        }
+        public int idx;
     }
 
     private class Worker extends Thread
@@ -213,7 +201,8 @@ public class ThreadPool
     {
         assert( runnable.nextThreadPoolRunnable == null );
 
-        int idx = (m_tls.get().getNext() % m_contentionFactor);
+        Tls tls = m_tls.get();
+        int idx = ((tls.idx++) % m_contentionFactor);
         idx *= FS_PADDING;
 
         Runnable tail = m_tra.getAndSet( idx, runnable );
