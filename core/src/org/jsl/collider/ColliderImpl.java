@@ -141,6 +141,13 @@ public class ColliderImpl extends Collider
         emitterImpl.stop();
     }
 
+    private static class DummyRunnable extends SelectorThreadRunnable
+    {
+        public void runInSelectorThread()
+        {
+        }
+    }
+
     private final static int ST_RUNNING = 1;
     private final static int ST_STOPPING = 2;
 
@@ -148,6 +155,7 @@ public class ColliderImpl extends Collider
 
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
+    private final DummyRunnable m_dummyRunnable;
     private int m_state;
 
     private final ReentrantLock m_lock;
@@ -178,6 +186,7 @@ public class ColliderImpl extends Collider
         if (config.outputQueueCacheMaxSize == 0)
             config.outputQueueCacheMaxSize = (threadPoolThreads * 3);
 
+        m_dummyRunnable = new DummyRunnable();
         m_state = ST_RUNNING;
 
         m_lock = new ReentrantLock();
@@ -210,6 +219,10 @@ public class ColliderImpl extends Collider
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( ex.toString() );
             }
+
+            assert( m_dummyRunnable.nextSelectorThreadRunnable == null );
+            if (m_strTail.compareAndSet(null, m_dummyRunnable))
+                m_strHead = m_dummyRunnable;
 
             Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
             for (SelectionKey key : selectedKeys)
