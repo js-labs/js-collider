@@ -136,5 +136,7 @@ public abstract class SessionEmitter
         }
     }
 
+    public void onException( IOException exception ) {}
+
     public abstract Session.Listener createSessionListener( Session session );
 }

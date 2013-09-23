@@ -159,6 +159,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 ColliderImpl collider,
                 SessionEmitter sessionEmitter,
                 SocketChannel socketChannel,
+                SelectionKey selectionKey,
                 OutputQueue.DataBlockCache outputQueueDataBlockCache )
     {
         Collider.Config colliderConfig = collider.getConfig();
@@ -172,6 +173,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
         m_collider = collider;
         m_socketChannel = socketChannel;
+        m_selectionKey = selectionKey;
         m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
@@ -226,7 +228,8 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public boolean sendDataSync( ByteBuffer data )
     {
-        assert( false );
+        try { m_socketChannel.write( data ); }
+        catch (IOException ignored) {}
         return false;
     }
 
@@ -269,26 +272,10 @@ public class SessionImpl extends ThreadPool.Runnable
         return true;
     }
 
-    public final SocketChannel register( Selector selector )
-    {
-        try
-        {
-            m_selectionKey = m_socketChannel.register( selector, 0, this );
-            return null;
-        }
-        catch (IOException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( ex.toString() );
-
-            SocketChannel socketChannel = m_socketChannel;
-            m_socketChannel = null;
-            return socketChannel;
-        }
-    }
-
     public final void initialize( InputQueue.DataBlockCache inputQueueDataBlockCache, Listener listener )
     {
+        m_selectionKey.attach( this );
+
         if (listener == null)
             listener = new DummyListener();
 

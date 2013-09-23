@@ -29,5 +29,4 @@ public abstract class Acceptor extends SessionEmitter
     }
 
     public void onAcceptorStarted( int localPort ) {}
-    public void onAcceptorStartingFailure( String errorText ) {}
 }

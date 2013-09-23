@@ -24,6 +24,7 @@ import java.net.StandardSocketOptions;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
@@ -123,22 +124,110 @@ public class ColliderImpl extends Collider
         }
     }
 
-    private void removeEmitter( SessionEmitter emitter ) throws InterruptedException
+    private InputQueue.DataBlockCache getInputQueueDataBlockCache( final SessionEmitter sessionEmitter )
     {
-        SessionEmitterImpl emitterImpl;
+        final Config config = getConfig();
+
+        int inputQueueBlockSize = sessionEmitter.inputQueueBlockSize;
+        if (inputQueueBlockSize == 0)
+        {
+            inputQueueBlockSize = config.inputQueueBlockSize;
+            assert( inputQueueBlockSize > 0 );
+        }
+
+        InputQueue.DataBlockCache cache = null;
+
         m_lock.lock();
         try
         {
-            emitterImpl = m_emitters.get( emitter );
-            if (emitterImpl == null)
-                return;
-            m_emitters.remove( emitter );
+            cache = m_inputQueueDataBlockCache.get( inputQueueBlockSize );
+            if (cache == null)
+            {
+                cache = new InputQueue.DataBlockCache(
+                    config.useDirectBuffers,
+                    inputQueueBlockSize,
+                    config.inputQueueCacheInitialSize,
+                    config.inputQueueCacheMaxSize );
+                m_inputQueueDataBlockCache.put( inputQueueBlockSize, cache );
+            }
         }
         finally
         {
             m_lock.unlock();
         }
-        emitterImpl.stop();
+
+        return cache;
+    }
+
+    private OutputQueue.DataBlockCache getOutputQueueDataBlockCache( final SessionEmitter sessionEmitter )
+    {
+        final Config config = getConfig();
+
+        int outputQueueBlockSize = sessionEmitter.outputQueueBlockSize;
+        if (outputQueueBlockSize == 0)
+        {
+            outputQueueBlockSize = config.outputQueueBlockSize;
+            assert( outputQueueBlockSize > 0 );
+        }
+
+        OutputQueue.DataBlockCache cache = null;
+
+        m_lock.lock();
+        try
+        {
+            cache = m_outputQueueDataBlockCache.get( outputQueueBlockSize );
+            if (cache == null)
+            {
+                cache = new OutputQueue.DataBlockCache(
+                        config.useDirectBuffers,
+                        outputQueueBlockSize,
+                        config.outputQueueCacheInitialSize,
+                        config.outputQueueCacheMaxSize );
+                m_outputQueueDataBlockCache.put( outputQueueBlockSize, cache );
+            }
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        return cache;
+    }
+
+    private void removeEmitter( SessionEmitter sessionEmitter ) throws InterruptedException
+    {
+        SessionEmitterImpl emitterImpl;
+        m_lock.lock();
+        try
+        {
+            emitterImpl = m_emitters.get( sessionEmitter );
+            if (emitterImpl == null)
+                return;
+            /*
+             * m_emitters.remove( sessionEmitter );
+             * It is better to keep the emitter in the container
+             * allowing collider stop properly later.
+             */
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+        emitterImpl.stopAndWait();
+    }
+
+    public void removeEmitterNoWait( SessionEmitter sessionEmitter )
+    {
+        /* Supposed to be called by emitter itself. */
+        m_lock.lock();
+        try
+        {
+            m_emitters.remove( sessionEmitter );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
     }
 
     private final static int ST_RUNNING = 1;
@@ -196,6 +285,7 @@ public class ColliderImpl extends Collider
             s_logger.fine( "starting." );
 
         m_threadPool.start();
+
         for (;;)
         {
             try
@@ -298,55 +388,6 @@ public class ColliderImpl extends Collider
 
     public void addAcceptor( Acceptor acceptor )
     {
-        final Config config = getConfig();
-
-        int inputQueueBlockSize = acceptor.inputQueueBlockSize;
-        if (inputQueueBlockSize == 0)
-        {
-            inputQueueBlockSize = config.inputQueueBlockSize;
-            assert( inputQueueBlockSize > 0 );
-        }
-
-        int outputQueueBlockSize = acceptor.outputQueueBlockSize;
-        if (outputQueueBlockSize == 0)
-        {
-            outputQueueBlockSize = config.outputQueueBlockSize;
-            assert( outputQueueBlockSize > 0 );
-        }
-
-        InputQueue.DataBlockCache inputQueueDataBlockCache;
-        OutputQueue.DataBlockCache outputQueueDataBlockCache;
-
-        m_lock.lock();
-        try
-        {
-            inputQueueDataBlockCache = m_inputQueueDataBlockCache.get( inputQueueBlockSize );
-            if (inputQueueDataBlockCache == null)
-            {
-                inputQueueDataBlockCache = new InputQueue.DataBlockCache(
-                        config.useDirectBuffers,
-                        inputQueueBlockSize,
-                        config.inputQueueCacheInitialSize,
-                        config.inputQueueCacheMaxSize );
-                m_inputQueueDataBlockCache.put( inputQueueBlockSize, inputQueueDataBlockCache );
-            }
-
-            outputQueueDataBlockCache = m_outputQueueDataBlockCache.get( outputQueueBlockSize );
-            if (outputQueueDataBlockCache == null)
-            {
-                outputQueueDataBlockCache = new OutputQueue.DataBlockCache(
-                        config.useDirectBuffers,
-                        outputQueueBlockSize,
-                        config.outputQueueCacheInitialSize,
-                        config.outputQueueCacheMaxSize );
-                m_outputQueueDataBlockCache.put( outputQueueBlockSize, outputQueueDataBlockCache );
-            }
-        }
-        finally
-        {
-            m_lock.unlock();
-        }
-
         ServerSocketChannel channel;
         try
         {
@@ -357,27 +398,30 @@ public class ColliderImpl extends Collider
         }
         catch (IOException ex)
         {
-            acceptor.onAcceptorStartingFailure( ex.toString() );
+            acceptor.onException(ex);
             return;
         }
 
+        InputQueue.DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( acceptor );
+        OutputQueue.DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( acceptor );
+
         AcceptorImpl acceptorImpl = new AcceptorImpl(
                 this,
+                acceptor,
                 m_selector,
                 inputQueueDataBlockCache,
                 outputQueueDataBlockCache,
-                acceptor,
                 channel );
 
-        String errorMessage = null;
+        IOException ex = null;
 
         m_lock.lock();
         try
         {
             if (m_stop)
-                errorMessage = "Collider stopped.";
+                ex = new IOException( "Collider stopped." );
             else if (m_emitters.containsKey(acceptor))
-                errorMessage = "Acceptor already registered.";
+                ex = new IOException( "Acceptor already registered." );
             else
                 m_emitters.put( acceptor, acceptorImpl );
         }
@@ -386,19 +430,20 @@ public class ColliderImpl extends Collider
             m_lock.unlock();
         }
 
-        if (errorMessage == null)
+        if (ex == null)
             acceptorImpl.start();
         else
         {
-            acceptor.onAcceptorStartingFailure( errorMessage );
+            acceptor.onException(ex);
             try
             {
                 channel.close();
             }
-            catch (IOException ex)
+            catch (IOException ex1)
             {
+                /* Should never happen */
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex.toString() );
+                    s_logger.warning( ex1.toString() );
             }
         }
     }
@@ -410,7 +455,55 @@ public class ColliderImpl extends Collider
 
     public void addConnector( Connector connector )
     {
-        assert( false );
+        SocketChannel socketChannel;
+        boolean connected;
+
+        try
+        {
+            socketChannel = SocketChannel.open();
+            socketChannel.configureBlocking( false );
+            connected = socketChannel.connect( connector.getAddr() );
+        }
+        catch (IOException ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( ex.toString() );
+
+            connector.onException( ex );
+            return;
+        }
+
+        InputQueue.DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( connector );
+        OutputQueue.DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( connector );
+
+        ConnectorImpl connectorImpl = new ConnectorImpl(
+                this,
+                connector,
+                m_selector,
+                inputQueueDataBlockCache,
+                outputQueueDataBlockCache );
+
+        IOException ex = null;
+
+        m_lock.lock();
+        try
+        {
+            if (m_stop)
+                ex = new IOException( "Collider stopped." );
+            else if (m_emitters.containsKey(connector))
+                ex = new IOException( "Connector already registered." );
+            else
+                m_emitters.put( connector, connectorImpl );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        if (ex == null)
+            connectorImpl.start( socketChannel, connected );
+        else
+            connector.onException( ex );
     }
 
     public void removeConnector( Connector connector ) throws InterruptedException
