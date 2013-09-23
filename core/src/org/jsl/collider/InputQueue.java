@@ -66,24 +66,25 @@ public class InputQueue extends ThreadPool.Runnable
         private final boolean m_useDirectBuffers;
         private final int m_blockSize;
         private final int m_maxSize;
-        private final AtomicInteger m_size;
-        private final AtomicReference<DataBlock> m_top;
         private final ThreadLocal<DataBlock> m_tls;
+        private final AtomicInteger m_state;
+        private int m_size;
+        private DataBlock m_top;
 
         public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
         {
             m_useDirectBuffers = useDirectBuffers;
             m_blockSize = blockSize;
             m_maxSize = maxSize;
-            m_size = new AtomicInteger();
-            m_top = new AtomicReference<DataBlock>();
             m_tls = new ThreadLocal<DataBlock>();
+            m_state = new AtomicInteger(0);
+            m_size = initialSize;
 
             for (int idx=0; idx<initialSize; idx++)
             {
                 DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                dataBlock.next = m_top.get();
-                m_top.set( dataBlock );
+                dataBlock.next = m_top;
+                m_top = dataBlock;
             }
         }
 
@@ -100,25 +101,23 @@ public class InputQueue extends ThreadPool.Runnable
                 m_tls.set( dataBlock );
             else
             {
-                int size = m_size.get();
                 for (;;)
                 {
-                    if (size >= m_maxSize)
-                        return;
-
-                    int newSize = (size + 1);
-                    if (m_size.compareAndSet(size, newSize))
+                    if (m_state.compareAndSet(0, 1))
                         break;
-                    size = m_size.get();
                 }
-
-                DataBlock top = m_top.get();
-                for (;;)
+                try
                 {
-                    dataBlock.next = top;
-                    if (m_top.compareAndSet(top, dataBlock))
-                        break;
-                    top = m_top.get();
+                    if (m_size < m_maxSize)
+                    {
+                        m_size++;
+                        dataBlock.next = m_top;
+                        m_top = dataBlock;
+                    }
+                }
+                finally
+                {
+                    m_state.set(0);
                 }
             }
         }
@@ -129,32 +128,36 @@ public class InputQueue extends ThreadPool.Runnable
             if (dataBlock != null)
             {
                 m_tls.set( null );
-                return dataBlock;
             }
-
-            DataBlock top = m_top.get();
-            for (;;)
+            else
             {
-                if (top == null)
-                    return new DataBlock( m_useDirectBuffers, m_blockSize );
+                for (;;)
+                {
+                    if (m_state.compareAndSet(0, 1))
+                        break;
+                }
 
-                DataBlock next = top.next;
-                if (m_top.compareAndSet(top, next))
-                    break;
-                top = m_top.get();
+                if (m_top == null)
+                {
+                    m_state.set(0);
+                    dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
+                }
+                else
+                {
+                    try
+                    {
+                        dataBlock = m_top;
+                        m_top = dataBlock.next;
+                        dataBlock.next = null;
+                        m_size--;
+                    }
+                    finally
+                    {
+                        m_state.set(0);
+                    }
+                }
             }
-            top.next = null;
-
-            int size = m_size.get();
-            for (;;)
-            {
-                int newSize = (size - 1);
-                if (m_size.compareAndSet(size, newSize))
-                    break;
-                size = m_size.get();
-            }
-
-            return top;
+            return dataBlock;
         }
     }
 
