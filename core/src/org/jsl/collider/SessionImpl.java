@@ -50,7 +50,7 @@ public class SessionImpl extends ThreadPool.Runnable
     private final SocketAddress m_localSocketAddress;
     private final SocketAddress m_remoteSocketAddress;
 
-    private final SelectorRegistrator m_selectorRegistrator;
+    private final Starter m_starter;
     private final AtomicLong m_state;
     private final OutputQueue m_outputQueue;
     private final ByteBuffer [] m_iov;
@@ -85,7 +85,7 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    private class SelectorRegistrator extends ColliderImpl.SelectorThreadRunnable
+    private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
@@ -177,7 +177,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_localSocketAddress = socketChannel.socket().getLocalSocketAddress();
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
-        m_selectorRegistrator = new SelectorRegistrator();
+        m_starter = new Starter();
         m_state = new AtomicLong( ST_STARTING + SOCK_RC + SOCK_RC );
         m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
         m_iov = new ByteBuffer[sendIovMax];
@@ -242,15 +242,7 @@ public class SessionImpl extends ThreadPool.Runnable
             if ((state & CLOSE) != 0)
                 return false;
 
-            newState = state;
-            newState |= CLOSE;
-
-            if ((state & LENGTH_MASK) == 0)
-            {
-                assert( (newState & SOCK_RC_MASK) != 0 );
-                newState -= SOCK_RC;
-            }
-
+            newState = (state | CLOSE);
             if (m_state.compareAndSet(state, newState))
                 break;
 
@@ -264,9 +256,7 @@ public class SessionImpl extends ThreadPool.Runnable
                     ": " + stateToString(state) + " -> " + stateToString(newState) );
         }
 
-        if ((state & SOCK_RC_MASK) == 0)
-            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-        else if ((state & STATE_MASK) == ST_RUNNING)
+        if ((state & STATE_MASK) == ST_RUNNING)
             m_inputQueue.stop();
 
         return true;
@@ -291,8 +281,6 @@ public class SessionImpl extends ThreadPool.Runnable
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_STARTING );
-            assert( (state & SOCK_RC_MASK) == (SOCK_RC+SOCK_RC) );
-
             newState = state;
 
             if ((state & CLOSE) == 0)
@@ -308,8 +296,9 @@ public class SessionImpl extends ThreadPool.Runnable
             else
             {
                 newState -= SOCK_RC;
-                if ((state & WAIT_WRITE) == 0)
+                if ((state & LENGTH_MASK) == 0)
                     newState -= SOCK_RC;
+
                 if (m_state.compareAndSet(state, newState))
                 {
                     listener.onConnectionClosed();
@@ -321,15 +310,15 @@ public class SessionImpl extends ThreadPool.Runnable
             state = m_state.get();
         }
 
-        if (s_logger.isLoggable(Level.FINER))
+        if (s_logger.isLoggable(Level.FINE))
         {
-            s_logger.finer(
+            s_logger.fine(
                     m_remoteSocketAddress.toString() +
-                    ": " + stateToString(state) + " -> " + stateToString(newState) );
+                    ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
         }
 
-        if ((state & WAIT_WRITE) != 0)
-            m_collider.executeInSelectorThread( m_selectorRegistrator );
+        if ((newState & WAIT_WRITE) != 0)
+            m_collider.executeInSelectorThread( m_starter );
     }
 
     public void handleReadyOps( ThreadPool threadPool )
