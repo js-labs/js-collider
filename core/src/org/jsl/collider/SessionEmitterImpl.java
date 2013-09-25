@@ -36,10 +36,10 @@ public abstract class SessionEmitterImpl
     private static final Logger s_logger = Logger.getLogger( SessionEmitterImpl.class.getName() );
 
     protected final ColliderImpl m_collider;
-    protected final SessionEmitter m_sessionEmitter;
     protected final InputQueue.DataBlockCache m_inputQueueDataBlockCache;
     protected final OutputQueue.DataBlockCache m_outputQueueDataBlockCache;
 
+    private final SessionEmitter m_sessionEmitter;
     private final ReentrantLock m_lock;
     private final Condition m_cond;
     private final HashSet<Thread> m_callbackThreads;
@@ -84,7 +84,7 @@ public abstract class SessionEmitterImpl
         public void runInThreadPool()
         {
             Thread currentThread = Thread.currentThread();
-            acquireMonitor( currentThread );
+            addThread( currentThread );
             try
             {
                 SessionImpl sessionImpl = new SessionImpl(
@@ -99,7 +99,7 @@ public abstract class SessionEmitterImpl
             }
             finally
             {
-                releaseMonitor( currentThread );
+                removeThreadAndReleaseMonitor( currentThread );
             }
         }
     }
@@ -121,14 +121,15 @@ public abstract class SessionEmitterImpl
                 s_logger.warning( m_exception.toString() );
 
             Thread currentThread = Thread.currentThread();
-            acquireMonitor( currentThread );
+            addThread( currentThread );
+
             try
             {
                 m_sessionEmitter.onException( m_exception );
             }
             finally
             {
-                int pendingOps = releaseMonitor( currentThread );
+                int pendingOps = removeThreadAndReleaseMonitor( currentThread );
                 assert( pendingOps == 1 );
             }
 
@@ -146,21 +147,23 @@ public abstract class SessionEmitterImpl
 
     protected SessionEmitterImpl(
             ColliderImpl collider,
-            SessionEmitter sessionEmitter,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
-            OutputQueue.DataBlockCache outputQueueDataBlockCache )
+            OutputQueue.DataBlockCache outputQueueDataBlockCache,
+            SessionEmitter sessionEmitter )
     {
         m_collider = collider;
-        m_sessionEmitter = sessionEmitter;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
         m_outputQueueDataBlockCache = outputQueueDataBlockCache;
+
+        m_sessionEmitter = sessionEmitter;
+
         m_lock = new ReentrantLock();
         m_cond = m_lock.newCondition();
         m_callbackThreads = new HashSet<Thread>();
         m_pendingOps = 1;
     }
 
-    protected final void acquireMonitor( Thread thread )
+    protected final void addThread( Thread thread )
     {
         m_lock.lock();
         try
@@ -173,7 +176,20 @@ public abstract class SessionEmitterImpl
         }
     }
 
-    protected final int releaseMonitor( Thread thread )
+    protected final void removeThread( Thread thread )
+    {
+        m_lock.lock();
+        try
+        {
+            m_callbackThreads.remove( thread );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+    }
+
+    protected final int removeThreadAndReleaseMonitor( Thread thread )
     {
         boolean done = false;
         int pendingOps;

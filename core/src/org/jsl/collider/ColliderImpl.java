@@ -299,10 +299,7 @@ public class ColliderImpl extends Collider
         {
             try
             {
-                //long startTime = System.nanoTime();
                 m_selector.select();
-                //long endTime = System.nanoTime();
-                //System.out.println( "selector.select() " + Util.formatDelay(startTime, endTime) );
             }
             catch (IOException ex)
             {
@@ -420,10 +417,10 @@ public class ColliderImpl extends Collider
 
         AcceptorImpl acceptorImpl = new AcceptorImpl(
                 this,
-                acceptor,
-                m_selector,
                 inputQueueDataBlockCache,
                 outputQueueDataBlockCache,
+                acceptor,
+                m_selector,
                 channel );
 
         IOException ex = null;
@@ -491,10 +488,10 @@ public class ColliderImpl extends Collider
 
         ConnectorImpl connectorImpl = new ConnectorImpl(
                 this,
-                connector,
-                m_selector,
                 inputQueueDataBlockCache,
-                outputQueueDataBlockCache );
+                outputQueueDataBlockCache,
+                connector,
+                m_selector );
 
         IOException ex = null;
 

@@ -32,11 +32,11 @@ public class ConnectorImpl extends SessionEmitterImpl
 {
     private static final Logger s_logger = Logger.getLogger( AcceptorImpl.class.getName() );
 
-    private static final int FL_START = 0x0001;
-    private static final int FL_STOP  = 0x0002;
+    private static final int FL_STARTING = 0x0001;
+    private static final int FL_STOP     = 0x0002;
 
     private final Connector m_connector;
-    private Selector m_selector;
+    private final Selector m_selector;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
     private final AtomicInteger m_state;
@@ -49,7 +49,16 @@ public class ConnectorImpl extends SessionEmitterImpl
             for (;;)
             {
                 int state = m_state.get();
-                assert( (state & FL_START) != 0 );
+
+                if ((state & FL_STARTING) == 0)
+                {
+                    if (s_logger.isLoggable(Level.WARNING))
+                    {
+                        s_logger.warning(
+                                m_connector.getAddr().toString() +
+                                ": internal error: state=" + state + "." );
+                    }
+                }
 
                 if ((state & FL_STOP) == 0)
                 {
@@ -79,6 +88,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                         if (s_logger.isLoggable(Level.WARNING))
                             s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
                     }
+                    m_socketChannel = null;
                     break;
                 }
             }
@@ -87,6 +97,7 @@ public class ConnectorImpl extends SessionEmitterImpl
         public void handleReadyOps( ThreadPool threadPool )
         {
             m_selectionKey.interestOps(0);
+
             int readyOps = m_selectionKey.readyOps();
             if (readyOps != SelectionKey.OP_CONNECT)
             {
@@ -97,48 +108,65 @@ public class ConnectorImpl extends SessionEmitterImpl
                             ": internal error: readyOps=" + readyOps + "." );
                 }
             }
-            m_collider.executeInThreadPool( new Starter2() );
+
+            Starter2 starter2 = new Starter2( m_socketChannel, m_selectionKey );
+            m_selectionKey = null;
+            m_socketChannel = null;
+
+            m_collider.executeInThreadPool( starter2 );
         }
     }
 
     private class Starter2 extends ThreadPool.Runnable
     {
+        private final SocketChannel m_socketChannel;
+        private final SelectionKey m_selectionKey;
+
+        public Starter2( SocketChannel socketChannel, SelectionKey selectionKey  )
+        {
+            m_socketChannel = socketChannel;
+            m_selectionKey = selectionKey;
+        }
+
         public void runInThreadPool()
         {
             try
             {
                 m_socketChannel.finishConnect();
+            }
+            catch (IOException ex)
+            {
+                int pendingOps = releaseMonitor();
+                if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( "internal error: pendingOps=" + pendingOps + "." );
 
-                SessionImpl sessionImpl = new SessionImpl(
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+
+                m_connector.onException( ex );
+
+                Stopper2 stopper2 = new Stopper2( m_socketChannel, m_selectionKey );
+                m_collider.executeInSelectorThread( stopper2 );
+                return;
+            }
+
+            SessionImpl sessionImpl = new SessionImpl(
                         m_collider,
-                        m_sessionEmitter,
+                        m_connector,
                         m_socketChannel,
                         m_selectionKey,
                         m_outputQueueDataBlockCache );
 
-                m_socketChannel = null;
-                m_selectionKey = null;
-
-                Session.Listener sessionListener = m_sessionEmitter.createSessionListener( sessionImpl );
-                sessionImpl.initialize( m_inputQueueDataBlockCache, sessionListener );
-            }
-            catch (IOException ex)
+            Thread currentThread = Thread.currentThread();
+            addThread( currentThread );
+            try
             {
-                m_connector.onException( ex );
-                m_collider.executeInSelectorThread( new Stopper2() );
-                /* monitor will be released in the 'finally' block. */
-
-                if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+                Session.Listener sessionListener = m_connector.createSessionListener( sessionImpl );
+                sessionImpl.initialize( m_inputQueueDataBlockCache, sessionListener );
             }
             finally
             {
-                int pendingOps = releaseMonitor();
-                if (pendingOps != 1)
-                {
-                    if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( "internal error: pendingOps=" + pendingOps + "." );
-                }
+                removeThreadAndReleaseMonitor( currentThread );
             }
         }
     }
@@ -147,64 +175,72 @@ public class ConnectorImpl extends SessionEmitterImpl
     {
         public void runInSelectorThread()
         {
-            if (m_selectionKey != null)
+            if ((m_selectionKey != null) &&
+                (m_selectionKey.interestOps() == SelectionKey.OP_CONNECT))
             {
-                int interestOps = m_selectionKey.interestOps();
-                if ((interestOps & SelectionKey.OP_CONNECT) != 0)
+                /* Socket is not connected yet. */
+                int pendingOps = releaseMonitor();
+                if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
                 {
-                    /* Socket is not connected yet. */
-                    int pendingOps = releaseMonitor();
-                    if (pendingOps != 1)
-                    {
-                        if (s_logger.isLoggable(Level.WARNING))
-                        {
-                            s_logger.warning(
-                                    m_connector.getAddr().toString() +
-                                    ": internal error: pendingOps=" + pendingOps + "." );
-                        }
-                    }
-                    closeSelectionKeyAndChannel();
+                    s_logger.warning(
+                            m_connector.getAddr().toString() +
+                            ": internal error: pendingOps=" + pendingOps + "." );
                 }
+
+                m_selectionKey.cancel();
+                m_selectionKey = null;
+
+                try
+                {
+                    m_socketChannel.close();
+                }
+                catch (IOException ex)
+                {
+                    if (s_logger.isLoggable(Level.WARNING))
+                        s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+                }
+                m_socketChannel = null;
             }
         }
     }
 
     private class Stopper2 extends ColliderImpl.SelectorThreadRunnable
     {
+        private final SocketChannel m_socketChannel;
+        private final SelectionKey m_selectionKey;
+
+        public Stopper2( SocketChannel socketChannel, SelectionKey selectionKey )
+        {
+            m_socketChannel = socketChannel;
+            m_selectionKey = selectionKey;
+        }
+
         public void runInSelectorThread()
         {
-            closeSelectionKeyAndChannel();
+            m_selectionKey.cancel();
+            try
+            {
+                m_socketChannel.close();
+            }
+            catch (IOException ex)
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+            }
         }
-    }
-
-    private void closeSelectionKeyAndChannel()
-    {
-        m_selectionKey.cancel();
-        m_selectionKey = null;
-
-        try
-        {
-            m_socketChannel.close();
-        }
-        catch (IOException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
-        }
-        m_socketChannel = null;
     }
 
     public ConnectorImpl(
             ColliderImpl collider,
-            Connector connector,
-            Selector selector,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
-            OutputQueue.DataBlockCache outputQueueDataBlockCache )
+            OutputQueue.DataBlockCache outputQueueDataBlockCache,
+            Connector connector,
+            Selector selector )
     {
-        super( collider, connector, inputQueueDataBlockCache, outputQueueDataBlockCache );
+        super( collider, inputQueueDataBlockCache, outputQueueDataBlockCache, connector );
         m_connector = connector;
         m_selector = selector;
-        m_state = new AtomicInteger( FL_START );
+        m_state = new AtomicInteger( FL_STARTING );
     }
 
     public final void start( SocketChannel socketChannel, boolean connected )
@@ -230,47 +266,60 @@ public class ConnectorImpl extends SessionEmitterImpl
 
     public void stopAndWait() throws InterruptedException
     {
+        /* Could be simpler,
+         * but we need a possibility to stop the connector
+         * while collider is not started yet.
+         */
         int state = m_state.get();
         int newState;
         for (;;)
         {
-            if ((state & FL_START) == 0)
+            if ((state & FL_STOP) == 0)
             {
-                if ((state & FL_STOP) != 0)
-                {
-                    newState = state;
-                    break;
-                }
-
                 newState = (state | FL_STOP);
                 if (m_state.compareAndSet(state, newState))
                 {
-                    m_collider.executeInSelectorThread( new Stopper1() );
-                    break;
+                    if ((newState & FL_STARTING) == 0)
+                    {
+                        m_collider.executeInSelectorThread( new Stopper1() );
+                        break;
+                    }
+                    else
+                    {
+                        if (s_logger.isLoggable(Level.FINE))
+                        {
+                            s_logger.fine(
+                                    m_connector.getAddr().toString() +
+                                    ": state=(" + state + " -> " + newState + ")." );
+                        }
+
+                        int pendingOps = releaseMonitor();
+                        if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
+                        {
+                            s_logger.warning(
+                                    m_connector.getAddr().toString() +
+                                    ": internal error: pendingOps=" + pendingOps + "." );
+                        }
+                        return;
+                    }
                 }
             }
             else
             {
-                if ((state & FL_STOP) != 0)
+                if ((state & FL_STARTING) == 0)
+                {
+                    /* Connector is being stop, let's just wait. */
+                    newState = state;
+                    break;
+                }
+                else
                 {
                     if (s_logger.isLoggable(Level.FINE))
                         s_logger.fine( m_connector.getAddr().toString() + ": state=" + state );
                     return;
                 }
-
-                newState = (state | FL_STOP);
-                if (m_state.compareAndSet(state, newState))
-                {
-                    if (s_logger.isLoggable(Level.FINE))
-                    {
-                        s_logger.fine(
-                                m_connector.getAddr().toString() +
-                                ": state=(" + state + " -> " + newState + ")." );
-                    }
-                    m_collider.removeEmitterNoWait( m_connector );
-                    return;
-                }
             }
+
             state = m_state.get();
         }
 

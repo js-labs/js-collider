@@ -20,7 +20,11 @@
 package org.jsl.collider;
 
 import java.io.IOException;
-import java.nio.channels.*;
+import java.net.SocketAddress;
+import java.nio.channels.Selector;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.SocketChannel;
+import java.nio.channels.ServerSocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -64,18 +68,21 @@ public class AcceptorImpl extends SessionEmitterImpl
                     catch (IOException ex1)
                     {
                         if (s_logger.isLoggable(Level.WARNING))
-                            s_logger.warning( ex1.toString() );
+                        {
+                            s_logger.warning( m_localAddr.toString() +
+                                    ": SocketChanel.close() failed: " + ex1.toString() );
+                        }
                     }
 
                     if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( ex.toString() );
+                        s_logger.warning( m_localAddr.toString() + ": " + ex.toString() + "." );
 
                     continue;
                 }
 
                 startSession( m_selector, socketChannel );
 
-                if (m_stop.get() > 0)
+                if ((m_state.get() & FL_STOP) != 0)
                     break;
             }
 
@@ -87,19 +94,63 @@ public class AcceptorImpl extends SessionEmitterImpl
     {
         public void runInSelectorThread()
         {
-            if (m_selector != null)
+            int state = m_state.get();
+            int newState;
+
+            for (;;)
             {
-                try
+                if ((state & FL_STARTING) == 0)
                 {
-                    m_selectionKey = m_channel.register( m_selector, 0, AcceptorImpl.this );
-                    m_collider.executeInThreadPool( new Starter2() );
+                    if (s_logger.isLoggable(Level.WARNING))
+                    {
+                        s_logger.warning( m_localAddr.toString() +
+                                ": internal error: state=" + state + "." );
+                    }
                 }
-                catch (IOException ex)
+
+                if ((state & FL_STOP) == 0)
                 {
-                    m_collider.executeInThreadPool( new ExceptionNotifier(ex, m_channel) );
+                    newState = 0;
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        try
+                        {
+                            m_selectionKey = m_channel.register( m_selector, 0, AcceptorImpl.this );
+                            m_collider.executeInThreadPool( new Starter2() );
+                        }
+                        catch (IOException ex)
+                        {
+                            m_collider.executeInThreadPool( new ExceptionNotifier(ex, m_channel) );
+                            m_channel = null;
+                        }
+                        break;
+                    }
                 }
+                else
+                {
+                    /* Acceptor is stopped and nobody waits it. */
+                    try
+                    {
+                        m_channel.close();
+                    }
+                    catch (IOException ex)
+                    {
+                        if (s_logger.isLoggable(Level.WARNING))
+                            s_logger.warning( m_localAddr.toString() + ": " + ex.toString() + "." );
+                    }
+                    m_channel = null;
+                    newState = state;
+                    break;
+                }
+
+                state = m_state.get();
             }
-            /* else { SLT: --- Stopper -- Starter1 --- } */
+
+            if (s_logger.isLoggable(Level.FINE))
+            {
+                s_logger.fine( m_localAddr.toString() +
+                        ": state=(" + state + " -> " + newState + ")." );
+            }
         }
     }
 
@@ -108,17 +159,16 @@ public class AcceptorImpl extends SessionEmitterImpl
         public void runInThreadPool()
         {
             Thread currentThread = Thread.currentThread();
-            acquireMonitor( currentThread );
+            addThread( currentThread );
             try
             {
                 m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
+                m_collider.executeInSelectorThread( m_starter3 );
             }
             finally
             {
-                int pendingOps = releaseMonitor( currentThread );
-                assert( pendingOps == 1 );
+                removeThread( currentThread );
             }
-            m_collider.executeInSelectorThread( m_starter3 );
         }
     }
 
@@ -133,84 +183,84 @@ public class AcceptorImpl extends SessionEmitterImpl
             }
             else
             {
-                m_collider.executeInThreadPool( new Stopper2() );
+                releaseMonitor();
+
+                try
+                {
+                    m_channel.close();
+                }
+                catch (IOException ex)
+                {
+                    if (s_logger.isLoggable(Level.WARNING))
+                        s_logger.warning( m_localAddr.toString() + ": " + ex.toString() + "." );
+                }
+                m_channel = null;
             }
         }
     }
 
-    private class Stopper1 extends ColliderImpl.SelectorThreadRunnable
+    private class Stopper extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
         {
-            if (m_selectionKey == null)
+            int interestOps = m_selectionKey.interestOps();
+            m_selectionKey.cancel();
+            m_selectionKey = null;
+
+            if (s_logger.isLoggable(Level.FINE))
+                s_logger.fine( m_localAddr.toString() + ": interestOps=" + interestOps + "." );
+
+            if ((interestOps & SelectionKey.OP_ACCEPT) == 0)
             {
-                /* SLT: --- Stopper -- Starter1 --- */
-                m_selector = null;
-                int pendingOps = releaseMonitor();
-                assert( pendingOps == 1 );
+                /* Starter3 will be executed soon. */
             }
             else
             {
-                /* SLT: --- Starter1 -- Stopper --- */
-                int interestOps = m_selectionKey.interestOps();
-                m_selectionKey.cancel();
-                m_selectionKey = null;
+                releaseMonitor();
 
-                if ((interestOps & SelectionKey.OP_ACCEPT) != 0)
-                    m_collider.executeInThreadPool( new Stopper2() );
-                /* else Starter3 will be executed soon. */
+                try
+                {
+                    m_channel.close();
+                }
+                catch (IOException ex)
+                {
+                    if (s_logger.isLoggable(Level.WARNING))
+                        s_logger.warning( m_localAddr.toString() + ": " + ex.toString() + "." );
+                }
+                m_channel = null;
             }
         }
     }
 
-    private class Stopper2 extends ThreadPool.Runnable
-    {
-        public void runInThreadPool()
-        {
-            int pendingOps = releaseMonitor();
-            assert( pendingOps > 0 );
-            closeChannel();
-        }
-    }
-
-    private void closeChannel()
-    {
-        try
-        {
-            m_channel.close();
-        }
-        catch (IOException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( ex.toString() );
-        }
-        m_channel = null;
-    }
-
     private static final Logger s_logger = Logger.getLogger( AcceptorImpl.class.getName() );
+    private static final int FL_STARTING = 0x0001;
+    private static final int FL_STOP     = 0x0002;
 
     private final Acceptor m_acceptor;
-    private Selector m_selector;
+    private final Selector m_selector;
+    private final SocketAddress m_localAddr;
     private ServerSocketChannel m_channel;
     private SelectionKey m_selectionKey;
-    private final AtomicInteger m_stop;
+    private final AtomicInteger m_state;
     private final ChannelAcceptor m_channelAcceptor;
     private final Starter3 m_starter3;
 
     public AcceptorImpl(
             ColliderImpl collider,
-            Acceptor acceptor,
-            Selector selector,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
             OutputQueue.DataBlockCache outputQueueDataBlockCache,
+            Acceptor acceptor,
+            Selector selector,
             ServerSocketChannel channel )
     {
-        super( collider, acceptor, inputQueueDataBlockCache, outputQueueDataBlockCache );
+        super( collider, inputQueueDataBlockCache, outputQueueDataBlockCache, acceptor );
 
-        m_selector = selector;
         m_acceptor = acceptor;
+        m_selector = selector;
+        m_localAddr = channel.socket().getLocalSocketAddress();
+
         m_channel = channel;
-        m_stop = new AtomicInteger(0);
+        m_state = new AtomicInteger( FL_STARTING );
         m_channelAcceptor = new ChannelAcceptor();
         m_starter3 = new Starter3();
     }
@@ -218,19 +268,60 @@ public class AcceptorImpl extends SessionEmitterImpl
     public final void start()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( m_channel.socket().getLocalSocketAddress().toString() );
+            s_logger.fine( m_localAddr.toString() );
 
         m_collider.executeInSelectorThread( new Starter1() );
     }
 
     public void stopAndWait() throws InterruptedException
     {
-        if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( m_channel.socket().getLocalSocketAddress().toString() );
+        /* Could be simpler,
+         * but we need a possibility to stop the acceptor
+         * while collider is not started yet.
+         */
+        int state = m_state.get();
+        int newState;
+        for (;;)
+        {
+            if ((state & FL_STOP) == 0)
+            {
+                newState = (state | FL_STOP);
+                if (m_state.compareAndSet(state, newState))
+                {
+                    if ((newState & FL_STARTING) == 0)
+                    {
+                        m_collider.executeInSelectorThread( new Stopper() );
+                        break;
+                    }
+                    else
+                    {
+                        /* Acceptor is not started yet, no need to wait. */
+                        if (s_logger.isLoggable(Level.FINE))
+                            s_logger.fine( m_localAddr + ": state=" + state + "." );
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                if ((state & FL_STARTING) == 0)
+                {
+                    newState = state;
+                    break;
+                }
+                else
+                {
+                    /* Acceptor is not even started yet, no need to wait. */
+                    if (s_logger.isLoggable(Level.FINE))
+                        s_logger.fine( m_localAddr.toString() + ": state=" + state + "." );
+                    return;
+                }
+            }
+            state = m_state.get();
+        }
 
-        int stop = m_stop.getAndIncrement();
-        if (stop == 0)
-            m_collider.executeInSelectorThread( new Stopper1() );
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( m_localAddr.toString() + ": state=(" + state + " -> " + newState + ")." );
 
         waitMonitor();
     }
