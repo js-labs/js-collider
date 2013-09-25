@@ -21,6 +21,50 @@ package org.jsl.collider;
 
 import java.nio.ByteBuffer;
 
+/*
+ * Helper class providing byte stream defragmentation functionality.
+ * Useful for binary protocols with messages having a fixed length header
+ * containing the length of the whole message.
+ *
+ * Constructor argument is a length of the message header.
+ *
+ * Derived class is supposed to implement method <tt>validateHeader</tt>
+ * which is called when whole header is available for decoding and
+ * should return the length of the message.
+ * Method <tt>getNext</tt> returns the next available whole message,
+ * or null if no message is available.
+ *
+ * Here is a usage example with Session.Listener
+ * for simple message header containing only 4-bytes length field:
+ *
+ * <pre>{@code
+ *   class ServerListener implements Session.Listener
+ *   {
+ *       private final StreamDefragger streamDefragger = new StreamDefragger(4)
+ *       {
+ *           protected int validateHeader( ByteBuffer header )
+ *           {
+ *               return header.getInt();
+ *           }
+ *       };
+ *
+ *       public void onDataReceived( ByteBuffer data )
+ *       {
+ *           ByteBuffer msg = streamDefragger.getNext( data );
+ *           while (msg != null)
+ *           {
+ *               // process message
+ *               msg = streamDefragger.getNext();
+ *           }
+ *       }
+ *
+ *       public void onConnectionClose()
+ *       {
+ *       }
+ *   }
+ * }</pre>
+ */
+
 public abstract class StreamDefragger
 {
     private final int m_headerSize;
