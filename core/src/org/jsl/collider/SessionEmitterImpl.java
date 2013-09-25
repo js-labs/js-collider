@@ -267,6 +267,7 @@ public abstract class SessionEmitterImpl
 
     protected final void startSession( Selector selector, SocketChannel socketChannel )
     {
+        m_sessionEmitter.configureSocketChannel( m_collider, socketChannel );
         SessionStarter1 starter = new SessionStarter1( selector, socketChannel );
 
         m_lock.lock();
