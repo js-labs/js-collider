@@ -24,7 +24,6 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -128,36 +127,76 @@ public class InputQueue extends ThreadPool.Runnable
             if (dataBlock != null)
             {
                 m_tls.set( null );
+                return dataBlock;
             }
-            else
+
+            for (;;)
+            {
+                if (m_state.compareAndSet(0, 1))
+                    break;
+            }
+
+            try
+            {
+                if (m_top != null)
+                {
+                    dataBlock = m_top;
+                    m_top = dataBlock.next;
+                    dataBlock.next = null;
+                    m_size--;
+                    return dataBlock;
+                }
+            }
+            finally
+            {
+                m_state.set(0);
+            }
+
+            return new DataBlock( m_useDirectBuffers, m_blockSize );
+        }
+
+        public final void get( DataBlock [] dataBlock )
+        {
+            int idx = 0;
+
+            DataBlock db = m_tls.get();
+            if (db != null)
+            {
+                m_tls.set( null );
+                dataBlock[0] = db;
+                idx++;
+            }
+
+            for (;;)
+            {
+                if (m_state.compareAndSet(0, 1))
+                    break;
+            }
+
+            try
             {
                 for (;;)
                 {
-                    if (m_state.compareAndSet(0, 1))
+                    if (m_top == null)
                         break;
-                }
 
-                if (m_top == null)
-                {
-                    m_state.set(0);
-                    dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                }
-                else
-                {
-                    try
-                    {
-                        dataBlock = m_top;
-                        m_top = dataBlock.next;
-                        dataBlock.next = null;
-                        m_size--;
-                    }
-                    finally
-                    {
-                        m_state.set(0);
-                    }
+                    db = m_top;
+                    m_top = db.next;
+                    db.next = null;
+                    dataBlock[idx] = db;
+                    m_size--;
+
+                    if (++idx == dataBlock.length)
+                        return;
                 }
             }
-            return dataBlock;
+            finally
+            {
+                m_state.set(0);
+            }
+
+            for (; idx<dataBlock.length; idx++)
+                dataBlock[idx] = new DataBlock( m_useDirectBuffers, m_blockSize );
         }
     }
 
@@ -237,11 +276,17 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
+    private static class Tls
+    {
+        public final DataBlock [] dataBlock = new DataBlock[2];
+        public final ByteBuffer [] iov = new ByteBuffer[2];
+    }
+
     private static final Logger s_logger = Logger.getLogger( InputQueue.class.getName() );
 
-    private static final ThreadLocal<ByteBuffer[]> s_tlsIov = new ThreadLocal<ByteBuffer[]>()
+    private static final ThreadLocal<Tls> s_tls = new ThreadLocal<Tls>()
     {
-        protected ByteBuffer [] initialValue() { return new ByteBuffer[2]; }
+        protected Tls initialValue() { return new Tls(); }
     };
 
     private static final long LENGTH_MASK = 0x00000000FFFFFFFFL;
@@ -266,7 +311,7 @@ public class InputQueue extends ThreadPool.Runnable
         boolean tailLock;
         long bytesReady = (state & LENGTH_MASK);
 
-        do
+        for (;;)
         {
             ByteBuffer rw = dataBlock.rw;
             assert( rw.position() == rw.limit() );
@@ -319,8 +364,9 @@ public class InputQueue extends ThreadPool.Runnable
             }
 
             bytesReady = (state & LENGTH_MASK);
+            if (bytesReady == 0)
+                break;
         }
-        while (bytesReady > 0);
 
         if (tailLock)
         {
@@ -417,6 +463,8 @@ public class InputQueue extends ThreadPool.Runnable
         DataBlock dataBlock0;
         DataBlock dataBlock1;
 
+        Tls tls = s_tls.get();
+
         if (tailLock > 0)
         {
             dataBlock0 = m_tail;
@@ -431,8 +479,11 @@ public class InputQueue extends ThreadPool.Runnable
             else
             {
                 prev = dataBlock0;
-                dataBlock0 = m_dataBlockCache.get();
-                dataBlock1 = m_dataBlockCache.get();
+                m_dataBlockCache.get( tls.dataBlock );
+                dataBlock0 = tls.dataBlock[0];
+                dataBlock1 = tls.dataBlock[1];
+                tls.dataBlock[0] = null;
+                tls.dataBlock[1] = null;
                 pos0 = 0;
                 space = m_blockSize * 2;
             }
@@ -440,27 +491,28 @@ public class InputQueue extends ThreadPool.Runnable
         else
         {
             prev = null;
-            dataBlock0 = m_dataBlockCache.get();
-            dataBlock1 = m_dataBlockCache.get();
+            m_dataBlockCache.get( tls.dataBlock );
+            dataBlock0 = tls.dataBlock[0];
+            dataBlock1 = tls.dataBlock[1];
+            tls.dataBlock[0] = null;
+            tls.dataBlock[1] = null;
             pos0 = 0;
             space = m_blockSize * 2;
         }
 
-        ByteBuffer [] iov = s_tlsIov.get();
-        iov[0] = dataBlock0.ww;
-        iov[1] = dataBlock1.ww;
+        tls.iov[0] = dataBlock0.ww;
+        tls.iov[1] = dataBlock1.ww;
 
         long bytesReceived;
         try
         {
-            //System.out.println( getPT() + " iov[0]=" + iov[0] + " iov[1]=" + iov[1] );
             //long startTime = System.nanoTime();
-            bytesReceived = m_socketChannel.read( iov, 0, 2 );
-            //long endTime = System.nanoTime();
+            bytesReceived = m_socketChannel.read( tls.iov, 0, 2 );
             /*
+            long endTime = System.nanoTime();
             System.out.println( m_session.getRemoteAddress() +
                                 ": " +
-                                //+ Util.formatDelay(startTime, endTime) +
+                                Util.formatDelay(startTime, endTime) + " sec." +
                                 " space=" + space +
                                 " bytesReceived=" + bytesReceived +
                                 " SR=" + m_speculativeRead );
@@ -548,8 +600,12 @@ public class InputQueue extends ThreadPool.Runnable
             {
                 m_statHandleData++;
                 handleData( dataBlock0, state );
+
                 if (prev != null)
-                    prev.next = null;
+                {
+                    prev.reset();
+                    m_dataBlockCache.put( prev );
+                }
             }
 
             if (dataBlock1 != null)
@@ -618,8 +674,8 @@ public class InputQueue extends ThreadPool.Runnable
                 m_dataBlockCache.put( dataBlock1 );
         }
 
-        iov[0] = null;
-        iov[1] = null;
+        tls.iov[0] = null;
+        tls.iov[1] = null;
     }
 
     public final void start()
