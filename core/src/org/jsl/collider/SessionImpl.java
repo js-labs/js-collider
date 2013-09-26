@@ -281,6 +281,8 @@ public class SessionImpl extends ThreadPool.Runnable
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_STARTING );
+            assert( (state & SOCK_RC_MASK) == (SOCK_RC+SOCK_RC) );
+
             newState = state;
 
             if ((state & CLOSE) == 0)
