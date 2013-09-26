@@ -67,6 +67,8 @@ import java.nio.ByteBuffer;
 
 public abstract class StreamDefragger
 {
+    public final static ByteBuffer INVALID_HEADER = ByteBuffer.allocate(0);
+
     private final int m_headerSize;
     private ByteBuffer m_buf;
     private ByteBuffer m_data;
@@ -120,8 +122,8 @@ public abstract class StreamDefragger
 
                 m_buf.flip();
                 m_packetLen = validateHeader( m_buf );
-                if (m_packetLen < 0)
-                    return null;
+                if (m_packetLen <= 0)
+                    return INVALID_HEADER;
 
                 if (m_buf.capacity() < m_packetLen)
                 {
@@ -183,8 +185,8 @@ public abstract class StreamDefragger
         m_packetLen = validateHeader( m_data );
         m_data.position( m_pos );
 
-        if (m_packetLen < 0)
-            return null;
+        if (m_packetLen <= 0)
+            return INVALID_HEADER;
 
         if (bytesRest < m_packetLen)
         {
