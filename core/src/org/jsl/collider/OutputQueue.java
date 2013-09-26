@@ -22,7 +22,6 @@ package org.jsl.collider;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 
 public class OutputQueue
@@ -263,7 +262,7 @@ public class OutputQueue
 
     public long addData( ByteBuffer data )
     {
-        int dataSize = data.remaining();
+        final int dataSize = data.remaining();
         long state = m_state.get();
         for (;;)
         {
@@ -307,7 +306,7 @@ public class OutputQueue
             final long writers = (state & WRITERS_MASK);
             if (writers == WRITERS_MASK)
             {
-                /* Reached maximum number of writers, let's try later. */
+                /* Reached maximum number of writers, let's try a bit later. */
                 state = m_state.get();
                 continue;
             }
