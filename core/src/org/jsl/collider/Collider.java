@@ -48,8 +48,8 @@ public abstract class Collider
             socketRecvBufSize = 0; /* Use system default settings by default */
 
             inputQueueBlockSize         = (32 * 1024);
-            inputQueueCacheInitialSize  = 0;
-            inputQueueCacheMaxSize      = 0; /* by default = (threadPoolThreads*3) */
+            inputQueueCacheInitialSize  = 16;
+            inputQueueCacheMaxSize      = 64;
             outputQueueBlockSize        = (16 * 1024);
             outputQueueCacheInitialSize = 0;
             outputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
