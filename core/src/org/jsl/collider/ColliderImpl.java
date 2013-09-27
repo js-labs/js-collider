@@ -20,7 +20,7 @@
 package org.jsl.collider;
 
 import java.io.IOException;
-import java.net.StandardSocketOptions;
+import java.net.ServerSocket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -403,8 +403,10 @@ public class ColliderImpl extends Collider
         {
             channel = ServerSocketChannel.open();
             channel.configureBlocking( false );
-            channel.setOption( StandardSocketOptions.SO_REUSEADDR, acceptor.reuseAddr );
-            channel.socket().bind( acceptor.getAddr() );
+
+            final ServerSocket socket = channel.socket();
+            socket.setReuseAddress( acceptor.reuseAddr );
+            socket.bind( acceptor.getAddr() );
         }
         catch (IOException ex)
         {

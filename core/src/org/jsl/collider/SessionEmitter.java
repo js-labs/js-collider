@@ -20,11 +20,13 @@
 package org.jsl.collider;
 
 import java.io.IOException;
+import java.net.Socket;
+import java.net.SocketException;
 import java.net.InetSocketAddress;
-import java.net.StandardSocketOptions;
 import java.nio.channels.SocketChannel;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 
 public abstract class SessionEmitter
 {
@@ -61,33 +63,32 @@ public abstract class SessionEmitter
 
     public void configureSocketChannel( Collider collider, SocketChannel socketChannel )
     {
+        final Socket socket = socketChannel.socket();
         try
         {
-            socketChannel.setOption( StandardSocketOptions.TCP_NODELAY, tcpNoDelay );
+            socket.setTcpNoDelay( tcpNoDelay );
         }
-        catch (IOException ex)
+        catch (SocketException ex)
         {
             if (s_logger.isLoggable(Level.WARNING))
             {
                 s_logger.log( Level.WARNING,
-                        socketChannel.socket().getRemoteSocketAddress().toString()
-                        + ": SocketChannel.setOption(TCP_NODELAY, " + tcpNoDelay
-                        + ") failed: " + ex.toString() );
+                        socket.getRemoteSocketAddress().toString() +
+                        ": setTcpNoDelay(" + tcpNoDelay + ") failed: " + ex.toString() );
             }
         }
 
         try
         {
-            socketChannel.setOption( StandardSocketOptions.SO_REUSEADDR, reuseAddr );
+            socket.setReuseAddress( reuseAddr );
         }
-        catch (IOException ex)
+        catch (SocketException ex)
         {
             if (s_logger.isLoggable(Level.WARNING))
             {
                 s_logger.log( Level.WARNING,
-                        socketChannel.socket().getRemoteSocketAddress().toString()
-                        + ": SocketChannel.setOption(SO_REUSEADDR, " + reuseAddr
-                        + ") failed: " + ex.toString() );
+                        socket.getRemoteSocketAddress().toString() +
+                        ": setReuseAddress(" + reuseAddr + ") failed: " + ex.toString() );
             }
         }
 
@@ -99,16 +100,15 @@ public abstract class SessionEmitter
         {
             try
             {
-                socketChannel.setOption( StandardSocketOptions.SO_RCVBUF, bufSize );
+                socket.setReceiveBufferSize( bufSize );
             }
-            catch (IOException ex)
+            catch (SocketException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                 {
                     s_logger.log( Level.WARNING,
-                            socketChannel.socket().getRemoteSocketAddress().toString()
-                            + ": SocketChannel.setOption(SO_RCVBUF, " + bufSize
-                            + ") failed: " + ex.toString() );
+                            socket.getRemoteSocketAddress().toString() +
+                            ": setReceiveBufferSize(" + bufSize + ") failed: " + ex.toString() );
                 }
             }
         }
@@ -121,16 +121,15 @@ public abstract class SessionEmitter
         {
             try
             {
-                socketChannel.setOption( StandardSocketOptions.SO_SNDBUF, bufSize );
+                socket.setSendBufferSize( bufSize );
             }
-            catch (IOException ex)
+            catch (SocketException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                 {
                     s_logger.log( Level.WARNING,
-                            socketChannel.socket().getRemoteSocketAddress().toString()
-                            + ": SocketChannel.setOption(SO_SNDBUF, " + bufSize
-                            + ") failed: " + ex.toString() );
+                            socket.getRemoteSocketAddress().toString() +
+                            ": setSendBufferSize(" + bufSize + ") failed: " + ex.toString() );
                 }
             }
         }
