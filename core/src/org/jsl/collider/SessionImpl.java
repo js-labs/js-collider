@@ -37,16 +37,19 @@ public class SessionImpl extends ThreadPool.Runnable
     private static final long CLOSE         = 0x0000010000000000L;
     private static final long WAIT_WRITE    = 0x0000020000000000L;
     private static final long STATE_MASK    = 0x0000300000000000L;
-    private static final long ST_STARTING   = 0x0000000000000000L;
-    private static final long ST_RUNNING    = 0x0000100000000000L;
+    private static final long ST_STARTING   = 0x0000100000000000L;
+    private static final long ST_RUNNING    = 0x0000200000000000L;
     private static final long SOCK_RC_MASK  = 0x0003000000000000L;
     private static final long SOCK_RC       = 0x0001000000000000L;
+    private static final long WRITERS_MASK  = 0x00F0000000000000L;
+    private static final long WRITER        = 0x0010000000000000L;
 
     private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
 
     private final ColliderImpl m_collider;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
+
     private final SocketAddress m_localSocketAddress;
     private final SocketAddress m_remoteSocketAddress;
 
@@ -155,22 +158,133 @@ public class SessionImpl extends ThreadPool.Runnable
             m_collider.executeInSelectorThread( new SelectorDeregistrator() );
     }
 
+    private boolean addAndSendDataAsync( long state, final ByteBuffer data )
+    {
+        final long bytesReady = m_outputQueue.addData( data );
+        for (;;)
+        {
+            assert( (state & WRITERS_MASK) != 0 );
+            long newState = state;
+            newState += bytesReady;
+            newState -= WRITER;
+            if (m_state.compareAndSet(state, newState))
+            {
+                if ((bytesReady > 0) && ((state & LENGTH_MASK) == 0))
+                    m_collider.executeInThreadPool( this );
+                return true;
+            }
+            state = m_state.get();
+        }
+    }
+
+    private long decState( long state, final long bytesSent )
+    {
+        for (;;)
+        {
+            assert( (state & LENGTH_MASK) >= bytesSent );
+            assert( (state & SOCK_RC_MASK) > 0 );
+
+            long newState = (state - bytesSent);
+            if ((newState & LENGTH_MASK) == 0)
+            {
+                if ((state & CLOSE) == 0)
+                {
+                    if (m_state.compareAndSet(state, newState))
+                        return newState;
+                }
+                else
+                {
+                    newState -= SOCK_RC;
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        if ((newState & SOCK_RC_MASK) == 0)
+                            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                        return newState;
+                    }
+                }
+            }
+            else if ((state & STATE_MASK) != ST_STARTING)
+            {
+                if (m_state.compareAndSet(state, newState))
+                {
+                    m_collider.executeInThreadPool( this );
+                    return newState;
+                }
+            }
+            else /* ((state  & LENGTH_MASK) > 0) && ((state & STATE_MASK) == ST_STARTING) */
+            {
+                if ((newState & WAIT_WRITE) == 0)
+                {
+                    newState |= WAIT_WRITE;
+                    if (m_state.compareAndSet(state, newState))
+                        return newState;
+                }
+                else
+                    return newState;
+            }
+            state = m_state.get();
+        }
+    }
+
+    private boolean sendDataSync( long state, ByteBuffer data )
+    {
+        try
+        {
+            final long bytesSent = m_socketChannel.write( data );
+            if (bytesSent == 0)
+                System.out.println( "strange" );
+
+            final long newState = decState( state, bytesSent );
+
+            if ((newState & LENGTH_MASK) > 0)
+                m_collider.executeInThreadPool( this );
+
+            if (s_logger.isLoggable(Level.FINEST))
+            {
+                s_logger.finest(
+                        m_remoteSocketAddress.toString() +
+                        ": ready=" + (state & LENGTH_MASK) + " sent=" + bytesSent + " " +
+                        stateToString(state) + " -> " + stateToString(newState) );
+            }
+
+            return true;
+        }
+        catch (IOException ex)
+        {
+            long newState;
+            for (;;)
+            {
+                assert( (state & SOCK_RC_MASK) > 0 );
+                newState = state;
+                newState |= CLOSE;
+                newState -= SOCK_RC;
+                newState &= ~LENGTH_MASK;
+                if (m_state.compareAndSet(state, newState))
+                    break;
+                state = m_state.get();
+            }
+
+            if (s_logger.isLoggable(Level.FINER))
+            {
+                s_logger.finer(
+                        m_remoteSocketAddress.toString() +
+                        ": " + ex.toString() + " " +
+                        stateToString(state) + " -> " + stateToString(newState) + "." );
+            }
+
+            if ((newState & SOCK_RC_MASK) == 0)
+                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+
+            return false;
+        }
+    }
+
     public SessionImpl(
                 ColliderImpl collider,
-                SessionEmitter sessionEmitter,
                 SocketChannel socketChannel,
                 SelectionKey selectionKey,
                 OutputQueue.DataBlockCache outputQueueDataBlockCache )
     {
-        Collider.Config colliderConfig = collider.getConfig();
-
-        int sendBufSize = sessionEmitter.socketSendBufSize;
-        if (sendBufSize == 0)
-            sendBufSize = colliderConfig.socketSendBufSize;
-        if (sendBufSize == 0)
-            sendBufSize = (64 * 1024);
-        int sendIovMax = (sendBufSize / outputQueueDataBlockCache.getBlockSize()) + 1;
-
         m_collider = collider;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
@@ -180,7 +294,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_starter = new Starter();
         m_state = new AtomicLong( ST_STARTING + SOCK_RC + SOCK_RC );
         m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
-        m_iov = new ByteBuffer[sendIovMax];
+        m_iov = new ByteBuffer[8];
     }
 
     public Collider getCollider() { return m_collider; }
@@ -189,48 +303,49 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public boolean sendData( ByteBuffer data )
     {
+        final int dataSize = data.remaining();
         long state = m_state.get();
-        if ((state & CLOSE) != 0)
-            return false;
-
-        long bytesReady = m_outputQueue.addData( data );
-        if (bytesReady > 0)
+        for (;;)
         {
-            for (;;)
+            if ((state & CLOSE) != 0)
+                return false;
+
+            if ((state & (WRITERS_MASK|LENGTH_MASK)) == 0)
             {
-                long newState = (state & LENGTH_MASK);
-                newState += bytesReady;
-
-                if (bytesReady > LENGTH_MASK)
-                {
-                    state = m_state.get();
-                    continue;
-                }
-
-                newState |= (state & ~LENGTH_MASK);
+                long newState = (state + dataSize);
                 if (m_state.compareAndSet(state, newState))
-                {
-                    state = newState;
-                    break;
-                }
-
-                state = m_state.get();
-                if ((state & CLOSE) != 0)
-                    return false;
+                    return sendDataSync( newState, data );
             }
-
-            if ((state & LENGTH_MASK) == bytesReady)
-                m_collider.executeInThreadPool( this );
+            else if ((state & WRITERS_MASK) != WRITERS_MASK)
+            {
+                long newState = (state + WRITER);
+                if (m_state.compareAndSet(state, newState))
+                    return addAndSendDataAsync( newState, data );
+            }
+            /* else maximum writers number reached */
+            state = m_state.get();
         }
-
-        return true;
     }
 
-    public boolean sendDataSync( ByteBuffer data )
+    public boolean sendDataAsync( ByteBuffer data )
     {
-        try { m_socketChannel.write( data ); }
-        catch (IOException ignored) {}
-        return false;
+        long state = m_state.get();
+        for (;;)
+        {
+            if ((state & CLOSE) != 0)
+                return false;
+
+            if ((state & WRITERS_MASK) != WRITERS_MASK)
+            {
+                long newState = (state + WRITER);
+                if (m_state.compareAndSet(state, newState))
+                    return addAndSendDataAsync( newState, data );
+            }
+            /* else maximum number of writers reached,
+             * let's wait a bit.
+             */
+            state = m_state.get();
+        }
     }
 
     public boolean closeConnection()
@@ -344,62 +459,20 @@ public class SessionImpl extends ThreadPool.Runnable
         bytesReady = m_outputQueue.getData( m_iov, bytesReady );
         int pos0 = m_iov[0].position();
 
-        int iovc = 0;
+        int iovc = 1; /* at least one ByteBuffer should be ready */
         for (; iovc<m_iov.length && m_iov[iovc]!= null; iovc++);
 
         try
         {
             final long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+            if (bytesSent == 0)
+                System.out.println( "strange" );
 
             for (int idx=0; idx<iovc; idx++)
                 m_iov[idx] = null;
 
-            if (bytesSent == 0)
-                System.out.println( "strange" );
-
             m_outputQueue.removeData( pos0, bytesSent );
-
-            long newState;
-            for (;;)
-            {
-                assert( (state & LENGTH_MASK) >= bytesSent );
-                assert( (state & SOCK_RC_MASK) > 0 );
-
-                newState = (state - bytesSent);
-                if ((newState & LENGTH_MASK) == 0)
-                {
-                    if ((state & CLOSE) == 0)
-                    {
-                        if (m_state.compareAndSet(state, newState))
-                            break;
-                    }
-                    else
-                    {
-                        newState -= SOCK_RC;
-                        if (m_state.compareAndSet(state, newState))
-                        {
-                            if ((newState & SOCK_RC_MASK) == 0)
-                                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                            break;
-                        }
-                    }
-                }
-                else if ((state & STATE_MASK) != ST_STARTING)
-                {
-                    if (m_state.compareAndSet(state, newState))
-                    {
-                        m_collider.executeInThreadPool( this );
-                        break;
-                    }
-                }
-                else /* ((state  & LENGTH_MASK) > 0) && ((state & STATE_MASK) == ST_STARTING) */
-                {
-                    newState |= WAIT_WRITE;
-                    if (m_state.compareAndSet(state, newState))
-                        break;
-                }
-                state = m_state.get();
-            }
+            final long newState = decState( state, bytesSent );
 
             if (s_logger.isLoggable(Level.FINEST))
             {
@@ -415,28 +488,24 @@ public class SessionImpl extends ThreadPool.Runnable
             for (;;)
             {
                 assert( (state & SOCK_RC_MASK) > 0 );
-
                 newState = state;
                 newState |= CLOSE;
                 newState -= SOCK_RC;
                 newState &= ~LENGTH_MASK;
                 if (m_state.compareAndSet(state, newState))
-                {
-                    state = newState;
                     break;
-                }
                 state = m_state.get();
             }
 
             if (s_logger.isLoggable(Level.FINER))
             {
                 s_logger.finer(
-                        m_socketChannel.socket().getRemoteSocketAddress().toString() +
-                        ": " + ex.toString() +
-                        " " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                        m_remoteSocketAddress.toString() +
+                        ": " + ex.toString() + " " +
+                        stateToString(state) + " -> " + stateToString(newState) + "." );
             }
 
-            if ((state & SOCK_RC_MASK) == 0)
+            if ((newState & SOCK_RC_MASK) == 0)
                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
         }
     }

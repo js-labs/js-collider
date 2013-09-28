@@ -152,7 +152,6 @@ public class ConnectorImpl extends SessionEmitterImpl
 
             SessionImpl sessionImpl = new SessionImpl(
                         m_collider,
-                        m_connector,
                         m_socketChannel,
                         m_selectionKey,
                         m_outputQueueDataBlockCache );

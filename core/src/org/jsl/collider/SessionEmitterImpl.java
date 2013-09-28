@@ -89,7 +89,6 @@ public abstract class SessionEmitterImpl
             {
                 SessionImpl sessionImpl = new SessionImpl(
                         m_collider,
-                        m_sessionEmitter,
                         m_socketChannel,
                         m_selectionKey,
                         m_outputQueueDataBlockCache );
