@@ -243,8 +243,8 @@ public class InputQueue extends ThreadPool.Runnable
                 /* Simplest case: no thread reading socket */
                 interestOps &= ~SelectionKey.OP_READ;
                 m_selectionKey.interestOps( interestOps );
-                m_socketChannel = null;
                 m_selectionKey = null;
+                m_socketChannel = null;
                 m_collider.executeInThreadPool( new Stopper2() );
             }
         }
@@ -254,26 +254,46 @@ public class InputQueue extends ThreadPool.Runnable
     {
         public void runInThreadPool()
         {
-            if (s_logger.isLoggable(Level.FINER))
-                s_logger.finer( m_session.getRemoteAddress().toString() );
-
             m_session.handleReaderStopped();
 
             long state = m_state.get();
+            long newState;
             for (;;)
             {
                 assert( (state & CLOSED) == 0 );
-                long newState = (state | CLOSED);
+                newState = (state | CLOSED);
                 if (m_state.compareAndSet(state, newState))
-                {
-                    state = newState;
-                    if ((state & LENGTH_MASK) == 0)
-                        m_listener.onConnectionClosed();
                     break;
-                }
                 state = m_state.get();
             }
+
+            if (s_logger.isLoggable(Level.FINER))
+            {
+                s_logger.finer(
+                        m_session.getRemoteAddress().toString() +
+                        ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+            }
+
+            if ((newState & LENGTH_MASK) == 0)
+            {
+                m_listener.onConnectionClosed();
+                printStats();
+            }
         }
+    }
+
+    private static String stateToString( long state )
+    {
+        String ret = "[";
+        if ((state & CLOSED) != 0)
+            ret += "CLOSED ";
+
+        if ((state & TAIL_LOCK) != 0)
+            ret += "TAIL_LOCK ";
+
+        ret += (state & LENGTH_MASK);
+        ret += "]";
+        return ret;
     }
 
     private static class Tls
@@ -639,9 +659,10 @@ public class InputQueue extends ThreadPool.Runnable
                  */
                 m_session.handleReaderStopped();
 
+                long newState;
                 for (;;)
                 {
-                    long newState = state;
+                    newState = state;
                     newState |= CLOSED;
 
                     if (tailLock > 0)
@@ -651,19 +672,27 @@ public class InputQueue extends ThreadPool.Runnable
                     }
 
                     if (m_state.compareAndSet(state, newState))
-                    {
-                        state = newState;
                         break;
-                    }
 
                     state = m_state.get();
                 }
 
-                if ((state & LENGTH_MASK) == 0)
+                if (s_logger.isLoggable(Level.FINER))
+                {
+                    s_logger.finer(
+                            m_session.getRemoteAddress().toString() +
+                            ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                }
+
+                if ((newState & LENGTH_MASK) == 0)
                 {
                     m_listener.onConnectionClosed();
+                    printStats();
                     if (tailLock > 0)
+                    {
+                        m_dataBlockCache.put( m_tail );
                         m_tail = null;
+                    }
                 }
             }
 
