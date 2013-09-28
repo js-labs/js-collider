@@ -74,15 +74,15 @@ public class Client
         }
     }
 
-    public Client( int portNumber, int sessions, int messages, int messageLength )
+    public Client( int sessions, int messages, int messageLength )
     {
-        m_portNumber = portNumber;
         m_messages = messages;
-
         m_message = new byte[messageLength];
         ByteBuffer byteBuffer = ByteBuffer.wrap( m_message );
         byteBuffer.putInt( messageLength );
-        for (int i=0; i<messageLength-4; i++)
+        byteBuffer.putInt( sessions );
+
+        for (int i=0; i<messageLength-8; i++)
             byteBuffer.put( (byte) i );
 
         m_threads = new Thread[sessions];
@@ -90,8 +90,9 @@ public class Client
             m_threads[idx] = new SessionThread();
     }
 
-    public void start()
+    public void start( int portNumber )
     {
+        m_portNumber = portNumber;
         for (Thread thread : m_threads)
             thread.start();
     }
@@ -109,5 +110,20 @@ public class Client
                 ex.printStackTrace();
             }
         }
+    }
+
+    public static void main( String [] args )
+    {
+        if (args.length != 4)
+        {
+            System.out.println( "Usage: <server_port_number> <sessions> <messages> <message_length>" );
+            return;
+        }
+        int portNumber = Integer.parseInt( args[0] );
+        int sessions = Integer.parseInt( args[1] );
+        int messages = Integer.parseInt( args[2] );
+        int messageLength = Integer.parseInt( args[3] );
+
+        new Client(sessions, messages, messageLength).start( portNumber );
     }
 }
