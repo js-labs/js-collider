@@ -23,7 +23,7 @@ public class Main
 {
     public static void main( String args[] )
     {
-        int sessions = 16;
+        int sessions = 1;
         int messages = 50;
         int messageLength = 250;
 
