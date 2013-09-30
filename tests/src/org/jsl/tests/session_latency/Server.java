@@ -4,6 +4,7 @@ import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -11,13 +12,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Server
 {
     private final Client m_client;
-    private final AtomicInteger m_sessionsTotal;
     private final AtomicInteger m_sessionsDone;
 
     private class ServerListener implements Session.Listener
     {
         private Session m_session;
-        private int m_messages;
+        private int m_sessionsTotal;
 
         public ServerListener( Session session )
         {
@@ -27,14 +27,10 @@ public class Server
 
         public void onDataReceived( ByteBuffer data )
         {
-            if (m_messages++ == 0)
-            {
-                int pos = data.position();
-                data.getInt(); /* skip message length */
-                int sessionsTotal = data.getInt();
-                m_sessionsTotal.compareAndSet( 0, sessionsTotal );
-                data.position( pos );
-            }
+            int pos = data.position();
+            data.getInt(); /* skip message length */
+            m_sessionsTotal = data.getInt();
+            data.position( pos );
             m_session.sendData( data );
         }
 
@@ -42,7 +38,7 @@ public class Server
         {
             System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
             int sessionsDone = m_sessionsDone.incrementAndGet();
-            if (sessionsDone == m_sessionsTotal.get())
+            if (sessionsDone == m_sessionsTotal)
                 m_session.getCollider().stop();
         }
     }
@@ -59,7 +55,7 @@ public class Server
         {
             System.out.println( "Latency test server started at port " + localPort );
             if (m_client != null)
-                m_client.start( localPort );
+                m_client.start( InetAddress.getLoopbackAddress(), localPort );
         }
 
         public Session.Listener createSessionListener( Session session )
@@ -71,7 +67,6 @@ public class Server
     public Server( Client client )
     {
         m_client = client;
-        m_sessionsTotal = new AtomicInteger();
         m_sessionsDone = new AtomicInteger();
     }
 

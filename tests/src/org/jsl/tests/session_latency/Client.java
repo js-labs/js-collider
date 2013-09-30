@@ -21,11 +21,14 @@ package org.jsl.tests.session_latency;
 
 import org.jsl.tests.Util;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 public class Client
 {
+    private InetAddress m_addr;
     private int m_portNumber;
     private int m_messages;
     private byte [] m_message;
@@ -38,7 +41,7 @@ public class Client
             try
             {
                 byte [] bb = new byte[m_message.length];
-                Socket socket = new Socket( "localhost", m_portNumber );
+                Socket socket = new Socket( m_addr, m_portNumber );
                 System.out.println( "Client socket connected " + socket.getRemoteSocketAddress() + "." );
                 socket.setTcpNoDelay( true );
 
@@ -90,8 +93,9 @@ public class Client
             m_threads[idx] = new SessionThread();
     }
 
-    public void start( int portNumber )
+    public void start( InetAddress addr, int portNumber )
     {
+        m_addr = addr;
         m_portNumber = portNumber;
         for (Thread thread : m_threads)
             thread.start();
@@ -114,16 +118,25 @@ public class Client
 
     public static void main( String [] args )
     {
-        if (args.length != 4)
+        if (args.length != 5)
         {
-            System.out.println( "Usage: <server_port_number> <sessions> <messages> <message_length>" );
+            System.out.println( "Usage: <server_addr> <server_port> <sessions> <messages> <message_length>" );
             return;
         }
-        int portNumber = Integer.parseInt( args[0] );
-        int sessions = Integer.parseInt( args[1] );
-        int messages = Integer.parseInt( args[2] );
-        int messageLength = Integer.parseInt( args[3] );
 
-        new Client(sessions, messages, messageLength).start( portNumber );
+        try
+        {
+            InetAddress addr = InetAddress.getByName( args[0] );
+            int portNumber = Integer.parseInt( args[1] );
+            int sessions = Integer.parseInt( args[2] );
+            int messages = Integer.parseInt( args[3] );
+            int messageLength = Integer.parseInt( args[4] );
+
+            new Client(sessions, messages, messageLength).start( addr, portNumber );
+        }
+        catch (UnknownHostException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 }
