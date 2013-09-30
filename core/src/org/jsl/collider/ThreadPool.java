@@ -115,9 +115,10 @@ public class ThreadPool
     private Runnable getNext( int idx )
     {
         idx *= FS_PADDING;
-        Runnable head = m_hra.get( idx );
         for (;;)
         {
+            Runnable head = m_hra.get( idx );
+
             if (head == null)
                 return null;
 
@@ -135,7 +136,6 @@ public class ThreadPool
                 head.nextThreadPoolRunnable = null;
                 return head;
             }
-            head = m_hra.get( idx );
         }
     }
 
@@ -174,7 +174,7 @@ public class ThreadPool
 
     public ThreadPool( String name, int threads )
     {
-        this( name, threads, threads*4 );
+        this( name, threads, 4 );
     }
 
     public final void start()
