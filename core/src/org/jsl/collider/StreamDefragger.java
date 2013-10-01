@@ -95,11 +95,14 @@ public abstract class StreamDefragger
         }
     }
 
-    private static ByteBuffer getBuffer( int capacity )
+    private static ByteBuffer getBuffer( int capacity, boolean isDirect )
     {
         if (capacity < 1024)
             capacity = 1024;
-        return ByteBuffer.allocate( capacity );
+        if (isDirect)
+            return ByteBuffer.allocateDirect( capacity );
+        else
+            return ByteBuffer.allocate( capacity );
     }
 
     public StreamDefragger( int headerSize )
@@ -174,7 +177,7 @@ public abstract class StreamDefragger
         if (bytesRest < m_headerSize)
         {
             if (m_buf == null)
-                m_buf = getBuffer( m_headerSize );
+                m_buf = getBuffer( m_headerSize, m_data.isDirect() );
             else
                 m_buf.clear();
             m_buf.put( m_data );
@@ -191,7 +194,7 @@ public abstract class StreamDefragger
         if (bytesRest < m_packetLen)
         {
             if ((m_buf == null) || (m_buf.capacity() < m_packetLen))
-                m_buf = getBuffer( m_packetLen );
+                m_buf = getBuffer( m_packetLen, m_data.isDirect() );
             else
                 m_buf.clear();
             m_buf.put( m_data );
