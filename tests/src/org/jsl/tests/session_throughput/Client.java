@@ -21,12 +21,15 @@ package org.jsl.tests.session_throughput;
 
 import org.jsl.tests.Util;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 public class Client
 {
-    private final int m_portNumber;
+    private InetAddress m_addr;
+    private int m_portNumber;
     private final int m_messages;
     private final int m_messageLength;
     private final byte [] m_messageBlock;
@@ -70,12 +73,11 @@ public class Client
         }
     }
 
-    public Client( int portNumber, int sessions, int messages, int messageLength )
+    public Client( int sessions, int messages, int messageLength )
     {
-        if (messageLength < 8)
-            messageLength = 8;
+        if (messageLength < 12)
+            messageLength = 12;
 
-        m_portNumber = portNumber;
         m_messages = messages;
         m_messageLength = messageLength;
 
@@ -92,7 +94,8 @@ public class Client
         {
             byteBuffer.putInt( messageLength );
             byteBuffer.putInt( messages );
-            int cc = (messageLength - 8);
+            byteBuffer.putInt( sessions );
+            int cc = (messageLength - 12);
             for (; cc>0; cc--)
                 byteBuffer.put( (byte) cc );
         }
@@ -102,8 +105,10 @@ public class Client
             m_threads[idx] = new SessionThread();
     }
 
-    public void start()
+    public void start( InetAddress addr, int portNumber )
     {
+        m_addr = addr;
+        m_portNumber = portNumber;
         for (Thread thread : m_threads)
             thread.start();
     }
@@ -120,6 +125,30 @@ public class Client
             {
                 ex.printStackTrace();
             }
+        }
+    }
+
+    public static void main( String [] args )
+    {
+        if (args.length != 5)
+        {
+            System.out.println( "Usage: <server_addr> <server_port> <sessions> <messages> <message_length>" );
+            return;
+        }
+
+        try
+        {
+            InetAddress addr = InetAddress.getByName( args[0] );
+            int portNumber = Integer.parseInt( args[1] );
+            int sessions = Integer.parseInt( args[2] );
+            int messages = Integer.parseInt( args[3] );
+            int messageLength = Integer.parseInt( args[4] );
+
+            new Client(sessions, messages, messageLength).start( addr, portNumber );
+        }
+        catch (UnknownHostException ex)
+        {
+            ex.printStackTrace();
         }
     }
 }
