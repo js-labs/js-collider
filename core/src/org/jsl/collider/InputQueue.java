@@ -392,6 +392,13 @@ public class InputQueue extends ThreadPool.Runnable
                 }
                 state = m_state.get();
             }
+
+            if (rw.limit() == rw.capacity())
+            {
+                DataBlock next = dataBlock.reset();
+                m_dataBlockCache.put( dataBlock );
+                dataBlock = next;
+            }
         }
 
         if (tailLock)
