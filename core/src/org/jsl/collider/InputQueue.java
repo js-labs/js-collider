@@ -329,13 +329,13 @@ public class InputQueue extends ThreadPool.Runnable
     private void handleData( DataBlock dataBlock, long state )
     {
         boolean tailLock;
-        long bytesReady = (state & LENGTH_MASK);
 
-        for (;;)
+        handleDataLoop: for (;;)
         {
             ByteBuffer rw = dataBlock.rw;
             assert( rw.position() == rw.limit() );
 
+            final long bytesReady = (state & LENGTH_MASK);
             long bytesRest = bytesReady;
             int pos = rw.position();
             for (;;)
@@ -366,26 +366,32 @@ public class InputQueue extends ThreadPool.Runnable
                 long newState = state;
                 newState -= bytesReady;
 
-                if (((newState & LENGTH_MASK) == 0) && ((newState & TAIL_LOCK) == 0))
+                if ((newState & LENGTH_MASK) == 0)
                 {
-                    newState |= TAIL_LOCK;
-                    tailLock = true;
+                    if ((newState & TAIL_LOCK) == 0)
+                    {
+                        newState |= TAIL_LOCK;
+                        tailLock = true;
+                    }
+                    else
+                        tailLock = false;
+
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        state = newState;
+                        break handleDataLoop;
+                    }
                 }
                 else
-                    tailLock = false;
-
-                if (m_state.compareAndSet(state, newState))
                 {
-                    state = newState;
-                    break;
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        state = newState;
+                        break;
+                    }
                 }
-
                 state = m_state.get();
             }
-
-            bytesReady = (state & LENGTH_MASK);
-            if (bytesReady == 0)
-                break;
         }
 
         if (tailLock)
