@@ -7,7 +7,7 @@ public class Main
         int sessions = 1;
         int messages = 1000000;
         int messageLength = 100;
-        int socketRecvBufSize = (256*1024);
+        int socketRecvBufSize = (64*1024);
 
         if (args.length > 0)
             sessions = Integer.parseInt( args[0] );
