@@ -44,7 +44,7 @@ public class InputQueue extends ThreadPool.Runnable
                 buf = ByteBuffer.allocateDirect( blockSize );
             else
                 buf = ByteBuffer.allocate(blockSize);
-            rw = buf.duplicate();
+            rw = buf.asReadOnlyBuffer();
             ww = buf.duplicate();
             rw.limit(0);
         }
