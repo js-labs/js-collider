@@ -299,7 +299,6 @@ public class InputQueue extends ThreadPool.Runnable
     private static class Tls
     {
         public final DataBlock [] dataBlock = new DataBlock[2];
-        public final ByteBuffer [] iov = new ByteBuffer[2];
     }
 
     private static final Logger s_logger = Logger.getLogger( InputQueue.class.getName() );
@@ -323,6 +322,7 @@ public class InputQueue extends ThreadPool.Runnable
 
     private final Starter m_starter;
     private final AtomicLong m_state;
+    private final ByteBuffer [] m_iov;
     private boolean m_speculativeRead;
     private DataBlock m_tail;
 
@@ -450,6 +450,7 @@ public class InputQueue extends ThreadPool.Runnable
         m_listener = listener;
         m_starter = new Starter();
         m_state = new AtomicLong();
+        m_iov = new ByteBuffer[2];
         m_tail = null;
     }
 
@@ -533,14 +534,14 @@ public class InputQueue extends ThreadPool.Runnable
             space = m_blockSize * 2;
         }
 
-        tls.iov[0] = dataBlock0.ww;
-        tls.iov[1] = dataBlock1.ww;
+        m_iov[0] = dataBlock0.ww;
+        m_iov[1] = dataBlock1.ww;
 
         long bytesReceived;
         try
         {
             //long startTime = System.nanoTime();
-            bytesReceived = m_socketChannel.read( tls.iov, 0, 2 );
+            bytesReceived = m_socketChannel.read( m_iov, 0, 2 );
             /*
             long endTime = System.nanoTime();
             System.out.println( m_session.getRemoteAddress() +
@@ -562,6 +563,9 @@ public class InputQueue extends ThreadPool.Runnable
             }
             bytesReceived = 0;
         }
+
+        m_iov[0] = null;
+        m_iov[1] = null;
 
         if (bytesReceived > 0)
         {
@@ -715,9 +719,6 @@ public class InputQueue extends ThreadPool.Runnable
             if (dataBlock1 != null)
                 m_dataBlockCache.put( dataBlock1 );
         }
-
-        tls.iov[0] = null;
-        tls.iov[1] = null;
     }
 
     public final void start()
