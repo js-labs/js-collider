@@ -29,13 +29,20 @@ public class ThreadPool
 {
     public static abstract class Runnable
     {
-        public volatile Runnable nextThreadPoolRunnable;
+        public volatile Runnable threadPoolRunnable_next;
+        public final int threadPoolRunnable_hash;
+
+        public Runnable()
+        {
+            threadPoolRunnable_hash = System.identityHashCode( this );
+        }
+
         public abstract void runInThreadPool();
     }
 
     private static class Sync extends AbstractQueuedSynchronizer
     {
-        private int m_maxState;
+        private final int m_maxState;
 
         public Sync( int maxState )
         {
@@ -59,17 +66,11 @@ public class ThreadPool
             {
                 int state = getState();
                 if (state == m_maxState)
-                    return true;
-                int newState = (state + releases);
-                if (compareAndSetState(state, newState))
+                    return false;
+                if (compareAndSetState(state, state+releases))
                     return true;
             }
         }
-    }
-
-    private static class Tls
-    {
-        public int idx;
     }
 
     private class Worker extends Thread
@@ -88,6 +89,7 @@ public class ThreadPool
             while (m_run)
             {
                 m_sync.acquireShared(1);
+
                 int cc = m_contentionFactor;
                 for (;;)
                 {
@@ -122,18 +124,18 @@ public class ThreadPool
             if (head == null)
                 return null;
 
-            Runnable next = head.nextThreadPoolRunnable;
+            Runnable next = head.threadPoolRunnable_next;
             if (m_hra.compareAndSet(idx, head, next))
             {
                 if (next == null)
                 {
                     if (!m_tra.compareAndSet(idx, head, null))
                     {
-                        while (head.nextThreadPoolRunnable == null);
-                        m_hra.set( idx, head.nextThreadPoolRunnable );
+                        while (head.threadPoolRunnable_next == null);
+                        m_hra.set( idx, head.threadPoolRunnable_next );
                     }
                 }
-                head.nextThreadPoolRunnable = null;
+                head.threadPoolRunnable_next = null;
                 return head;
             }
         }
@@ -143,11 +145,10 @@ public class ThreadPool
     private static final int FS_PADDING = 16;
 
     private final int m_contentionFactor;
-    private final Sync m_sync;
     private final Thread [] m_thread;
+    private final Sync m_sync;
     private final AtomicReferenceArray<Runnable> m_hra;
     private final AtomicReferenceArray<Runnable> m_tra;
-    private final ThreadLocal<Tls> m_tls;
     private volatile boolean m_run;
 
     public ThreadPool( String name, int threads, int contentionFactor )
@@ -157,7 +158,6 @@ public class ThreadPool
             contentionFactor = 1;
 
         m_contentionFactor = contentionFactor;
-        m_sync = new Sync( threads );
 
         m_thread = new Thread[threads];
         for (int idx=0; idx<threads; idx++)
@@ -166,9 +166,9 @@ public class ThreadPool
             m_thread[idx] = new Worker( workerName );
         }
 
+        m_sync = new Sync( threads );
         m_hra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
         m_tra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
-        m_tls = new ThreadLocal<Tls>() { protected Tls initialValue() { return new Tls(); } };
         m_run = true;
     }
 
@@ -189,7 +189,6 @@ public class ThreadPool
 
         m_run = false;
         m_sync.releaseShared( m_thread.length );
-
         for (int idx=0; idx<m_thread.length; idx++)
         {
             m_thread[idx].join();
@@ -199,17 +198,17 @@ public class ThreadPool
 
     public final void execute( Runnable runnable )
     {
-        assert( runnable.nextThreadPoolRunnable == null );
+        assert( runnable.threadPoolRunnable_next == null );
 
-        Tls tls = m_tls.get();
-        int idx = ((tls.idx++) % m_contentionFactor);
+        int idx = runnable.threadPoolRunnable_hash;
+        idx %= m_contentionFactor;
         idx *= FS_PADDING;
 
         Runnable tail = m_tra.getAndSet( idx, runnable );
         if (tail == null)
             m_hra.set( idx, runnable );
         else
-            tail.nextThreadPoolRunnable = runnable;
+            tail.threadPoolRunnable_next = runnable;
 
         m_sync.releaseShared(1);
     }
