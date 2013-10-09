@@ -394,6 +394,15 @@ public class ColliderImpl extends Collider
                 s_logger.warning( ex.toString() );
         }
 
+        for (Map.Entry<Integer, InputQueue.DataBlockCache> me : m_inputQueueDataBlockCache.entrySet())
+        {
+            int size = me.getValue().clear();
+            m_inputQueueDataBlockCache.remove( me.getKey() );
+            System.out.println( "IQDBC[" + me.getKey() + "] size=" + size );
+        }
+
+        System.out.println( InputQueue.s_pc.getStats() );
+
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "stopped." );
     }

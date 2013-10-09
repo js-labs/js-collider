@@ -32,6 +32,7 @@ public abstract class Collider
 
         public int socketSendBufSize;
         public int socketRecvBufSize;
+        public int inputQueueMaxSize;
         public int inputQueueBlockSize;
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
@@ -47,6 +48,7 @@ public abstract class Collider
             socketSendBufSize = 0; /* Use system default settings by default */
             socketRecvBufSize = 0; /* Use system default settings by default */
 
+            inputQueueMaxSize           = (256 * 1024);
             inputQueueBlockSize         = (32 * 1024);
             inputQueueCacheInitialSize  = 16;
             inputQueueCacheMaxSize      = 64;

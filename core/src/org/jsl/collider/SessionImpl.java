@@ -377,7 +377,10 @@ public class SessionImpl extends ThreadPool.Runnable
         return true;
     }
 
-    public final void initialize( InputQueue.DataBlockCache inputQueueDataBlockCache, Listener listener )
+    public final void initialize(
+                int inputQueueMaxSize,
+                InputQueue.DataBlockCache inputQueueDataBlockCache,
+                Listener listener )
     {
         m_selectionKey.attach( this );
 
@@ -385,6 +388,7 @@ public class SessionImpl extends ThreadPool.Runnable
             listener = new DummyListener();
 
         m_inputQueue = new InputQueue( m_collider,
+                                       inputQueueMaxSize,
                                        inputQueueDataBlockCache,
                                        this,
                                        m_socketChannel,

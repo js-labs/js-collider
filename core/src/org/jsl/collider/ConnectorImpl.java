@@ -161,7 +161,10 @@ public class ConnectorImpl extends SessionEmitterImpl
             try
             {
                 Session.Listener sessionListener = m_connector.createSessionListener( sessionImpl );
-                sessionImpl.initialize( m_inputQueueDataBlockCache, sessionListener );
+                sessionImpl.initialize(
+                        m_connector.inputQueueMaxSize,
+                        m_inputQueueDataBlockCache,
+                        sessionListener );
             }
             finally
             {
