@@ -50,8 +50,8 @@ public abstract class Collider
 
             inputQueueMaxSize           = (256 * 1024);
             inputQueueBlockSize         = (32 * 1024);
-            inputQueueCacheInitialSize  = 16;
-            inputQueueCacheMaxSize      = 64;
+            inputQueueCacheInitialSize  = 64;
+            inputQueueCacheMaxSize      = 128;
             outputQueueBlockSize        = (16 * 1024);
             outputQueueCacheInitialSize = 0;
             outputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
