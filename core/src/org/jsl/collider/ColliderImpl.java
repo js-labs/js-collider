@@ -321,8 +321,8 @@ public class ColliderImpl extends Collider
 
     public void run()
     {
-        if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "starting." );
+        if (s_logger.isLoggable(Level.INFO))
+            s_logger.info( "starting." );
 
         m_threadPool.start();
 
@@ -403,14 +403,14 @@ public class ColliderImpl extends Collider
 
         System.out.println( InputQueue.s_pc.getStats() );
 
-        if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "stopped." );
+        if (s_logger.isLoggable(Level.INFO))
+            s_logger.info( "stopped." );
     }
 
     public void stop()
     {
-        if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "stopping..." );
+        if (s_logger.isLoggable(Level.INFO))
+            s_logger.info("");
 
         m_lock.lock();
         try
