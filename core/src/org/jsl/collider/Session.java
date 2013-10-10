@@ -22,19 +22,48 @@ package org.jsl.collider;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 
+
 public interface Session
 {
     public interface Listener
     {
+        /**
+         * Called by framework when new data received.
+         */
         public abstract void onDataReceived( ByteBuffer data );
+
+        /**
+         * Called by framework when underlying socket is closed.
+         */
         public abstract void onConnectionClosed();
     }
 
+    /**
+     * Returns Collider instance the session is linked with.
+     */
     public Collider getCollider();
+
+    /**
+     * Returns local socket address of the session.
+     */
     public SocketAddress getLocalAddress();
+
+    /**
+     * Returns remote socket address of the session.
+     */
     public SocketAddress getRemoteAddress();
 
+    /**
+     * Writes data to the session socket if it is the first thread
+     * calling the <tt>sendData</tt> or <tt>sendDataAsync</tt>.
+     * Otherwise data will be copied into internal buffer
+     * and will be sent as soon as socket will be available for writing.
+     * @return  0 - data written to socket
+     *         >0 - the amount of data waiting to be sent
+     *         -1 - the session is closed
+     */
     public long sendData( ByteBuffer data );
+
     public long sendDataAsync( ByteBuffer data );
     public long closeConnection();
 }
