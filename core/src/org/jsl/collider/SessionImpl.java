@@ -158,7 +158,7 @@ public class SessionImpl extends ThreadPool.Runnable
             m_collider.executeInSelectorThread( new SelectorDeregistrator() );
     }
 
-    private boolean addAndSendDataAsync( long state, final ByteBuffer data )
+    private long addAndSendDataAsync( long state, final ByteBuffer data )
     {
         final long bytesReady = m_outputQueue.addData( data );
         for (;;)
@@ -169,9 +169,10 @@ public class SessionImpl extends ThreadPool.Runnable
             newState -= WRITER;
             if (m_state.compareAndSet(state, newState))
             {
-                if ((bytesReady > 0) && ((state & LENGTH_MASK) == 0))
+                newState &= LENGTH_MASK;
+                if ((bytesReady > 0) && (newState == bytesReady))
                     m_collider.executeInThreadPool( this );
-                return true;
+                return newState;
             }
             state = m_state.get();
         }
@@ -226,7 +227,7 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    private boolean sendDataSync( long state, ByteBuffer data )
+    private long sendDataSync( long state, ByteBuffer data )
     {
         try
         {
@@ -235,8 +236,9 @@ public class SessionImpl extends ThreadPool.Runnable
                 System.out.println( "strange" );
 
             final long newState = decState( state, bytesSent );
+            final long length = (newState & LENGTH_MASK);
 
-            if ((newState & LENGTH_MASK) > 0)
+            if (length > 0)
                 m_collider.executeInThreadPool( this );
 
             if (s_logger.isLoggable(Level.FINEST))
@@ -247,7 +249,7 @@ public class SessionImpl extends ThreadPool.Runnable
                         stateToString(state) + " -> " + stateToString(newState) );
             }
 
-            return true;
+            return length;
         }
         catch (IOException ex)
         {
@@ -275,7 +277,7 @@ public class SessionImpl extends ThreadPool.Runnable
             if ((newState & SOCK_RC_MASK) == 0)
                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
 
-            return false;
+            return -1;
         }
     }
 
@@ -301,14 +303,14 @@ public class SessionImpl extends ThreadPool.Runnable
     public SocketAddress getLocalAddress() { return m_localSocketAddress; }
     public SocketAddress getRemoteAddress() { return m_remoteSocketAddress; }
 
-    public boolean sendData( ByteBuffer data )
+    public long sendData( ByteBuffer data )
     {
         final int dataSize = data.remaining();
         long state = m_state.get();
         for (;;)
         {
             if ((state & CLOSE) != 0)
-                return false;
+                return -1;
 
             if ((state & (WRITERS_MASK|LENGTH_MASK)) == 0)
             {
@@ -327,13 +329,13 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    public boolean sendDataAsync( ByteBuffer data )
+    public long sendDataAsync( ByteBuffer data )
     {
         long state = m_state.get();
         for (;;)
         {
             if ((state & CLOSE) != 0)
-                return false;
+                return -1;
 
             if ((state & WRITERS_MASK) != WRITERS_MASK)
             {
@@ -348,14 +350,14 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    public boolean closeConnection()
+    public long closeConnection()
     {
         long state = m_state.get();
         long newState;
         for (;;)
         {
             if ((state & CLOSE) != 0)
-                return false;
+                return -1;
 
             newState = (state | CLOSE);
             if (m_state.compareAndSet(state, newState))
@@ -374,7 +376,7 @@ public class SessionImpl extends ThreadPool.Runnable
         if ((state & STATE_MASK) == ST_RUNNING)
             m_inputQueue.stop();
 
-        return true;
+        return (newState & LENGTH_MASK);
     }
 
     public final void initialize(
