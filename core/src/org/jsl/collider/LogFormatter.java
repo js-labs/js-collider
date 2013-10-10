@@ -61,11 +61,15 @@ public class LogFormatter extends Formatter
 
         sb.append( "." );
         sb.append( logRecord.getSourceMethodName() );
-        sb.append( "(): " );
 
-        sb.append( logRecord.getMessage() );
+        String msg = logRecord.getMessage();
+        if (msg.length() > 0)
+        {
+            sb.append( ": " );
+            sb.append( logRecord.getMessage() );
+        }
+
         sb.append( "\n" );
-
         return sb.toString();
     }
 }
