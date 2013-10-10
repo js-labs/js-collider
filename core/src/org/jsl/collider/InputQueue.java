@@ -23,7 +23,6 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -209,8 +208,8 @@ public class InputQueue extends ThreadPool.Runnable
         {
             m_session.handleReaderStopped();
 
-            long state = m_state.get();
-            long newState;
+            int state = m_state.get();
+            int newState;
             for (;;)
             {
                 assert( (state & CLOSED) == 0 );
@@ -235,7 +234,7 @@ public class InputQueue extends ThreadPool.Runnable
         }
     }
 
-    private static String stateToString( long state )
+    private static String stateToString( int state )
     {
         String ret = "[";
         if ((state & CLOSED) != 0)
@@ -251,9 +250,9 @@ public class InputQueue extends ThreadPool.Runnable
 
     private static final Logger s_logger = Logger.getLogger( InputQueue.class.getName() );
 
-    private static final long LENGTH_MASK = 0x00000000FFFFFFFFL;
-    private static final long TAIL_LOCK   = 0x0000000100000000L;
-    private static final long CLOSED      = 0x0000000200000000L;
+    private static final int LENGTH_MASK = 0x0FFFFFFF;
+    private static final int TAIL_LOCK   = 0x10000000;
+    private static final int CLOSED      = 0x20000000;
 
     private final ColliderImpl m_collider;
     private final int m_maxSize;
@@ -265,14 +264,14 @@ public class InputQueue extends ThreadPool.Runnable
     private final Session.Listener m_listener;
 
     private final Starter m_starter;
-    private final AtomicLong m_state;
+    private final AtomicInteger m_state;
     private final ByteBuffer [] m_iov;
     private boolean m_speculativeRead;
     private DataBlock m_tail;
 
     static public final PerfCounter s_pc = new PerfCounter("PC");
 
-    private void handleData( DataBlock dataBlock, long state )
+    private void handleData( DataBlock dataBlock, int state )
     {
         boolean tailLock;
 
@@ -281,15 +280,15 @@ public class InputQueue extends ThreadPool.Runnable
             ByteBuffer rw = dataBlock.rw;
             assert( rw.position() == rw.limit() );
 
-            final long bytesReady = (state & LENGTH_MASK);
-            long bytesRest = bytesReady;
+            final int bytesReady = (state & LENGTH_MASK);
+            int bytesRest = bytesReady;
             int pos = rw.position();
             for (;;)
             {
-                long bb = (m_blockSize - pos);
+                int bb = (m_blockSize - pos);
                 if (bytesRest <= bb)
                 {
-                    int limit = pos + (int) bytesRest;
+                    int limit = pos + bytesRest;
                     rw.limit( limit );
                     m_listener.onDataReceived( rw );
                     rw.position( limit );
@@ -309,7 +308,7 @@ public class InputQueue extends ThreadPool.Runnable
 
             for (;;)
             {
-                long newState = state;
+                int newState = state;
                 newState -= bytesReady;
 
                 if ((newState & LENGTH_MASK) == 0)
@@ -370,7 +369,7 @@ public class InputQueue extends ThreadPool.Runnable
             for (;;)
             {
                 assert( (state & TAIL_LOCK) != 0 );
-                long newState = (state - TAIL_LOCK);
+                int newState = (state - TAIL_LOCK);
                 if (m_state.compareAndSet(state, newState))
                 {
                     state = newState;
@@ -412,7 +411,7 @@ public class InputQueue extends ThreadPool.Runnable
         m_selectionKey = selectionKey;
         m_listener = listener;
         m_starter = new Starter();
-        m_state = new AtomicLong();
+        m_state = new AtomicInteger();
         m_iov = new ByteBuffer[2];
         m_tail = null;
     }
@@ -427,7 +426,7 @@ public class InputQueue extends ThreadPool.Runnable
     public void runInThreadPool()
     {
         int tailLock;
-        long state = m_state.get();
+        int state = m_state.get();
         for (;;)
         {
             if ((state & LENGTH_MASK) == 0)
@@ -441,7 +440,7 @@ public class InputQueue extends ThreadPool.Runnable
 
             assert( (state & TAIL_LOCK) == 0 );
 
-            long newState = state;
+            int newState = state;
             newState |= TAIL_LOCK;
             tailLock = 1;
 
@@ -557,7 +556,7 @@ public class InputQueue extends ThreadPool.Runnable
 
             for (;;)
             {
-                long newState = state;
+                int newState = state;
                 newState &= LENGTH_MASK;
                 newState += bytesReceived;
                 assert( newState < LENGTH_MASK );
@@ -618,7 +617,7 @@ public class InputQueue extends ThreadPool.Runnable
                 for (;;)
                 {
                     assert( (state & TAIL_LOCK) != 0 );
-                    long newState = (state - TAIL_LOCK);
+                    int newState = (state - TAIL_LOCK);
                     if (m_state.compareAndSet(state, newState))
                     {
                         state = newState;
@@ -669,7 +668,7 @@ public class InputQueue extends ThreadPool.Runnable
              */
             m_session.handleReaderStopped();
 
-            long newState;
+            int newState;
             for (;;)
             {
                 newState = state;
