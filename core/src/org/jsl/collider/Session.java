@@ -85,7 +85,7 @@ public interface Session
      * after all received data will be processed. All further <tt>sendData</tt>
      * and <tt>sendDataAsync</tt> calls will return -1.
      * @return >0 - amount of data waiting to be sent
-     *         <0 - session already closed
+     *         <0 - session already closed and has no data to be sent
      */
     public long closeConnection();
 }
