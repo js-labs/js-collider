@@ -22,11 +22,11 @@ package org.jsl.collider;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.logging.Formatter;
+import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
 public class LogFormatter extends Formatter
 {
-    private static final Calendar s_calendar = Calendar.getInstance();
     private static final String s_packageName = getPackageName();
 
     private static String getPackageName()
@@ -41,19 +41,25 @@ public class LogFormatter extends Formatter
     public String format( LogRecord logRecord )
     {
         StringBuilder sb = new StringBuilder();
+        Calendar calendar = Calendar.getInstance();
 
-        s_calendar.setTime(new Date(logRecord.getMillis()));
-
+        calendar.setTime( new Date(logRecord.getMillis()) );
         String str = String.format( "%04d-%02d-%02d %02d:%02d:%02d.%03d t@%02d ",
-                s_calendar.get(Calendar.YEAR),
-                s_calendar.get(Calendar.MONTH),
-                s_calendar.get(Calendar.DAY_OF_MONTH),
-                s_calendar.get(Calendar.HOUR_OF_DAY),
-                s_calendar.get(Calendar.MINUTE),
-                s_calendar.get(Calendar.SECOND),
-                s_calendar.get(Calendar.MILLISECOND),
+                calendar.get(Calendar.YEAR),
+                calendar.get(Calendar.MONTH),
+                calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY),
+                calendar.get(Calendar.MINUTE),
+                calendar.get(Calendar.SECOND),
+                calendar.get(Calendar.MILLISECOND),
                 logRecord.getThreadID() );
         sb.append( str );
+
+        if (logRecord.getLevel().intValue() >= Level.CONFIG.intValue())
+        {
+            sb.append( logRecord.getLevel().getName().toUpperCase() );
+            sb.append( " " );
+        }
 
         String className = logRecord.getSourceClassName();
         if (className.startsWith(s_packageName))

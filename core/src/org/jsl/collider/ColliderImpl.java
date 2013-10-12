@@ -260,7 +260,7 @@ public class ColliderImpl extends Collider
     private final static int ST_RUNNING = 1;
     private final static int ST_STOPPING = 2;
 
-    private static final Logger s_logger = Logger.getLogger( ColliderImpl.class.getName() );
+    private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
@@ -321,8 +321,8 @@ public class ColliderImpl extends Collider
 
     public void run()
     {
-        if (s_logger.isLoggable(Level.INFO))
-            s_logger.info( "starting." );
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "starting." );
 
         m_threadPool.start();
 
@@ -396,21 +396,20 @@ public class ColliderImpl extends Collider
 
         for (Map.Entry<Integer, InputQueue.DataBlockCache> me : m_inputQueueDataBlockCache.entrySet())
         {
-            int size = me.getValue().clear();
+            me.getValue().clear( s_logger, getConfig().inputQueueCacheInitialSize );
             m_inputQueueDataBlockCache.remove( me.getKey() );
-            System.out.println( "IQDBC[" + me.getKey() + "] size=" + size );
         }
 
         System.out.println( InputQueue.s_pc.getStats() );
 
-        if (s_logger.isLoggable(Level.INFO))
-            s_logger.info( "stopped." );
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "stopped." );
     }
 
     public void stop()
     {
-        if (s_logger.isLoggable(Level.INFO))
-            s_logger.info("");
+        if (s_logger.isLoggable(Level.FINE))
+            s_logger.fine( "" );
 
         m_lock.lock();
         try

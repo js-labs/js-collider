@@ -97,20 +97,34 @@ public class InputQueue extends ThreadPool.Runnable
             return m_blockSize;
         }
 
-        public final int clear()
+        public final void clear( Logger logger, int initialSize )
         {
-            int cnt = 0;
+            int size = 0;
             DataBlock dataBlock = m_head.get();
             while (dataBlock != null)
             {
                 DataBlock next = dataBlock.next;
                 dataBlock.next = null;
                 dataBlock = next;
-                cnt++;
+                size++;
             }
             m_head.set( null );
             m_tail.set( null );
-            return cnt;
+
+            if (size < initialSize)
+            {
+                if (logger.isLoggable(Level.WARNING))
+                {
+                    logger.warning(
+                            "[" + m_blockSize + "] resource leak detected: current size " +
+                            size + " less than initial size (" + initialSize + ")." );
+                }
+            }
+            else
+            {
+                if (logger.isLoggable(Level.FINE))
+                    logger.fine( "[" + m_blockSize + "] size=" + size + "." );
+            }
         }
 
         public final void put( DataBlock dataBlock )
