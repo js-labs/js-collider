@@ -356,7 +356,7 @@ public class SessionImpl extends ThreadPool.Runnable
         for (;;)
         {
             if ((state & CLOSE) != 0)
-                return -1;
+                return (state & LENGTH_MASK);
 
             newState = (state | CLOSE);
             if (m_state.compareAndSet(state, newState))
