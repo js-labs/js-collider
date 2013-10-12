@@ -33,7 +33,7 @@ public interface Session
         public abstract void onDataReceived( ByteBuffer data );
 
         /**
-         * Called by framework when underlying socket is closed.
+         * Called by framework when connection is closed.
          */
         public abstract void onConnectionClosed();
     }
@@ -54,16 +54,38 @@ public interface Session
     public SocketAddress getRemoteAddress();
 
     /**
-     * Writes data to the session socket if it is the first thread
-     * calling the <tt>sendData</tt> or <tt>sendDataAsync</tt>.
-     * Otherwise data will be copied into internal buffer
-     * and will be sent as soon as socket will be available for writing.
+     * Writes data to the session socket if it is the single thread calling
+     * the <tt>sendData</tt> or <tt>sendDataAsync</tt>. Otherwise data will
+     * be copied into internal buffer and will be sent as soon as socket
+     * will be ready for writing.
      * @return  0 - data written to socket
-     *         >0 - the amount of data waiting to be sent
+     *         >0 - another thread writing the socket,
+     *              return value is the amount of data waiting to be sent
      *         -1 - the session is closed
      */
     public long sendData( ByteBuffer data );
 
+    /**
+     * Copies data into internal buffer and send it asynchronously from
+     * another thread. Method is useful when some small messages needs
+     * to be sent into the session at once.
+     * @return  0 - data written to socket
+     *         >0 - another thread writing the socket,
+     *              return value is the amount of data waiting to be sent
+     *         -1 - the session is closed
+     */
     public long sendDataAsync( ByteBuffer data );
+
+    /**
+     * Method to be used to close session.
+     * Works asynchronously so connection will not be closed immediately
+     * after function return. Outgoing data scheduled but not sent yet
+     * will be sent. Any data already read from the socket but not processed
+     * yet will be processed. <tt>onConnectionClosed</tt> will be called
+     * after all received data will be processed. All further <tt>sendData</tt>
+     * and <tt>sendDataAsync</tt> calls will return -1.
+     * @return >0 - amount of data waiting to be sent
+     *         <0 - session already closed
+     */
     public long closeConnection();
 }
