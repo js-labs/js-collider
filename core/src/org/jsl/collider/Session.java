@@ -28,12 +28,19 @@ public interface Session
     public interface Listener
     {
         /**
-         * Called by framework when new data received.
+         * Called by framework when some data is available.
+         * Executed serially in a one thread, but not necessary always the same.
+         * ByteBuffer is read only and valid only during function call.
+         * Should not be retained for further use. If some data needs
+         * to be used later then it should be copied.
+         * Position in the byte buffer can be greater than 0,
+         * limit can be less than capacity.
          */
         public abstract void onDataReceived( ByteBuffer data );
 
         /**
-         * Called by framework when connection is closed.
+         * Called by framework when underlying socket is closed
+         * and all income data is processed.
          */
         public abstract void onConnectionClosed();
     }
@@ -55,7 +62,7 @@ public interface Session
 
     /**
      * Writes data to the session socket if it is the single thread calling
-     * the <tt>sendData</tt> or <tt>sendDataAsync</tt>. Otherwise data will
+     * the <em>sendData</em> or <em>sendDataAsync</em>. Otherwise data will
      * be copied into internal buffer and will be sent as soon as socket
      * will be ready for writing.
      * @return  0 - data written to socket
@@ -81,9 +88,9 @@ public interface Session
      * Works asynchronously so connection will not be closed immediately
      * after function return. Outgoing data scheduled but not sent yet
      * will be sent. Any data already read from the socket but not processed
-     * yet will be processed. <tt>onConnectionClosed</tt> will be called
-     * after all received data will be processed. All further <tt>sendData</tt>
-     * and <tt>sendDataAsync</tt> calls will return -1.
+     * yet will be processed. <em>onConnectionClosed</em> will be called
+     * after all received data will be processed. All further <em>sendData</em>
+     * and <em>sendDataAsync</em> calls will return -1.
      * @return >0 - amount of data waiting to be sent
      *         <0 - session already closed and has no data to be sent
      */
