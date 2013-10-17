@@ -40,7 +40,6 @@ public class OutputQueue
             else
                 buf = ByteBuffer.allocate( blockSize );
             rw = buf.duplicate();
-            rw.limit(0);
         }
 
         public final DataBlock reset()
@@ -48,7 +47,6 @@ public class OutputQueue
             DataBlock dataBlock = next;
             next = null;
             rw.clear();
-            rw.limit();
             return dataBlock;
         }
     }
@@ -58,7 +56,6 @@ public class OutputQueue
         private final boolean m_useDirectBuffers;
         private final int m_blockSize;
         private final int m_maxSize;
-        private final ThreadLocal<DataBlock> m_tls;
         private final AtomicInteger m_state;
         private DataBlock m_dataBlock;
         private int m_size;
@@ -74,7 +71,6 @@ public class OutputQueue
                 m_blockSize = blockSize;
 
             m_maxSize = maxSize;
-            m_tls = new ThreadLocal<DataBlock>();
             m_state = new AtomicInteger();
             m_dataBlock = null;
             m_size = initialSize;
@@ -96,67 +92,54 @@ public class OutputQueue
         {
             assert( dataBlock.next == null );
 
-            if (m_tls.get() == null)
-                m_tls.set( dataBlock );
+            for (;;)
+            {
+                if (m_state.compareAndSet(0, 1))
+                    break;
+            }
+            try
+            {
+                if (m_size < m_maxSize)
+                {
+                    m_size++;
+                    dataBlock.next = m_dataBlock;
+                    m_dataBlock = dataBlock;
+                }
+            }
+            finally
+            {
+                m_state.set(0);
+            }
+        }
+
+        public final DataBlock get()
+        {
+            for (;;)
+            {
+                if (m_state.compareAndSet(0, 1))
+                    break;
+            }
+
+            if (m_dataBlock == null)
+            {
+                m_state.set(0);
+                return new DataBlock( m_useDirectBuffers, m_blockSize );
+            }
             else
             {
-                for (;;)
-                {
-                    if (m_state.compareAndSet(0, 1))
-                        break;
-                }
                 try
                 {
-                    if (m_size < m_maxSize)
-                    {
-                        m_size++;
-                        dataBlock.next = m_dataBlock;
-                        m_dataBlock = dataBlock;
-                    }
+                    DataBlock dataBlock = m_dataBlock;
+                    m_dataBlock = dataBlock.next;
+                    dataBlock.next = null;
+                    m_size--;
+                    return dataBlock;
                 }
                 finally
                 {
                     m_state.set(0);
                 }
             }
-        }
-
-        public final DataBlock get()
-        {
-            DataBlock dataBlock = m_tls.get();
-            if (dataBlock != null)
-            {
-                m_tls.set( null );
-            }
-            else
-            {
-                for (;;)
-                {
-                    if (m_state.compareAndSet(0, 1))
-                        break;
-                }
-
-                if (m_dataBlock == null)
-                {
-                    m_state.set(0);
-                    dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                }
-                else
-                {
-                    try
-                    {
-                        dataBlock = m_dataBlock;
-                        m_dataBlock = dataBlock.next;
-                        dataBlock.next = null;
-                        m_size--;
-                    }
-                    finally
-                    {
-                        m_state.set(0);
-                    }
-                }
-            }
-            return dataBlock;
         }
     }
 
@@ -218,7 +201,7 @@ public class OutputQueue
         {
             if (bytesRest == 0)
             {
-                for (int idx=0; idx<WRITERS_WIDTH; idx++)
+                for (int idx=1; idx<WRITERS_WIDTH; idx++)
                     m_ww[idx] = null;
 
                 m_tail.next = head;
@@ -260,7 +243,7 @@ public class OutputQueue
         m_ww[0] = m_tail.buf.duplicate();
     }
 
-    public long addData( ByteBuffer data )
+    public final long addData( ByteBuffer data )
     {
         final int dataSize = data.remaining();
         long state = m_state.get();
@@ -420,7 +403,7 @@ public class OutputQueue
         }
     }
 
-    public long getData( ByteBuffer [] iov, long maxBytes )
+    public final long getData( ByteBuffer [] iov, long maxBytes )
     {
         DataBlock dataBlock = m_head;
         int pos = dataBlock.rw.position();
@@ -428,13 +411,14 @@ public class OutputQueue
 
         if (pos == capacity)
         {
-            assert( dataBlock.next != null );
-            m_head = dataBlock.next;
-            dataBlock.next = null;
-            dataBlock = m_head;
-            pos = dataBlock.rw.position();
+            DataBlock next = dataBlock.reset();
+            assert( next != null );
+            assert( next.rw.position() == 0 );
+            m_dataBlockCache.put( dataBlock );
+            dataBlock = next;
+            m_head = next;
+            pos = 0;
             capacity = dataBlock.rw.capacity();
-            assert( pos == 0 );
         }
 
         long bytesRest = maxBytes;
@@ -471,7 +455,7 @@ public class OutputQueue
         return ret;
     }
 
-    public void removeData( int pos0, long bytes )
+    public final void removeData( int pos0, long bytes )
     {
         int pos = pos0;
         long bytesRest = bytes;
