@@ -31,6 +31,7 @@ public class OutputQueue
         public DataBlock next;
         public final ByteBuffer buf;
         public final ByteBuffer rw;
+        public final ByteBuffer ww;
 
         public DataBlock( boolean useDirectBuffers, int blockSize )
         {
@@ -40,6 +41,7 @@ public class OutputQueue
             else
                 buf = ByteBuffer.allocate( blockSize );
             rw = buf.duplicate();
+            ww = buf.duplicate();
         }
 
         public final DataBlock reset()
@@ -47,6 +49,7 @@ public class OutputQueue
             DataBlock dataBlock = next;
             next = null;
             rw.clear();
+            ww.clear();
             return dataBlock;
         }
     }
@@ -143,7 +146,7 @@ public class OutputQueue
         }
     }
 
-    private static final int OFFS_WIDTH    = 36;
+    private static final int OFFS_WIDTH    = 20;
     private static final int START_WIDTH   = 20;
     private static final int WRITERS_WIDTH = 6;
     private static final long OFFS_MASK    = ((1L << OFFS_WIDTH) - 1);
@@ -161,14 +164,13 @@ public class OutputQueue
     {
         DataBlock head = null;
         DataBlock tail = null;
-        ByteBuffer ww = null;
         try
         {
             head = m_dataBlockCache.get();
             tail = head;
             for (;;)
             {
-                ww = tail.buf.duplicate();
+                ByteBuffer ww = tail.ww;
                 if (bytesRest <= m_blockSize)
                 {
                     data.limit( data.position() + bytesRest );
@@ -195,7 +197,7 @@ public class OutputQueue
 
                 m_tail.next = head;
                 m_tail = tail;
-                m_ww[0] = ww;
+                m_ww[0] = tail.ww;
 
                 long newState = (state & OFFS_MASK);
                 newState += dataSize;
@@ -211,6 +213,8 @@ public class OutputQueue
                  * The best solution is to unlock the queue.
                  * May be we will lucky and application will survive.
                  */
+                assert( m_tail.ww.position() == m_tail.ww.capacity() );
+                m_tail.ww.position( (int)(state & OFFS_MASK) );
                 m_state.set( state );
             }
         }
@@ -225,8 +229,7 @@ public class OutputQueue
         m_head = dataBlockCache.get();
         m_tail = m_head;
         m_ww = new ByteBuffer[WRITERS_WIDTH];
-
-        m_ww[0] = m_tail.buf.duplicate();
+        m_ww[0] = m_tail.ww;
     }
 
     public final long addData( ByteBuffer data )
