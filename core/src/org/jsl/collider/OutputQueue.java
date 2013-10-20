@@ -157,17 +157,6 @@ public class OutputQueue
     private DataBlock m_tail;
     private final ByteBuffer [] m_ww;
 
-    private static long getOffs( long state, int blockSize )
-    {
-        long offs = (state & OFFS_MASK);
-        long ret = (offs % blockSize);
-        if (ret > 0)
-            return ret;
-        if (offs > 0)
-            return blockSize;
-        return 0;
-    }
-
     private long addDataLocked( long state, ByteBuffer data, int dataSize, int bytesRest )
     {
         DataBlock head = null;
@@ -210,12 +199,9 @@ public class OutputQueue
 
                 long newState = (state & OFFS_MASK);
                 newState += dataSize;
-                if (newState > OFFS_MASK)
-                {
-                    newState %= m_blockSize;
-                    if (newState == 0)
-                        newState = m_blockSize;
-                }
+                newState %= m_blockSize;
+                if (newState == 0)
+                    newState = m_blockSize;
 
                 m_state.set( newState );
             }
@@ -255,7 +241,7 @@ public class OutputQueue
                 continue;
             }
 
-            final long offs = getOffs( state, m_blockSize );
+            final long offs = (state & OFFS_MASK);
             long space = (m_blockSize - offs);
 
             if (dataSize > space)
@@ -296,12 +282,6 @@ public class OutputQueue
 
             long newState = (state & OFFS_MASK);
             newState += dataSize;
-            if (newState > OFFS_MASK)
-            {
-                newState %= m_blockSize;
-                if (newState == 0)
-                    newState = m_blockSize;
-            }
             newState |= (state & ~OFFS_MASK);
 
             long writer = (1L << (START_WIDTH + OFFS_WIDTH));
@@ -381,10 +361,7 @@ public class OutputQueue
                 {
                     newState &= ~START_MASK;
                     if (m_state.compareAndSet(state, newState))
-                    {
-                        long end = getOffs( newState, m_blockSize );
-                        return (end - start);
-                    }
+                        return ((newState & OFFS_MASK) - start);
                 }
                 else if (offs == start)
                 {
