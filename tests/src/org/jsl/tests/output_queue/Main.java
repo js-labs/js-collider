@@ -17,6 +17,7 @@
 
 package org.jsl.tests.output_queue;
 
+import org.jsl.collider.DataBlockCache;
 import org.jsl.collider.OutputQueue;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
@@ -24,14 +25,19 @@ import org.jsl.tests.Util;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
 public class Main
 {
     private static final int MESSAGE_MAGIC = 0x1A2B3C4D;
+    private static final Logger s_logger = Logger.getLogger( Main.class.getName() );
+
     private final Semaphore m_sema;
     private final AtomicLong m_state;
-    private final OutputQueue.DataBlockCache m_outputQueueDataBlockCache;
+    private final DataBlockCache m_dataBlockCache;
     private final OutputQueue m_outputQueue;
     private final Stream m_stream;
     private int m_waitMessages;
@@ -54,8 +60,8 @@ public class Main
     {
         m_sema = new Semaphore(0);
         m_state = new AtomicLong(0);
-        m_outputQueueDataBlockCache = new OutputQueue.DataBlockCache( false, 1000, 0, 100 );
-        m_outputQueue = new OutputQueue( m_outputQueueDataBlockCache );
+        m_dataBlockCache = new DataBlockCache( false, 1000, 20, 100 );
+        m_outputQueue = new OutputQueue( m_dataBlockCache );
         m_stream = new Stream();
         m_waitMessages = 0;
         m_messages = 0;
@@ -126,6 +132,9 @@ public class Main
         System.out.println( m_messages + " messages processed (" + bytesProcessed
                             + " bytes) processed at " + Util.formatDelay(startTime, endTime)
                             + ", " + waits + " waits." );
+
+        s_logger.setLevel( Level.FINE );
+        m_dataBlockCache.clear( s_logger, 20 );
     }
 
     public void addData( ByteBuffer data )

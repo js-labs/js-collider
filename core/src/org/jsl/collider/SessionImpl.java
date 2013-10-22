@@ -284,7 +284,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 ColliderImpl collider,
                 SocketChannel socketChannel,
                 SelectionKey selectionKey,
-                OutputQueue.DataBlockCache outputQueueDataBlockCache )
+                DataBlockCache outputQueueDataBlockCache )
     {
         m_collider = collider;
         m_socketChannel = socketChannel;

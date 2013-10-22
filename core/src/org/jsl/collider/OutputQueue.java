@@ -20,132 +20,11 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 
 public class OutputQueue
 {
-    private static class DataBlock
-    {
-        public DataBlock next;
-        public final ByteBuffer buf;
-        public final ByteBuffer rw;
-        public final ByteBuffer ww;
-
-        public DataBlock( boolean useDirectBuffers, int blockSize )
-        {
-            next = null;
-            if (useDirectBuffers)
-                buf = ByteBuffer.allocateDirect( blockSize );
-            else
-                buf = ByteBuffer.allocate( blockSize );
-            rw = buf.duplicate();
-            ww = buf.duplicate();
-        }
-
-        public final DataBlock reset()
-        {
-            DataBlock dataBlock = next;
-            next = null;
-            rw.clear();
-            ww.clear();
-            return dataBlock;
-        }
-    }
-
-    public static class DataBlockCache
-    {
-        private final boolean m_useDirectBuffers;
-        private final int m_blockSize;
-        private final int m_maxSize;
-        private final AtomicInteger m_state;
-        private DataBlock m_dataBlock;
-        private int m_size;
-
-        public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
-        {
-            m_useDirectBuffers = useDirectBuffers;
-
-            long maxBlockSize = (START_MASK >> OFFS_WIDTH);
-            if (blockSize > maxBlockSize)
-                m_blockSize = (int) maxBlockSize;
-            else
-                m_blockSize = blockSize;
-
-            m_maxSize = maxSize;
-            m_state = new AtomicInteger();
-            m_dataBlock = null;
-            m_size = initialSize;
-
-            for (int idx=0; idx<initialSize; idx++)
-            {
-                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                dataBlock.next = m_dataBlock;
-                m_dataBlock = dataBlock;
-            }
-        }
-
-        public final int getBlockSize()
-        {
-            return m_blockSize;
-        }
-
-        public final void put( DataBlock dataBlock )
-        {
-            assert( dataBlock.next == null );
-
-            for (;;)
-            {
-                if (m_state.compareAndSet(0, 1))
-                    break;
-            }
-            try
-            {
-                if (m_size < m_maxSize)
-                {
-                    m_size++;
-                    dataBlock.next = m_dataBlock;
-                    m_dataBlock = dataBlock;
-                }
-            }
-            finally
-            {
-                m_state.set(0);
-            }
-        }
-
-        public final DataBlock get()
-        {
-            for (;;)
-            {
-                if (m_state.compareAndSet(0, 1))
-                    break;
-            }
-
-            if (m_dataBlock == null)
-            {
-                m_state.set(0);
-                return new DataBlock( m_useDirectBuffers, m_blockSize );
-            }
-            else
-            {
-                try
-                {
-                    DataBlock dataBlock = m_dataBlock;
-                    m_dataBlock = dataBlock.next;
-                    dataBlock.next = null;
-                    m_size--;
-                    return dataBlock;
-                }
-                finally
-                {
-                    m_state.set(0);
-                }
-            }
-        }
-    }
-
     private static final int OFFS_WIDTH    = 20;
     private static final int START_WIDTH   = 20;
     private static final int WRITERS_WIDTH = 6;
@@ -160,37 +39,34 @@ public class OutputQueue
     private DataBlock m_tail;
     private final ByteBuffer [] m_ww;
 
-    private long addDataLocked( long state, ByteBuffer data, int dataSize, int bytesRest )
+    private long addDataLocked( long state, ByteBuffer data, int dataSize, int bytesRemaining )
     {
         DataBlock head = null;
         DataBlock tail = null;
         try
         {
-            head = m_dataBlockCache.get();
+            head = m_dataBlockCache.getByDataSize( bytesRemaining );
             tail = head;
             for (;;)
             {
-                ByteBuffer ww = tail.ww;
-                if (bytesRest <= m_blockSize)
+                final ByteBuffer ww = tail.ww;
+                assert( (ww.capacity() == m_blockSize) && (ww.remaining() == m_blockSize) );
+                if (bytesRemaining <= m_blockSize)
                 {
-                    data.limit( data.position() + bytesRest );
+                    data.limit( data.position() + bytesRemaining );
                     ww.put( data );
-                    bytesRest = 0;
                     break;
                 }
 
+                bytesRemaining -= m_blockSize;
                 data.limit( data.position() + m_blockSize );
                 ww.put( data );
-                bytesRest -= m_blockSize;
-
-                DataBlock dataBlock = m_dataBlockCache.get();
-                tail.next = dataBlock;
-                tail = dataBlock;
+                tail = tail.next;
             }
         }
         finally
         {
-            if (bytesRest == 0)
+            if (data.remaining() == 0)
             {
                 for (int idx=1; idx<WRITERS_WIDTH; idx++)
                     m_ww[idx] = null;
@@ -199,13 +75,8 @@ public class OutputQueue
                 m_tail = tail;
                 m_ww[0] = tail.ww;
 
-                long newState = (state & OFFS_MASK);
-                newState += dataSize;
-                newState %= m_blockSize;
-                if (newState == 0)
-                    newState = m_blockSize;
-
-                m_state.set( newState );
+                assert( bytesRemaining <= OFFS_MASK );
+                m_state.set( bytesRemaining );
             }
             else
             {
@@ -213,9 +84,19 @@ public class OutputQueue
                  * The best solution is to unlock the queue.
                  * May be we will lucky and application will survive.
                  */
-                assert( m_tail.ww.position() == m_tail.ww.capacity() );
                 m_tail.ww.position( (int)(state & OFFS_MASK) );
                 m_state.set( state );
+
+                if (head != null)
+                {
+                    tail = head;
+                    while (tail != null)
+                    {
+                        tail.reset();
+                        tail = tail.next;
+                    }
+                    m_dataBlockCache.put( head );
+                }
             }
         }
         return dataSize;
@@ -226,13 +107,13 @@ public class OutputQueue
         m_dataBlockCache = dataBlockCache;
         m_blockSize = dataBlockCache.getBlockSize();
         m_state = new AtomicLong();
-        m_head = dataBlockCache.get();
+        m_head = dataBlockCache.get(1);
         m_tail = m_head;
         m_ww = new ByteBuffer[WRITERS_WIDTH];
         m_ww[0] = m_tail.ww;
     }
 
-    public final long addData( ByteBuffer data )
+    public final long addData( final ByteBuffer data )
     {
         final int dataSize = data.remaining();
         long state = m_state.get();
@@ -383,22 +264,83 @@ public class OutputQueue
         }
     }
 
+    public final void addDataFront( final ByteBuffer data )
+    {
+        final int dataPosition = data.position();
+        final int dataLimit = data.limit();
+        int bytesRemaining = (dataLimit - dataPosition);
+        assert( bytesRemaining > 0 );
+
+        int pos = m_head.rw.position();
+        if (pos > 0)
+        {
+            /* We can not reuse any write window here,
+             * not a big problem to allocate a new one locally.
+             */
+            ByteBuffer ww = m_head.buf.duplicate();
+            ww.limit( pos );
+            if (bytesRemaining <= pos)
+            {
+                ww.position( pos - bytesRemaining );
+                ww.put( data );
+                return;
+            }
+
+            bytesRemaining -= pos;
+            data.position( dataLimit-pos );
+            ww.put( data );
+        }
+
+        DataBlock dataBlockList = m_dataBlockCache.getByDataSize( bytesRemaining );
+        DataBlock dataBlock = dataBlockList;
+        dataBlockList = dataBlockList.next;
+        dataBlock.next = null;
+        for (;;)
+        {
+            final ByteBuffer ww = dataBlock.ww;
+            assert( (ww.capacity() == m_blockSize) && (ww.remaining() == m_blockSize) );
+
+            if (bytesRemaining <= m_blockSize)
+            {
+                ww.position( m_blockSize - bytesRemaining );
+                data.position( 0 );
+                data.limit( bytesRemaining );
+                ww.put( data );
+                break;
+            }
+
+            data.position( bytesRemaining - m_blockSize );
+            data.limit( bytesRemaining );
+            ww.put( data );
+
+            DataBlock prev = dataBlockList;
+            dataBlockList = dataBlockList.next;
+
+            prev.next = dataBlock;
+            dataBlock = prev;
+        }
+
+        m_head = dataBlock;
+        data.position( dataLimit );
+        data.limit( dataLimit );
+    }
+
     public final long getData( ByteBuffer [] iov, long maxBytes )
     {
         DataBlock dataBlock = m_head;
         int pos = dataBlock.rw.position();
-        int capacity = dataBlock.rw.capacity();
 
-        if (pos == capacity)
+        if (pos == m_blockSize)
         {
-            DataBlock next = dataBlock.reset();
+            DataBlock next = dataBlock.next;
             assert( next != null );
             assert( next.rw.position() == 0 );
+            dataBlock.reset();
+            dataBlock.next = null;
             m_dataBlockCache.put( dataBlock );
             dataBlock = next;
             m_head = next;
             pos = 0;
-            capacity = dataBlock.rw.capacity();
         }
 
         long bytesRest = maxBytes;
@@ -407,7 +349,7 @@ public class OutputQueue
 
         for (;;)
         {
-            int bb = (capacity - pos);
+            int bb = (m_blockSize - pos);
             if (bb > bytesRest)
                 bb = (int) bytesRest;
 
@@ -426,7 +368,6 @@ public class OutputQueue
             assert( dataBlock.next != null );
             dataBlock = dataBlock.next;
             pos = dataBlock.rw.position();
-            capacity = dataBlock.rw.capacity();
         }
 
         for (; idx<iov.length; idx++)
@@ -437,22 +378,28 @@ public class OutputQueue
 
     public final void removeData( int pos0, long bytes )
     {
-        int pos = pos0;
-        long bytesRest = bytes;
-        for (;;)
+        assert( pos0 < m_blockSize );
+        long bytesRemaining = (bytes - (m_blockSize - pos0));
+        if (bytesRemaining > 0)
         {
+            DataBlock head = m_head;
             DataBlock dataBlock = m_head;
-            int capacity = dataBlock.rw.capacity();
-            int rwb = (capacity - pos);
-            if (bytesRest <= rwb)
-                break;
-
-            assert( dataBlock.next != null );
-
-            bytesRest -= rwb;
-            m_head = dataBlock.reset();
-            m_dataBlockCache.put( dataBlock );
-            pos = 0;
+            for (;;)
+            {
+                assert( dataBlock.next != null );
+                dataBlock.reset();
+                DataBlock prev = dataBlock;
+                dataBlock = dataBlock.next;
+                if (bytesRemaining <= m_blockSize)
+                {
+                    assert( bytesRemaining == dataBlock.rw.position() );
+                    m_head = dataBlock;
+                    prev.next = null;
+                    m_dataBlockCache.put( head );
+                    break;
+                }
+                bytesRemaining -= m_blockSize;
+            }
         }
     }
 }

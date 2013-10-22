@@ -37,7 +37,7 @@ public abstract class SessionEmitterImpl
 
     protected final ColliderImpl m_collider;
     protected final InputQueue.DataBlockCache m_inputQueueDataBlockCache;
-    protected final OutputQueue.DataBlockCache m_outputQueueDataBlockCache;
+    protected final DataBlockCache m_outputQueueDataBlockCache;
 
     private final SessionEmitter m_sessionEmitter;
     private final ReentrantLock m_lock;
@@ -150,7 +150,7 @@ public abstract class SessionEmitterImpl
     protected SessionEmitterImpl(
             ColliderImpl collider,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
-            OutputQueue.DataBlockCache outputQueueDataBlockCache,
+            DataBlockCache outputQueueDataBlockCache,
             SessionEmitter sessionEmitter )
     {
         m_collider = collider;

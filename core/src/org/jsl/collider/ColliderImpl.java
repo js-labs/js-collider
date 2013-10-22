@@ -186,7 +186,7 @@ public class ColliderImpl extends Collider
         return cache;
     }
 
-    private OutputQueue.DataBlockCache getOutputQueueDataBlockCache( final SessionEmitter sessionEmitter )
+    private DataBlockCache getOutputQueueDataBlockCache( final SessionEmitter sessionEmitter )
     {
         final Config config = getConfig();
 
@@ -197,20 +197,20 @@ public class ColliderImpl extends Collider
             assert( outputQueueBlockSize > 0 );
         }
 
-        OutputQueue.DataBlockCache cache = null;
+        DataBlockCache cache = null;
 
         m_lock.lock();
         try
         {
-            cache = m_outputQueueDataBlockCache.get( outputQueueBlockSize );
+            cache = m_dataBlockCache.get( outputQueueBlockSize );
             if (cache == null)
             {
-                cache = new OutputQueue.DataBlockCache(
-                        config.useDirectBuffers,
-                        outputQueueBlockSize,
-                        config.outputQueueCacheInitialSize,
-                        config.outputQueueCacheMaxSize );
-                m_outputQueueDataBlockCache.put( outputQueueBlockSize, cache );
+                cache = new DataBlockCache(
+                                config.useDirectBuffers,
+                                outputQueueBlockSize,
+                                config.outputQueueCacheInitialSize,
+                                config.outputQueueCacheMaxSize );
+                m_dataBlockCache.put( outputQueueBlockSize, cache );
             }
         }
         finally
@@ -270,7 +270,7 @@ public class ColliderImpl extends Collider
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<Integer, InputQueue.DataBlockCache> m_inputQueueDataBlockCache;
-    private final Map<Integer, OutputQueue.DataBlockCache> m_outputQueueDataBlockCache;
+    private final Map<Integer, DataBlockCache> m_dataBlockCache;
     private boolean m_stop;
 
     private volatile SelectorThreadRunnable m_strHead;
@@ -302,7 +302,7 @@ public class ColliderImpl extends Collider
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
         m_inputQueueDataBlockCache = new HashMap<Integer, InputQueue.DataBlockCache>();
-        m_outputQueueDataBlockCache = new HashMap<Integer, OutputQueue.DataBlockCache>();
+        m_dataBlockCache = new HashMap<Integer, DataBlockCache>();
         m_stop = false;
 
         m_strHead = null;
@@ -492,7 +492,7 @@ public class ColliderImpl extends Collider
         }
 
         InputQueue.DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( acceptor );
-        OutputQueue.DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( acceptor );
+        DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( acceptor );
 
         AcceptorImpl acceptorImpl = new AcceptorImpl(
                 this,
@@ -563,7 +563,7 @@ public class ColliderImpl extends Collider
         }
 
         InputQueue.DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( connector );
-        OutputQueue.DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( connector );
+        DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( connector );
 
         ConnectorImpl connectorImpl = new ConnectorImpl(
                 this,

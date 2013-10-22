@@ -235,7 +235,7 @@ public class ConnectorImpl extends SessionEmitterImpl
     public ConnectorImpl(
             ColliderImpl collider,
             InputQueue.DataBlockCache inputQueueDataBlockCache,
-            OutputQueue.DataBlockCache outputQueueDataBlockCache,
+            DataBlockCache outputQueueDataBlockCache,
             Connector connector,
             Selector selector )
     {
