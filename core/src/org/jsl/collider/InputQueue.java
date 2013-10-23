@@ -23,149 +23,12 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
 public class InputQueue extends ThreadPool.Runnable
 {
-    private static class DataBlock
-    {
-        public volatile DataBlock next;
-        public final ByteBuffer buf;
-        public final ByteBuffer rw;
-        public final ByteBuffer ww;
-
-        public DataBlock( boolean useDirectBuffers, int blockSize )
-        {
-            next = null;
-            if (useDirectBuffers)
-                buf = ByteBuffer.allocateDirect( blockSize );
-            else
-                buf = ByteBuffer.allocate(blockSize);
-            rw = buf.asReadOnlyBuffer();
-            ww = buf.duplicate();
-            rw.limit(0);
-        }
-
-        public final DataBlock reset()
-        {
-            DataBlock dataBlock = next;
-            next = null;
-            rw.clear();
-            rw.limit(0);
-            ww.clear();
-            return dataBlock;
-        }
-    }
-
-    public static class DataBlockCache
-    {
-        private final boolean m_useDirectBuffers;
-        private final int m_blockSize;
-        private final int m_maxSize;
-        private final AtomicReference<DataBlock> m_head;
-        private final AtomicReference<DataBlock> m_tail;
-        private final AtomicInteger m_cacheMiss;
-
-        public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
-        {
-            m_useDirectBuffers = useDirectBuffers;
-            m_blockSize = blockSize;
-            m_maxSize = maxSize;
-            m_head = new AtomicReference<DataBlock>();
-            m_tail = new AtomicReference<DataBlock>();
-            m_cacheMiss = new AtomicInteger();
-
-            if (initialSize > 0)
-            {
-                DataBlock dataBlock = new DataBlock( m_useDirectBuffers, m_blockSize );
-                m_head.set( dataBlock );
-                for (int idx=1; idx<initialSize; idx++)
-                {
-                    DataBlock next = new DataBlock( m_useDirectBuffers, m_blockSize );
-                    dataBlock.next = next;
-                    dataBlock = next;
-                }
-                m_tail.set( dataBlock );
-            }
-        }
-
-        public final int getBlockSize()
-        {
-            return m_blockSize;
-        }
-
-        public final void clear( Logger logger, int initialSize )
-        {
-            int size = 0;
-            DataBlock dataBlock = m_head.get();
-            while (dataBlock != null)
-            {
-                DataBlock next = dataBlock.next;
-                dataBlock.next = null;
-                dataBlock = next;
-                size++;
-            }
-            m_head.set( null );
-            m_tail.set( null );
-
-            if (size < initialSize)
-            {
-                if (logger.isLoggable(Level.WARNING))
-                {
-                    logger.warning(
-                            "[" + m_blockSize + "] resource leak detected: current size " +
-                            size + " less than initial size (" + initialSize + ")." );
-                }
-            }
-            else
-            {
-                if (logger.isLoggable(Level.FINE))
-                    logger.fine( "[" + m_blockSize + "] size=" + size + "." );
-            }
-        }
-
-        public final void put( DataBlock dataBlock )
-        {
-            assert( dataBlock.next == null );
-            DataBlock tail = m_tail.getAndSet( dataBlock );
-            if (tail == null)
-                m_head.set( dataBlock );
-            else
-                tail.next = dataBlock;
-        }
-
-        public final DataBlock get()
-        {
-            for (;;)
-            {
-                DataBlock head = m_head.get();
-                if (head == null)
-                    break;
-
-                DataBlock next = head.next;
-                if (m_head.compareAndSet(head, next))
-                {
-                    if (next == null)
-                    {
-                        if (!m_tail.compareAndSet(head, null))
-                        {
-                            while (head.next == null);
-                            m_head.set( head.next );
-                        }
-                    }
-                    head.next = null;
-                    return head;
-                }
-            }
-
-            m_cacheMiss.incrementAndGet();
-            return new DataBlock( m_useDirectBuffers, m_blockSize );
-        }
-    }
-
     private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
@@ -288,33 +151,46 @@ public class InputQueue extends ThreadPool.Runnable
     private void handleData( DataBlock dataBlock, int state )
     {
         boolean tailLock;
+        DataBlock freeDataBlock = null;
 
         handleDataLoop: for (;;)
         {
             ByteBuffer rw = dataBlock.rw;
-            assert( rw.position() == rw.limit() );
-
             final int bytesReady = (state & LENGTH_MASK);
-            int bytesRest = bytesReady;
+            int bytesRemaining = bytesReady;
             int pos = rw.position();
             for (;;)
             {
                 int bb = (m_blockSize - pos);
-                if (bytesRest <= bb)
+                if (bytesRemaining <= bb)
                 {
-                    int limit = pos + bytesRest;
+                    int limit = pos + bytesRemaining;
                     rw.limit( limit );
                     m_listener.onDataReceived( rw );
                     rw.position( limit );
                     break;
                 }
 
-                bytesRest -= bb;
+                bytesRemaining -= bb;
                 rw.limit( m_blockSize );
                 m_listener.onDataReceived( rw );
 
-                DataBlock next = dataBlock.reset();
-                m_dataBlockCache.put( dataBlock );
+                DataBlock next = dataBlock.next;
+                s_logger.fine( "next=" + next );
+                dataBlock.reset();
+
+                if (freeDataBlock == null)
+                {
+                    dataBlock.next = null;
+                    freeDataBlock = dataBlock;
+                }
+                else
+                {
+                    dataBlock.next = freeDataBlock;
+                    freeDataBlock = null;
+                    m_dataBlockCache.put( dataBlock );
+                }
+
                 dataBlock = next;
                 rw = dataBlock.rw;
                 pos = 0;
@@ -345,6 +221,13 @@ public class InputQueue extends ThreadPool.Runnable
                             m_collider.executeInThreadPool( this );
                         }
                         state = newState;
+
+                        if (freeDataBlock != null)
+                        {
+                            assert( freeDataBlock.next == null );
+                            m_dataBlockCache.put( freeDataBlock );
+                        }
+
                         break handleDataLoop;
                     }
                 }
@@ -368,7 +251,9 @@ public class InputQueue extends ThreadPool.Runnable
 
             if (rw.limit() == rw.capacity())
             {
-                DataBlock next = dataBlock.reset();
+                DataBlock next = dataBlock.next;
+                dataBlock.next = null;
+                dataBlock.reset();
                 m_dataBlockCache.put( dataBlock );
                 dataBlock = next;
             }
@@ -392,9 +277,8 @@ public class InputQueue extends ThreadPool.Runnable
                 state = m_state.get();
             }
 
-            DataBlock next = tail.reset();
-            assert( next == null );
-            m_dataBlockCache.put( tail );
+            assert( tail.next == null );
+            m_dataBlockCache.put( tail.reset() );
         }
 
         if ((state & CLOSED) != 0)
@@ -481,14 +365,15 @@ public class InputQueue extends ThreadPool.Runnable
             if (space > 0)
             {
                 prev = null;
-                dataBlock1 = m_dataBlockCache.get();
+                dataBlock1 = m_dataBlockCache.get(1);
                 space += m_blockSize;
             }
             else
             {
                 prev = dataBlock0;
-                dataBlock0 = m_dataBlockCache.get();
-                dataBlock1 = m_dataBlockCache.get();
+                dataBlock0 = m_dataBlockCache.get(2);
+                dataBlock1 = dataBlock0.next;
+                dataBlock0.next = null;
                 pos0 = 0;
                 space = m_blockSize * 2;
             }
@@ -496,8 +381,9 @@ public class InputQueue extends ThreadPool.Runnable
         else
         {
             prev = null;
-            dataBlock0 = m_dataBlockCache.get();
-            dataBlock1 = m_dataBlockCache.get();
+            dataBlock0 = m_dataBlockCache.get(2);
+            dataBlock1 = dataBlock0.next;
+            dataBlock0.next = null;
             pos0 = 0;
             space = m_blockSize * 2;
         }
@@ -613,19 +499,26 @@ public class InputQueue extends ThreadPool.Runnable
 
                 if (prev != null)
                 {
-                    prev.reset();
-                    m_dataBlockCache.put( prev );
+                    prev.next = null;
+                    m_dataBlockCache.put( prev.reset() );
                 }
             }
 
             if (dataBlock1 != null)
             {
                 assert( dataBlock1.ww.position() == 0 );
+                assert( dataBlock1.next == null );
                 m_dataBlockCache.put( dataBlock1 );
             }
         }
         else if (m_speculativeRead)
         {
+            /* dataBlock1 will always be freed, dataBlock0 - sometimes */
+
+            assert( dataBlock0.next == null );
+            assert( dataBlock1.next == null );
+            assert( dataBlock1.ww.position() == 0 );
+
             if (tailLock > 0)
             {
                 for (;;)
@@ -642,32 +535,31 @@ public class InputQueue extends ThreadPool.Runnable
 
                 if ((state & LENGTH_MASK) == 0)
                 {
+                    dataBlock1.next = dataBlock0;
                     if (prev == null)
-                    {
                         assert( m_tail == dataBlock0 );
-                        m_dataBlockCache.put( dataBlock0 );
-                    }
                     else
                     {
                         assert( m_tail == prev );
-                        DataBlock next = prev.reset();
-                        assert( next == null );
-                        m_dataBlockCache.put( prev );
-                        m_dataBlockCache.put( dataBlock0 );
+                        assert( m_tail.next == null );
+                        dataBlock0.next = prev.reset();
                     }
                     m_tail = null;
                 }
                 else
                 {
+                    /* m_tail can not be accessed since m_state.compareAndSet() */
                     if (prev != null)
-                        m_dataBlockCache.put( dataBlock0 );
+                    {
+                        /* last data block was full */
+                        dataBlock1.next = dataBlock0;
+                    }
                 }
-
             }
             else
             {
                 assert( prev == null );
-                m_dataBlockCache.put( dataBlock0 );
+                dataBlock1.next = dataBlock0;
             }
 
             m_dataBlockCache.put( dataBlock1 );
@@ -690,7 +582,7 @@ public class InputQueue extends ThreadPool.Runnable
 
                 if (tailLock > 0)
                 {
-                    assert( (newState & TAIL_LOCK) != 0 );
+                    assert( (state & TAIL_LOCK) != 0 );
                     newState -= TAIL_LOCK;
                 }
 
@@ -707,17 +599,52 @@ public class InputQueue extends ThreadPool.Runnable
                         ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
             }
 
+            /* dataBlock1 will always be freed, dataBlock0 - sometimes */
+
+            assert( dataBlock0.next == null );
+            assert( dataBlock1.next == null );
+
             if ((newState & LENGTH_MASK) == 0)
             {
                 m_listener.onConnectionClosed();
+                printStats();
+
                 if (tailLock > 0)
                 {
-                    DataBlock next = m_tail.reset();
-                    assert( next == null );
-                    m_dataBlockCache.put( m_tail );
+                    dataBlock1.next = dataBlock0;
+                    if (prev == null)
+                        assert( m_tail == dataBlock0 );
+                    else
+                    {
+                        assert( m_tail == prev );
+                        assert( m_tail.next == null );
+                        dataBlock0.next = prev.reset();
+                    }
                     m_tail = null;
                 }
-                printStats();
+                else
+                {
+                    assert( prev == null );
+                    dataBlock1.next = dataBlock0;
+                }
+            }
+            else
+            {
+                if (tailLock > 0)
+                {
+                    if (prev == null)
+                        assert( m_tail == dataBlock0 );
+                    else
+                    {
+                        assert( m_tail == prev );
+                        dataBlock1.next = dataBlock0;
+                    }
+                }
+                else
+                {
+                    assert( prev == null );
+                    dataBlock1.next = dataBlock0;
+                }
             }
 
             m_dataBlockCache.put( dataBlock1 );

@@ -38,9 +38,10 @@ public class DataBlock
         ww = buf.duplicate();
     }
 
-    public final void reset()
+    public final DataBlock reset()
     {
         rw.clear();
         ww.clear();
+        return this;
     }
 }

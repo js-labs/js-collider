@@ -36,7 +36,7 @@ public abstract class SessionEmitterImpl
     private static final Logger s_logger = Logger.getLogger( SessionEmitterImpl.class.getName() );
 
     protected final ColliderImpl m_collider;
-    protected final InputQueue.DataBlockCache m_inputQueueDataBlockCache;
+    protected final DataBlockCache m_inputQueueDataBlockCache;
     protected final DataBlockCache m_outputQueueDataBlockCache;
 
     private final SessionEmitter m_sessionEmitter;
@@ -149,7 +149,7 @@ public abstract class SessionEmitterImpl
 
     protected SessionEmitterImpl(
             ColliderImpl collider,
-            InputQueue.DataBlockCache inputQueueDataBlockCache,
+            DataBlockCache inputQueueDataBlockCache,
             DataBlockCache outputQueueDataBlockCache,
             SessionEmitter sessionEmitter )
     {

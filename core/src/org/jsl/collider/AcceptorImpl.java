@@ -247,7 +247,7 @@ public class AcceptorImpl extends SessionEmitterImpl
 
     public AcceptorImpl(
             ColliderImpl collider,
-            InputQueue.DataBlockCache inputQueueDataBlockCache,
+            DataBlockCache inputQueueDataBlockCache,
             DataBlockCache outputQueueDataBlockCache,
             Acceptor acceptor,
             Selector selector,

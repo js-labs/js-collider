@@ -380,7 +380,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public final void initialize(
                 int inputQueueMaxSize,
-                InputQueue.DataBlockCache inputQueueDataBlockCache,
+                DataBlockCache inputQueueDataBlockCache,
                 Listener listener )
     {
         m_selectionKey.attach( this );

@@ -27,6 +27,7 @@ public class DataBlockCache
 {
     private final boolean m_useDirectBuffers;
     private final int m_blockSize;
+    private final int m_initialSize;
     private final int m_maxSize;
     private final AtomicInteger m_state;
     private DataBlock m_dataBlock;
@@ -36,6 +37,7 @@ public class DataBlockCache
     {
         m_useDirectBuffers = useDirectBuffers;
         m_blockSize = blockSize;
+        m_initialSize = initialSize;
         m_maxSize = maxSize;
         m_state = new AtomicInteger();
         m_dataBlock = null;
@@ -69,6 +71,8 @@ public class DataBlockCache
                 DataBlock head = dataBlock;
                 for (;;)
                 {
+                    assert( dataBlock.rw.position() == 0 );
+                    assert( dataBlock.ww.position() == 0 );
                     if (++m_size == m_maxSize)
                         break;
                     if (dataBlock.next == null)
@@ -163,7 +167,7 @@ public class DataBlockCache
         return get( blocks );
     }
 
-    public final void clear( Logger logger, int initialSize )
+    public final void clear( Logger logger )
     {
         int size = 0;
         while (m_dataBlock != null)
@@ -184,13 +188,13 @@ public class DataBlockCache
             }
         }
 
-        if (size < initialSize)
+        if (size < m_initialSize)
         {
             if (logger.isLoggable(Level.WARNING))
             {
                 logger.warning(
                         "[" + m_blockSize + "] resource leak detected: current size " +
-                         size + " less than initial size (" + initialSize + ")." );
+                         size + " less than initial size (" + m_initialSize + ")." );
             }
         }
         else if (size > m_maxSize)
