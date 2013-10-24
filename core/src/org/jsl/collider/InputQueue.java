@@ -176,7 +176,6 @@ public class InputQueue extends ThreadPool.Runnable
                 m_listener.onDataReceived( rw );
 
                 DataBlock next = dataBlock.next;
-                s_logger.fine( "next=" + next );
                 dataBlock.reset();
 
                 if (freeDataBlock == null)
@@ -535,25 +534,26 @@ public class InputQueue extends ThreadPool.Runnable
 
                 if ((state & LENGTH_MASK) == 0)
                 {
-                    dataBlock1.next = dataBlock0;
                     if (prev == null)
+                    {
                         assert( m_tail == dataBlock0 );
+                        dataBlock1.next = dataBlock0.reset();
+                    }
                     else
                     {
                         assert( m_tail == prev );
-                        assert( m_tail.next == null );
+                        dataBlock1.next = dataBlock0;
                         dataBlock0.next = prev.reset();
                     }
                     m_tail = null;
                 }
                 else
                 {
-                    /* m_tail can not be accessed since m_state.compareAndSet() */
+                    assert( (m_tail == null) ||
+                            ((prev == null) && (m_tail == dataBlock0)) ||
+                            (m_tail == prev) );
                     if (prev != null)
-                    {
-                        /* last data block was full */
                         dataBlock1.next = dataBlock0;
-                    }
                 }
             }
             else
@@ -611,13 +611,15 @@ public class InputQueue extends ThreadPool.Runnable
 
                 if (tailLock > 0)
                 {
-                    dataBlock1.next = dataBlock0;
                     if (prev == null)
+                    {
                         assert( m_tail == dataBlock0 );
+                        dataBlock1.next = dataBlock0.reset();
+                    }
                     else
                     {
                         assert( m_tail == prev );
-                        assert( m_tail.next == null );
+                        dataBlock1.next = dataBlock0;
                         dataBlock0.next = prev.reset();
                     }
                     m_tail = null;
@@ -632,13 +634,11 @@ public class InputQueue extends ThreadPool.Runnable
             {
                 if (tailLock > 0)
                 {
-                    if (prev == null)
-                        assert( m_tail == dataBlock0 );
-                    else
-                    {
-                        assert( m_tail == prev );
+                    assert( (m_tail == null) ||
+                            ((prev == null) && (m_tail == dataBlock0)) ||
+                            (m_tail == prev) );
+                    if (prev != null)
                         dataBlock1.next = dataBlock0;
-                    }
                 }
                 else
                 {
