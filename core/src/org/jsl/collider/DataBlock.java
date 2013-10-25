@@ -24,24 +24,19 @@ import java.nio.ByteBuffer;
 public class DataBlock
 {
     public DataBlock next;
-    public final ByteBuffer buf;
-    public final ByteBuffer rw;
     public final ByteBuffer ww;
+    public final ByteBuffer rw;
 
-    public DataBlock( boolean useDirectBuffers, int blockSize )
+    public DataBlock( ByteBuffer buf )
     {
-        if (useDirectBuffers)
-            buf = ByteBuffer.allocateDirect( blockSize );
-        else
-            buf = ByteBuffer.allocate( blockSize );
-        rw = buf.duplicate();
-        ww = buf.duplicate();
+        ww = buf;
+        rw = buf.asReadOnlyBuffer();
     }
 
     public final DataBlock reset()
     {
-        rw.clear();
         ww.clear();
+        rw.clear();
         return this;
     }
 }

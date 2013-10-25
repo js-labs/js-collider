@@ -19,9 +19,11 @@
 
 package org.jsl.collider;
 
+import java.nio.ByteBuffer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.concurrent.atomic.AtomicInteger;
+
 
 public class DataBlockCache
 {
@@ -32,6 +34,14 @@ public class DataBlockCache
     private final AtomicInteger m_state;
     private DataBlock m_dataBlock;
     private int m_size;
+
+    private DataBlock createDataBlock()
+    {
+        if (m_useDirectBuffers)
+            return new DataBlock( ByteBuffer.allocateDirect(m_blockSize) );
+        else
+            return new DataBlock( ByteBuffer.allocate(m_blockSize) );
+    }
 
     public DataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
     {
@@ -45,7 +55,7 @@ public class DataBlockCache
 
         for (int idx=0; idx<initialSize; idx++)
         {
-            DataBlock dataBlock = new DataBlock( useDirectBuffers, blockSize );
+            DataBlock dataBlock = createDataBlock();
             dataBlock.next = m_dataBlock;
             m_dataBlock = dataBlock;
         }
@@ -144,7 +154,7 @@ public class DataBlockCache
 
         if (ret == null)
         {
-            ret = new DataBlock( m_useDirectBuffers, m_blockSize );
+            ret = createDataBlock();
             if (--cnt == 0)
                 return ret;
             dataBlock = ret;
@@ -152,7 +162,7 @@ public class DataBlockCache
 
         for (; cnt>0; cnt--)
         {
-            dataBlock.next = new DataBlock( m_useDirectBuffers, m_blockSize );
+            dataBlock.next = createDataBlock();
             dataBlock = dataBlock.next;
         }
 

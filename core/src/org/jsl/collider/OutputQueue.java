@@ -196,7 +196,7 @@ public class OutputQueue
             {
                 try
                 {
-                    ww = m_tail.buf.duplicate();
+                    ww = m_tail.ww.duplicate();
                     m_ww[writerIdx] = ww;
                 }
                 catch (Throwable ex)
@@ -277,7 +277,7 @@ public class OutputQueue
             /* We can not reuse any write window here,
              * not a big problem to allocate a new one locally.
              */
-            ByteBuffer ww = m_head.buf.duplicate();
+            ByteBuffer ww = m_head.ww.duplicate();
             ww.limit( pos );
             if (bytesRemaining <= pos)
             {
@@ -294,7 +294,7 @@ public class OutputQueue
         DataBlock dataBlockList = m_dataBlockCache.getByDataSize( bytesRemaining );
         DataBlock dataBlock = dataBlockList;
         dataBlockList = dataBlockList.next;
-        dataBlock.next = null;
+        dataBlock.next = m_head;
         for (;;)
         {
             final ByteBuffer ww = dataBlock.ww;
@@ -302,9 +302,11 @@ public class OutputQueue
 
             if (bytesRemaining <= m_blockSize)
             {
-                ww.position( m_blockSize - bytesRemaining );
-                data.position( 0 );
-                data.limit( bytesRemaining );
+                pos = (m_blockSize - bytesRemaining);
+                dataBlock.rw.position( pos );
+                ww.position( pos );
+                data.position( dataPosition );
+                data.limit( dataPosition + bytesRemaining );
                 ww.put( data );
                 break;
             }
