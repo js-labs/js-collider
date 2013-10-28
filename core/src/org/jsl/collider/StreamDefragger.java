@@ -165,8 +165,8 @@ public abstract class StreamDefragger
         m_data.position( m_pos );
         m_data.limit( m_limit );
 
-        int bytesRest = (m_limit - m_pos);
-        if (bytesRest == 0)
+        int bytesRemaining = (m_limit - m_pos);
+        if (bytesRemaining == 0)
         {
             if (m_buf != null)
                 m_buf.clear();
@@ -174,7 +174,7 @@ public abstract class StreamDefragger
             return null;
         }
 
-        if (bytesRest < m_headerSize)
+        if (bytesRemaining < m_headerSize)
         {
             if (m_buf == null)
                 m_buf = getBuffer( m_headerSize, m_data.isDirect() );
@@ -191,7 +191,7 @@ public abstract class StreamDefragger
         if (m_packetLen <= 0)
             return INVALID_HEADER;
 
-        if (bytesRest < m_packetLen)
+        if (bytesRemaining < m_packetLen)
         {
             if ((m_buf == null) || (m_buf.capacity() < m_packetLen))
                 m_buf = getBuffer( m_packetLen, m_data.isDirect() );
