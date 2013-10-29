@@ -81,7 +81,7 @@ public class ExecutorTest extends Test
 
     public ExecutorTest( int totalEvents, int producers, int workers )
     {
-        super( totalEvents, producers );
+        super( totalEvents, producers, workers );
         m_state = new AtomicInteger();
         m_executor = Executors.newFixedThreadPool( workers );
     }

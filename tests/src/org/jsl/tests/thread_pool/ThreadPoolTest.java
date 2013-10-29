@@ -18,8 +18,6 @@
  */
 
 package org.jsl.tests.thread_pool;
-
-import org.jsl.collider.Collider;
 import org.jsl.collider.ThreadPool;
 import org.jsl.tests.Util;
 
@@ -91,7 +89,7 @@ public class ThreadPoolTest extends Test
 
     public ThreadPoolTest( int totalEvents, int producers, int workers )
     {
-        super( totalEvents, producers );
+        super( totalEvents, producers, workers );
         m_threadPool = new ThreadPool( "TTP", workers );
 
         m_semReady = new Semaphore(0);

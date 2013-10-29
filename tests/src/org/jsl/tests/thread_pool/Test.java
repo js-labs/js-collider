@@ -23,13 +23,18 @@ public abstract class Test
 {
     protected final int m_totalEvents;
     protected final int m_producers;
+    protected final int m_workers;
 
-    protected Test( int totalEvents, int producers )
+    protected Test( int totalEvents, int producers, int workers )
     {
         assert( (totalEvents % producers) == 0 );
         m_totalEvents = totalEvents;
         m_producers = producers;
+        m_workers = workers;
     }
+
+    public final int getProducers() { return m_producers; }
+    public final int getWorkers() { return m_workers; }
 
     public abstract String getName();
     public abstract long runTest();

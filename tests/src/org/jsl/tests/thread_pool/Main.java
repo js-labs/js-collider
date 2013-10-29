@@ -21,20 +21,21 @@ package org.jsl.tests.thread_pool;
 
 public class Main
 {
-    private static final int WORKERS    = 4;
-    private static final int PRODUCERS  = 4;
-    private int TOTAL_EVENTS = 1000000;
-
     private Main()
     {
-        TOTAL_EVENTS = (TOTAL_EVENTS / PRODUCERS) * PRODUCERS;
     }
 
     public void run()
     {
-        Test [] tests = new Test[2];
-        tests[0] = new ExecutorTest( TOTAL_EVENTS, PRODUCERS, WORKERS );
-        tests[1] = new ThreadPoolTest( TOTAL_EVENTS, PRODUCERS, WORKERS );
+        int TOTAL_EVENTS = 1000000;
+
+        Test [] tests =
+        {
+            new ThreadPoolTest( TOTAL_EVENTS, 1, 1 ),
+            new ThreadPoolTest( TOTAL_EVENTS, 4, 4 ),
+            new ExecutorTest(TOTAL_EVENTS, 1, 1),
+            new ExecutorTest( TOTAL_EVENTS, 4, 4 )
+        };
 
         for (Test test : tests)
         {
@@ -42,8 +43,9 @@ public class Main
             long tm = test.runTest();
             tm /= 1000;
             System.out.println( TOTAL_EVENTS + " events processed at " +
-                                String.format( "%d.%06d", tm/1000000, tm%1000000 ) +
-                                " sec: " + PRODUCERS + " -> " + WORKERS + " workers.");
+                                String.format( "%d.%06d", tm/1000000, tm%1000000 ) + " sec: " +
+                                test.getProducers() + " -> " +
+                                test.getWorkers() + " workers." );
         }
     }
 
