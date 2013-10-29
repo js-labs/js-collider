@@ -549,9 +549,6 @@ public class InputQueue extends ThreadPool.Runnable
                 }
                 else
                 {
-                    assert( (m_tail == null) ||
-                            ((prev == null) && (m_tail == dataBlock0)) ||
-                            (m_tail == prev) );
                     if (prev != null)
                         dataBlock1.next = dataBlock0;
                 }
