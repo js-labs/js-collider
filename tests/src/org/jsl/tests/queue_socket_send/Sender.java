@@ -31,10 +31,10 @@ import java.nio.channels.SocketChannel;
 public abstract class Sender
 {
     private final String m_name;
-    private final int m_sessions;
-    private final int m_messages;
-    private final int m_messageLength;
-    private final int m_socketBufferSize;
+    protected final int m_sessions;
+    protected final int m_messages;
+    protected final int m_messageLength;
+    protected final int m_socketBufferSize;
 
     protected Sender( String name,
                       int sessions,

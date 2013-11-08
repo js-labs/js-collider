@@ -96,7 +96,7 @@ public class BufferCopySender extends Sender
             m_perfCounter = perfCounter;
             m_state = new AtomicLong();
             m_writer = new Writer();
-            m_iov = new ByteBuffer[16];
+            m_iov = new ByteBuffer[32];
         }
 
         public void sendData( ByteBuffer data )
@@ -157,7 +157,7 @@ public class BufferCopySender extends Sender
 
     public void run()
     {
-        ThreadPool threadPool = new ThreadPool( "BCS-TP", 4 );
+        ThreadPool threadPool = new ThreadPool( "BCS-TP", m_sessions );
         threadPool.start();
 
         DataBlockCache dataBlockCache = new DataBlockCache( true, 16*1024, 16, 64 );

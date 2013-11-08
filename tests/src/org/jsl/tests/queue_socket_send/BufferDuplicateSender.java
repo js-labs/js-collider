@@ -19,6 +19,7 @@
 
 package org.jsl.tests.queue_socket_send;
 
+import org.jsl.collider.PerfCounter;
 import org.jsl.collider.ThreadPool;
 
 import java.io.IOException;
@@ -41,6 +42,8 @@ public class BufferDuplicateSender extends Sender
         {
             public void runInThreadPool()
             {
+                final long startTime = System.nanoTime();
+
                 ListItem item = m_head;
                 int iovc = 0;
                 for (;;)
@@ -91,19 +94,23 @@ public class BufferDuplicateSender extends Sender
 
                 if (m_head != null)
                     m_threadPool.execute( this );
+
+                m_perfCounter.trace( startTime );
             }
         }
 
         private final ThreadPool m_threadPool;
+        private final PerfCounter m_perfCounter;
         private volatile ListItem m_head;
         private final AtomicReference<ListItem> m_tail;
         private final ByteBuffer [] m_iov;
         private final Writer m_writer;
 
-        public SessionImpl( SocketChannel socketChannel, ThreadPool threadPool )
+        public SessionImpl( SocketChannel socketChannel, ThreadPool threadPool, PerfCounter perfCounter )
         {
             super( socketChannel );
             m_threadPool = threadPool;
+            m_perfCounter = perfCounter;
             m_head = null;
             m_tail = new AtomicReference<ListItem>();
             m_iov = new ByteBuffer[32];
@@ -127,15 +134,17 @@ public class BufferDuplicateSender extends Sender
     private static class SessionImplFactory implements SessionFactory
     {
         private final ThreadPool m_threadPool;
+        private final PerfCounter m_perfCounter;
 
-        public SessionImplFactory( ThreadPool threadPool )
+        public SessionImplFactory( ThreadPool threadPool, PerfCounter perfCounter )
         {
             m_threadPool = threadPool;
+            m_perfCounter = perfCounter;
         }
 
         public Session createSession( SocketChannel socketChannel )
         {
-            return new SessionImpl( socketChannel, m_threadPool );
+            return new SessionImpl( socketChannel, m_threadPool, m_perfCounter );
         }
     }
 
@@ -146,12 +155,15 @@ public class BufferDuplicateSender extends Sender
 
     public void run()
     {
-        ThreadPool threadPool = new ThreadPool( "BCS-TP", 4 );
+        PerfCounter perfCounter = new PerfCounter( "BDS-PC" );
+        ThreadPool threadPool = new ThreadPool( "BDS-TP", m_sessions );
         threadPool.start();
 
-        run( new SessionImplFactory(threadPool) );
+        run( new SessionImplFactory(threadPool, perfCounter) );
 
         try { threadPool.stopAndWait(); }
         catch (InterruptedException ex) { ex.printStackTrace(); }
+
+        System.out.println( perfCounter.getStats() );
     }
 }
