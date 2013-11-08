@@ -55,7 +55,7 @@ public abstract class Sender
         {
             InetSocketAddress addr = new InetSocketAddress( "localhost", 0 );
             ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
-            serverSocketChannel.bind( addr );
+            serverSocketChannel.socket().bind( addr );
 
             Receiver [] receiver = new Receiver[m_sessions];
             SocketAddress localAddr = serverSocketChannel.socket().getLocalSocketAddress();

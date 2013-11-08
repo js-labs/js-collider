@@ -44,9 +44,8 @@ public class BufferDuplicateSender extends Sender
             {
                 final long startTime = System.nanoTime();
 
-                ListItem item = m_head;
                 int iovc = 0;
-                for (;;)
+                for (ListItem item=m_head;;)
                 {
                     m_iov[iovc] = item.buf;
                     if (++iovc == m_iov.length)
@@ -64,7 +63,7 @@ public class BufferDuplicateSender extends Sender
                 {
                     ex.printStackTrace();
                 }
-
+                
                 for (int idx=0; idx<iovc; idx++)
                 {
                     m_iov[idx] = null;
@@ -87,8 +86,10 @@ public class BufferDuplicateSender extends Sender
                         }
                         while (head.next == null);
                         next = head.next;
+                        head.next = null;
                     }
-                    m_head.next = null;
+                    else
+                        m_head.next = null;
                     m_head = next;
                 }
 
