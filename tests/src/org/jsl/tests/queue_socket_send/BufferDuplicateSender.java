@@ -63,38 +63,38 @@ public class BufferDuplicateSender extends Sender
                 {
                     ex.printStackTrace();
                 }
-                
-                for (int idx=0; idx<iovc; idx++)
+
+                iovc--;                
+                int idx = 0;
+                for (; idx<iovc; idx++)
                 {
                     m_iov[idx] = null;
-                    if (m_head.buf.remaining() > 0)
-                    {
-                        for (; idx<iovc; idx++)
-                            m_iov[idx] = null;
-                        break;
-                    }
-
                     ListItem next = m_head.next;
-                    if (next == null)
-                    {
-                        ListItem head = m_head;
-                        m_head = null;
-                        if (m_tail.compareAndSet(head, null))
-                        {
-                            assert( idx == iovc-1 );
-                            break;
-                        }
-                        while (head.next == null);
-                        next = head.next;
-                        head.next = null;
-                    }
-                    else
-                        m_head.next = null;
+                    m_head.next = null;
                     m_head = next;
                 }
 
-                if (m_head != null)
+                m_iov[idx] = null;
+                
+                ListItem next = m_head.next;
+                if (next == null)
+                {
+                    ListItem head = m_head;
+                    m_head = null;
+                    if (!m_tail.compareAndSet(head, null))
+                    {
+                        while (head.next == null);
+                        m_head = head.next;
+                        head.next = null;
+                        m_threadPool.execute( this );
+                    }
+                }
+                else
+                {
+                    m_head.next = null;
+                    m_head = next;
                     m_threadPool.execute( this );
+                }
 
                 m_perfCounter.trace( startTime );
             }
@@ -114,7 +114,7 @@ public class BufferDuplicateSender extends Sender
             m_perfCounter = perfCounter;
             m_head = null;
             m_tail = new AtomicReference<ListItem>();
-            m_iov = new ByteBuffer[32];
+            m_iov = new ByteBuffer[16];
             m_writer = new Writer();
         }
 
