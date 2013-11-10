@@ -81,7 +81,7 @@ public class PerfCounter
         }
     }
 
-    public String getStats()
+    public final String getStats()
     {
         String str = m_name;
         str += ": min=" + formatUsec( m_data.get(0)/1000 );
