@@ -21,6 +21,7 @@ package org.jsl.tests.queue_socket_send;
 
 import org.jsl.collider.PerfCounter;
 import org.jsl.collider.ThreadPool;
+import org.jsl.collider.StatCounter;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -55,13 +56,15 @@ public class BufferDuplicateSender extends Sender
                         break;
                 }
 
+                long bytesSent;
                 try
                 {
-                    m_socketChannel.write( m_iov, 0, iovc );
+                    bytesSent = m_socketChannel.write( m_iov, 0, iovc );
                 }
                 catch (IOException ex)
                 {
                     ex.printStackTrace();
+                    bytesSent = 0;
                 }
 
                 iovc--;                
@@ -97,21 +100,28 @@ public class BufferDuplicateSender extends Sender
                 }
 
                 m_perfCounter.trace( startTime );
+                m_statCounter.trace( bytesSent );
             }
         }
 
         private final ThreadPool m_threadPool;
         private final PerfCounter m_perfCounter;
+        private final StatCounter m_statCounter;
         private volatile ListItem m_head;
         private final AtomicReference<ListItem> m_tail;
         private final ByteBuffer [] m_iov;
         private final Writer m_writer;
 
-        public SessionImpl( SocketChannel socketChannel, ThreadPool threadPool, PerfCounter perfCounter )
+        public SessionImpl(
+                SocketChannel socketChannel,
+                ThreadPool threadPool,
+                PerfCounter perfCounter,
+                StatCounter statCounter )
         {
             super( socketChannel );
             m_threadPool = threadPool;
             m_perfCounter = perfCounter;
+            m_statCounter = statCounter;
             m_head = null;
             m_tail = new AtomicReference<ListItem>();
             m_iov = new ByteBuffer[16];
@@ -136,16 +146,19 @@ public class BufferDuplicateSender extends Sender
     {
         private final ThreadPool m_threadPool;
         private final PerfCounter m_perfCounter;
+        private final StatCounter m_statCounter;
 
-        public SessionImplFactory( ThreadPool threadPool, PerfCounter perfCounter )
+        public SessionImplFactory( ThreadPool threadPool, PerfCounter perfCounter, StatCounter statCounter )
         {
             m_threadPool = threadPool;
             m_perfCounter = perfCounter;
+            m_statCounter = statCounter;
         }
 
         public Session createSession( SocketChannel socketChannel )
         {
-            return new SessionImpl( socketChannel, m_threadPool, m_perfCounter );
+            return new SessionImpl(
+                    socketChannel, m_threadPool, m_perfCounter, m_statCounter );
         }
     }
 
@@ -157,14 +170,16 @@ public class BufferDuplicateSender extends Sender
     public void run()
     {
         PerfCounter perfCounter = new PerfCounter( "BDS-PC" );
+        StatCounter statCounter = new StatCounter( "BDS-SC" );
         ThreadPool threadPool = new ThreadPool( "BDS-TP", m_sessions );
         threadPool.start();
 
-        run( new SessionImplFactory(threadPool, perfCounter) );
+        run( new SessionImplFactory(threadPool, perfCounter, statCounter) );
 
         try { threadPool.stopAndWait(); }
         catch (InterruptedException ex) { ex.printStackTrace(); }
 
         System.out.println( perfCounter.getStats() );
+        System.out.println( statCounter.getStats() );
     }
 }
