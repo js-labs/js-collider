@@ -19,11 +19,11 @@
 
 package org.jsl.tests.queue_socket_send;
 
-import org.jsl.collider.DataBlockCache;
-import org.jsl.collider.OutputQueue;
-import org.jsl.collider.PerfCounter;
 import org.jsl.collider.ThreadPool;
-
+import org.jsl.collider.OutputQueue;
+import org.jsl.collider.DataBlockCache;
+import org.jsl.collider.PerfCounter;
+import org.jsl.collider.StatCounter;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -37,6 +37,7 @@ public class BufferCopySender extends Sender
         private final ThreadPool m_threadPool;
         private final OutputQueue m_outputQueue;
         private final PerfCounter m_perfCounter;
+        private final StatCounter m_statCounter;
         private final AtomicLong m_state;
         private final Writer m_writer;
         private final ByteBuffer [] m_iov;
@@ -77,6 +78,7 @@ public class BufferCopySender extends Sender
                     }
 
                     m_perfCounter.trace( startTime );
+                    m_statCounter.trace( bytesSent );
                 }
                 catch (IOException ex)
                 {
@@ -88,12 +90,14 @@ public class BufferCopySender extends Sender
         public SessionImpl( SocketChannel socketChannel,
                             ThreadPool threadPool,
                             DataBlockCache dataBlockCache,
-                            PerfCounter perfCounter )
+                            PerfCounter perfCounter,
+                            StatCounter statCounter )
         {
             super( socketChannel );
             m_threadPool = threadPool;
             m_outputQueue = new OutputQueue( dataBlockCache );
             m_perfCounter = perfCounter;
+            m_statCounter = statCounter;
             m_state = new AtomicLong();
             m_writer = new Writer();
             m_iov = new ByteBuffer[32];
@@ -136,17 +140,24 @@ public class BufferCopySender extends Sender
         private final ThreadPool m_threadPool;
         private final DataBlockCache m_dataBlockCache;
         private final PerfCounter m_perfCounter;
+        private final StatCounter m_statCounter;
 
-        public SessionImplFactory( ThreadPool threadPool, DataBlockCache dataBlockCache, PerfCounter perfCounter )
+        public SessionImplFactory(
+                    ThreadPool threadPool,
+                    DataBlockCache dataBlockCache,
+                    PerfCounter perfCounter,
+                    StatCounter statCounter )
         {
             m_threadPool = threadPool;
             m_dataBlockCache = dataBlockCache;
             m_perfCounter = perfCounter;
+            m_statCounter = statCounter;
         }
 
         public Session createSession( SocketChannel socketChannel )
         {
-            return new SessionImpl( socketChannel, m_threadPool, m_dataBlockCache, m_perfCounter );
+            return new SessionImpl(
+                    socketChannel, m_threadPool, m_dataBlockCache, m_perfCounter, m_statCounter );
         }
     }
 
@@ -162,12 +173,14 @@ public class BufferCopySender extends Sender
 
         DataBlockCache dataBlockCache = new DataBlockCache( true, 16*1024, 16, 64 );
         PerfCounter perfCounter = new PerfCounter( "BCS-PC" );
+        StatCounter statCounter = new StatCounter( "BCS-SC" );
 
-        run( new SessionImplFactory(threadPool, dataBlockCache, perfCounter) );
+        run( new SessionImplFactory(threadPool, dataBlockCache, perfCounter, statCounter) );
 
         try { threadPool.stopAndWait(); }
         catch (InterruptedException ex) { ex.printStackTrace(); }
 
         System.out.println( perfCounter.getStats() );
+        System.out.println( statCounter.getStats() );
     }
 }
