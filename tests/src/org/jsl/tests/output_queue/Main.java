@@ -134,7 +134,7 @@ public class Main
                             + ", " + waits + " waits." );
 
         s_logger.setLevel( Level.FINE );
-        m_dataBlockCache.clear( s_logger, 20 );
+        m_dataBlockCache.clear( s_logger );
     }
 
     public void addData( ByteBuffer data )
