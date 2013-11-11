@@ -28,8 +28,9 @@
                 <classpath>
                     <pathelement location="${OUT_DIR}/core"/>
                     <pathelement location="${OUT_DIR}/tests"/>
-                    <pathelement location="tests/netty-all-4.0.0.CR6.jar"/>
                 </classpath>
+                <jvmarg value="-ea"/>
+                <!--<jvmarg value="-Djava.util.logging.config.file=tests\logging.config"/>-->
             </java>
         </sequential>
     </macrodef>
@@ -40,7 +41,7 @@
 
     <target name="compile">
         <mkdir dir="${OUT_DIR}/core"/>
-        <javac srcdir="core/src" destdir="${OUT_DIR}/core" includeantruntime="false"/>
+        <javac srcdir="core/src" destdir="${OUT_DIR}/core" includeantruntime="false" debug="true"/>
     </target>
 
     <target name="dist" depends="compile">
@@ -56,15 +57,14 @@
 
     <target name="compile_tests" depends="compile">
         <mkdir dir="${OUT_DIR}/tests"/>
-        <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false">
+        <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false" debug="true">
             <classpath>
                 <pathelement location="${OUT_DIR}/core"/>
-                <pathelement location="tests/netty-all-4.0.0.CR6.jar"/>
             </classpath>
         </javac>
     </target>
 
-    <target name="run_tests" depends="test.output_queue, test.sched_latency, test.thread_pool, test.session_latency">
+    <target name="run_tests" depends="test.output_queue, test.sched_latency, test.session_latency">
     </target>
 
     <target name="test.output_queue" depends="compile_tests">
@@ -75,8 +75,8 @@
         <run-test name="sched_latency"/>
     </target>
 
-    <target name="test.thread_pool" depends="compile_tests">
-        <run-test name="thread_pool"/>
+    <target name="test.thread_pool_throughput" depends="compile_tests">
+        <run-test name="thread_pool_throughput"/>
     </target>
 
     <target name="test.session_latency" depends="compile_tests">
