@@ -75,6 +75,10 @@
         <run-test name="sched_latency"/>
     </target>
 
+    <target name="test.thread_pool" depends="compile_tests">
+        <run-test name="thread_pool"/>
+    </target>
+
     <target name="test.thread_pool_throughput" depends="compile_tests">
         <run-test name="thread_pool_throughput"/>
     </target>
