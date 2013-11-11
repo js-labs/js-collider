@@ -124,24 +124,45 @@ public class ThreadPool
             if (head == null)
                 return null;
 
-            Runnable next = head.threadPoolRunnable_next;
-            if (m_hra.compareAndSet(idx, head, next))
+            /* Feature of the ThreadPool is that the same Runnable can be scheduled 
+             * multiple times (to avoid useless object allocation), so we can not
+             * use here common lock-free list implementation with head CAS.
+             */
+
+            if (head == LOCK)
+                continue;
+
+            if (m_hra.compareAndSet(idx, head, LOCK))
             {
-                if (next == null)
+                if (head.threadPoolRunnable_next == null)
                 {
+                    m_hra.set( idx, null );
                     if (!m_tra.compareAndSet(idx, head, null))
                     {
                         while (head.threadPoolRunnable_next == null);
                         m_hra.set( idx, head.threadPoolRunnable_next );
+                        head.threadPoolRunnable_next = null;
                     }
                 }
-                head.threadPoolRunnable_next = null;
+                else
+                {
+                    m_hra.set( idx, head.threadPoolRunnable_next );
+                    head.threadPoolRunnable_next = null;
+                }
                 return head;
             }
         }
     }
 
+    private static class Lock extends Runnable
+    {
+        public void runInThreadPool()
+        {
+        }
+    }
+
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
+    private static final Lock LOCK = new Lock();
     private static final int FS_PADDING = 16;
 
     private final int m_contentionFactor;
