@@ -124,10 +124,10 @@ public class ThreadPool
             if (head == null)
                 return null;
 
-            /* Schmidt D. algorithm sutable for the garbage collector
+            /* Schmidt D. algorithm suitable for the garbage collector
              * environment can not be used here because the same Runnable
              * can be scheduled multiple times (to avoid useless object allocation).
-             * Let's use stupid but effective in this partucular case
+             * Let's use stupid but effective in this particular case
              * spin lock variation to avoid ABA problem.
              */
 
