@@ -124,9 +124,11 @@ public class ThreadPool
             if (head == null)
                 return null;
 
-            /* Feature of the ThreadPool is that the same Runnable can be scheduled 
-             * multiple times (to avoid useless object allocation), so we can not
-             * use here common lock-free list implementation with head CAS.
+            /* Schmidt D. algorithm sutable for the garbage collector
+             * environment can not be used here because the same Runnable
+             * can be scheduled multiple times (to avoid useless object allocation).
+             * Let's use stupid but effective in this partucular case
+             * spin lock variation to avoid ABA problem.
              */
 
             if (head == LOCK)
