@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -134,20 +133,19 @@ public class ColliderImpl extends Collider
 
     private class SelectorAlarm extends ThreadPool.Runnable
     {
-        public SelectorAlarm next;
         public SelectorThreadRunnable str;
+
+        public SelectorAlarm( SelectorThreadRunnable runnable )
+        {
+            str = runnable;
+        }
 
         public void runInThreadPool()
         {
             if (m_strHead == str)
                 m_selector.wakeup();
-
             str = null;
-            SelectorAlarm tail = m_alarmCache.getAndSet( 1, this );
-            if (tail == null)
-                m_alarmCache.set( 0, this );
-            else
-                tail.next = this;
+            m_alarm.compareAndSet( null, this );
         }
     }
 
@@ -275,7 +273,7 @@ public class ColliderImpl extends Collider
 
     private volatile SelectorThreadRunnable m_strHead;
     private final AtomicReference<SelectorThreadRunnable> m_strTail;
-    private final AtomicReferenceArray<SelectorAlarm> m_alarmCache;
+    private final AtomicReference<SelectorAlarm> m_alarm;
 
     public ColliderImpl( Config config ) throws IOException
     {
@@ -307,15 +305,7 @@ public class ColliderImpl extends Collider
         m_strHead = null;
         m_strTail = new AtomicReference<SelectorThreadRunnable>();
 
-        m_alarmCache = new AtomicReferenceArray<SelectorAlarm>(2);
-        SelectorAlarm alarm = new SelectorAlarm();
-        m_alarmCache.set( 0, alarm );
-        for (int idx=threadPoolThreads; idx>0; idx--)
-        {
-            alarm.next = new SelectorAlarm();
-            alarm = alarm.next;
-        }
-        m_alarmCache.set( 1, alarm );
+        m_alarm = new AtomicReference<SelectorAlarm>( new SelectorAlarm(null) );
     }
 
     public void run()
@@ -338,6 +328,7 @@ public class ColliderImpl extends Collider
             }
 
             SelectorThreadRunnable strHead;
+
 
             assert( m_dummyRunnable.nextSelectorThreadRunnable == null );
             if (m_strTail.compareAndSet(null, m_dummyRunnable))
@@ -433,28 +424,14 @@ public class ColliderImpl extends Collider
 
             for (;;)
             {
-                SelectorAlarm alarm = m_alarmCache.get(0);
+                SelectorAlarm alarm = m_alarm.get();
                 if (alarm == null)
                 {
-                    m_selector.wakeup();
-                    if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( "Selector alarm cache is empty." );
+                    m_threadPool.execute( new SelectorAlarm(runnable) );
                     break;
                 }
-
-                SelectorAlarm next = alarm.next;
-                if (m_alarmCache.compareAndSet(0, alarm, next))
+                else if (m_alarm.compareAndSet(alarm, null))
                 {
-                    if (next == null)
-                    {
-                        if (!m_alarmCache.compareAndSet(1, alarm, null))
-                        {
-                            while (alarm.next == null);
-                            m_alarmCache.set( 0, alarm.next );
-                        }
-                    }
-
-                    alarm.next = null;
                     alarm.str = runnable;
                     m_threadPool.execute( alarm );
                     break;
