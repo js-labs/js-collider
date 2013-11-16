@@ -61,27 +61,24 @@ public interface Session
     public SocketAddress getRemoteAddress();
 
     /**
-     * Writes data to the session socket if it is the single thread calling
-     * the <em>sendData</em> or <em>sendDataAsync</em>. Otherwise data will
-     * be copied into internal buffer and will be sent as soon as socket
-     * will be ready for writing.
-     * @return  0 - data written to socket
-     *         >0 - another thread writing the socket,
-     *              return value is the amount of data waiting to be sent
+     * Sends data to the underlying socket channel. In most cases data will be written
+     * asynchronously, but sometimes not. Retains the data buffer if it going to be sent
+     * asynchronously.
+     * @return  0 - data written to the socket or internal memory, byte buffer can be reused
+     *         >0 - byte buffer is retained by the framework, will be send as soon as possible
      *         -1 - the session is closed
      */
-    public long sendData( ByteBuffer data );
+    public int sendData( ByteBuffer data );
 
     /**
-     * Copies data into internal buffer and send it asynchronously from
-     * another thread. Method is useful when some small messages needs
-     * to be sent into the session at once.
-     * @return  0 - data written to socket
-     *         >0 - another thread writing the socket,
-     *              return value is the amount of data waiting to be sent
+     * Method tries to writes data to the session underlying socket channel
+     * if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
+     * Otherwise data will sent as <em>sendData</em> would be called.
+     * @return  0 - data written to socket or internal memory, byte buffer can be reused
+     *         >0 - byte buffer is retained by the framework, will be send as soon as possible
      *         -1 - the session is closed
      */
-    public long sendDataAsync( ByteBuffer data );
+    public int sendDataSync( ByteBuffer data );
 
     /**
      * Method to be used to close session.
@@ -94,5 +91,5 @@ public interface Session
      * @return >0 - amount of data waiting to be sent
      *         <0 - session already closed and has no data to be sent
      */
-    public long closeConnection();
+    public int closeConnection();
 }

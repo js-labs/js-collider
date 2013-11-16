@@ -89,7 +89,7 @@ public class Server
                 m_messagesReceived++;
 
                 msg.position( pos );
-                m_session.sendDataAsync( msg );
+                m_session.sendData( msg );
 
                 msg = m_stream.getNext();
             }

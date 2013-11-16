@@ -185,41 +185,6 @@ public class ColliderImpl extends Collider
         return cache;
     }
 
-    private DataBlockCache getOutputQueueDataBlockCache( final SessionEmitter sessionEmitter )
-    {
-        final Config config = getConfig();
-
-        int outputQueueBlockSize = sessionEmitter.outputQueueBlockSize;
-        if (outputQueueBlockSize == 0)
-        {
-            outputQueueBlockSize = config.outputQueueBlockSize;
-            assert( outputQueueBlockSize > 0 );
-        }
-
-        DataBlockCache cache = null;
-
-        m_lock.lock();
-        try
-        {
-            cache = m_dataBlockCache.get( outputQueueBlockSize );
-            if (cache == null)
-            {
-                cache = new DataBlockCache(
-                                config.useDirectBuffers,
-                                outputQueueBlockSize,
-                                config.outputQueueCacheInitialSize,
-                                config.outputQueueCacheMaxSize );
-                m_dataBlockCache.put( outputQueueBlockSize, cache );
-            }
-        }
-        finally
-        {
-            m_lock.unlock();
-        }
-
-        return cache;
-    }
-
     private void removeEmitter( SessionEmitter sessionEmitter ) throws InterruptedException
     {
         SessionEmitterImpl emitterImpl;
@@ -319,7 +284,15 @@ public class ColliderImpl extends Collider
         {
             try
             {
-                m_selector.select();
+                if (m_state != ST_STOPPING)
+                    m_selector.select();
+                else
+                {
+                    if (m_selector.keys().size() == 0)
+                        break;
+                    else
+                        m_selector.selectNow();
+                }
             }
             catch (IOException ex)
             {
@@ -328,8 +301,6 @@ public class ColliderImpl extends Collider
             }
 
             SelectorThreadRunnable strHead;
-
-
             assert( m_dummyRunnable.nextSelectorThreadRunnable == null );
             if (m_strTail.compareAndSet(null, m_dummyRunnable))
             {
@@ -364,13 +335,6 @@ public class ColliderImpl extends Collider
                 }
                 strHead.nextSelectorThreadRunnable = null;
                 strHead = next;
-            }
-
-            if (m_state == ST_STOPPING)
-            {
-                if (m_selector.keys().size() == 0)
-                    break;
-                m_selector.wakeup();
             }
         }
 
@@ -466,12 +430,10 @@ public class ColliderImpl extends Collider
         }
 
         DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( acceptor );
-        DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( acceptor );
 
         AcceptorImpl acceptorImpl = new AcceptorImpl(
                 this,
                 inputQueueDataBlockCache,
-                outputQueueDataBlockCache,
                 acceptor,
                 m_selector,
                 channel );
@@ -537,12 +499,10 @@ public class ColliderImpl extends Collider
         }
 
         DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( connector );
-        DataBlockCache outputQueueDataBlockCache = getOutputQueueDataBlockCache( connector );
 
         ConnectorImpl connectorImpl = new ConnectorImpl(
                 this,
                 inputQueueDataBlockCache,
-                outputQueueDataBlockCache,
                 connector,
                 m_selector );
 

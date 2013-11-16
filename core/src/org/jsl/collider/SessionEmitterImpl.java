@@ -37,7 +37,6 @@ public abstract class SessionEmitterImpl
 
     protected final ColliderImpl m_collider;
     protected final DataBlockCache m_inputQueueDataBlockCache;
-    protected final DataBlockCache m_outputQueueDataBlockCache;
 
     private final SessionEmitter m_sessionEmitter;
     private final ReentrantLock m_lock;
@@ -90,8 +89,7 @@ public abstract class SessionEmitterImpl
                 SessionImpl sessionImpl = new SessionImpl(
                         m_collider,
                         m_socketChannel,
-                        m_selectionKey,
-                        m_outputQueueDataBlockCache );
+                        m_selectionKey );
 
                 Session.Listener sessionListener = m_sessionEmitter.createSessionListener( sessionImpl );
                 sessionImpl.initialize(
@@ -150,12 +148,10 @@ public abstract class SessionEmitterImpl
     protected SessionEmitterImpl(
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
-            DataBlockCache outputQueueDataBlockCache,
             SessionEmitter sessionEmitter )
     {
         m_collider = collider;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
-        m_outputQueueDataBlockCache = outputQueueDataBlockCache;
 
         if (sessionEmitter.inputQueueMaxSize == 0)
             sessionEmitter.inputQueueMaxSize = collider.getConfig().inputQueueMaxSize;

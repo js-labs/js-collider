@@ -248,12 +248,11 @@ public class AcceptorImpl extends SessionEmitterImpl
     public AcceptorImpl(
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
-            DataBlockCache outputQueueDataBlockCache,
             Acceptor acceptor,
             Selector selector,
             ServerSocketChannel channel )
     {
-        super( collider, inputQueueDataBlockCache, outputQueueDataBlockCache, acceptor );
+        super( collider, inputQueueDataBlockCache, acceptor );
 
         m_acceptor = acceptor;
         m_selector = selector;

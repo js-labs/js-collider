@@ -125,7 +125,7 @@ public class InputQueue extends ThreadPool.Runnable
         return ret;
     }
 
-    private static final Logger s_logger = Logger.getLogger( InputQueue.class.getName() );
+    private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
 
     private static final int LENGTH_MASK = 0x0FFFFFFF;
     private static final int TAIL_LOCK   = 0x10000000;

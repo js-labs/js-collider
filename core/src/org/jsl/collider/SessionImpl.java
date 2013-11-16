@@ -24,7 +24,8 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -32,18 +33,16 @@ import java.util.logging.Logger;
 public class SessionImpl extends ThreadPool.Runnable
         implements Session, ColliderImpl.ChannelHandler
 {
-    private static final long LENGTH_MASK   = 0x000000FFFFFFFFFFL;
-    private static final long CLOSE         = 0x0000010000000000L;
-    private static final long WAIT_WRITE    = 0x0000020000000000L;
-    private static final long STATE_MASK    = 0x0000300000000000L;
-    private static final long ST_STARTING   = 0x0000100000000000L;
-    private static final long ST_RUNNING    = 0x0000200000000000L;
-    private static final long SOCK_RC_MASK  = 0x0003000000000000L;
-    private static final long SOCK_RC       = 0x0001000000000000L;
-    private static final long WRITERS_MASK  = 0x00F0000000000000L;
-    private static final long WRITER        = 0x0010000000000000L;
+    private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
 
-    private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
+    private static final Node CLOSE_MARKER  = new Node( null );
+
+    private static final int STATE_MASK   = 0x0003;
+    private static final int ST_STARTING  = 0x0000;
+    private static final int ST_RUNNING   = 0x0001;
+    private static final int SOCK_RC_MASK = 0x0030;
+    private static final int SOCK_RC      = 0x0010;
+    private static final int CLOSE        = 0x0100;
 
     private final ColliderImpl m_collider;
     private SocketChannel m_socketChannel;
@@ -53,9 +52,12 @@ public class SessionImpl extends ThreadPool.Runnable
     private final SocketAddress m_remoteSocketAddress;
 
     private final Starter m_starter;
-    private final AtomicLong m_state;
-    private final OutputQueue m_outputQueue;
+    private final AtomicInteger m_state;
+
+    private Node m_head;
+    private final AtomicReference<Node> m_tail;
     private final ByteBuffer [] m_iov;
+
     private InputQueue m_inputQueue;
 
     private static class DummyListener implements Listener
@@ -92,199 +94,92 @@ public class SessionImpl extends ThreadPool.Runnable
         public void runInSelectorThread()
         {
             int interestOps = m_selectionKey.interestOps();
-            m_selectionKey.interestOps( interestOps | SelectionKey.OP_WRITE );
+            interestOps |= SelectionKey.OP_WRITE;
+            m_selectionKey.interestOps( interestOps );
         }
     }
 
-    private static String stateToString( long state )
+    private static class Node
+    {
+        public volatile Node next;
+        public final ByteBuffer buf;
+
+        public Node( ByteBuffer buf )
+        {
+            this.buf = buf;
+        }
+    }
+
+    private static String stateToString( int state )
     {
         String ret = "[";
         if ((state & CLOSE) != 0)
             ret += "CLOSE ";
 
-        if ((state & WAIT_WRITE) != 0)
-            ret += "WAIT_WRITE ";
-
-        long length = (state & LENGTH_MASK);
         long sockRC = (state & SOCK_RC_MASK);
 
         state &= STATE_MASK;
         if (state == ST_STARTING)
             ret += "STARTING ";
         else if (state == ST_RUNNING)
-            ret += "STARTED ";
+            ret += "RUNNING ";
         else
             ret += "??? ";
 
         sockRC /= SOCK_RC;
-        ret += "RC=" + sockRC + " ";
-
-        ret += length;
-        ret += "]";
+        ret += "RC=" + sockRC + "]";
         return ret;
     }
 
     public final void handleReaderStopped()
     {
-        long state = m_state.get();
-        long newState;
+        Node tail = m_tail.get();
         for (;;)
         {
+            if (tail == CLOSE_MARKER)
+                break;
+
+            if (m_tail.compareAndSet(tail, CLOSE_MARKER))
+            {
+                if (tail != null)
+                    tail.next = CLOSE_MARKER;
+                break;
+            }
+            tail = m_tail.get();
+        }
+
+        for (;;)
+        {
+            int state = m_state.get();
             assert( (state & STATE_MASK) == ST_RUNNING );
             assert( (state & SOCK_RC_MASK) > 0 );
 
-            newState = state;
-            newState |= CLOSE;
+            int newState = (state | CLOSE);
             newState -= SOCK_RC;
 
-            if ((state & LENGTH_MASK) == 0)
+            if (tail == null)
                 newState -= SOCK_RC;
 
             if (m_state.compareAndSet(state, newState))
+            {
+                if (s_logger.isLoggable(Level.FINER))
+                {
+                    s_logger.finer(
+                            m_remoteSocketAddress.toString() +
+                            ": " + stateToString(state) + " -> " + stateToString(newState) );
+                }
+
+                if ((newState & SOCK_RC_MASK) == 0)
+                    m_collider.executeInSelectorThread( new SelectorDeregistrator() );
                 break;
-
-            state = m_state.get();
-        }
-
-        if (s_logger.isLoggable(Level.FINER))
-        {
-            s_logger.finer(
-                    m_remoteSocketAddress.toString() +
-                    ": " + stateToString(state) + " -> " + stateToString(newState) );
-        }
-
-        if ((newState & SOCK_RC_MASK) == 0)
-            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-    }
-
-    private long addAndSendDataAsync( long state, final ByteBuffer data )
-    {
-        final long bytesReady = m_outputQueue.addData( data );
-        for (;;)
-        {
-            assert( (state & WRITERS_MASK) != 0 );
-            long newState = state;
-            newState += bytesReady;
-            newState -= WRITER;
-            if (m_state.compareAndSet(state, newState))
-            {
-                newState &= LENGTH_MASK;
-                if ((bytesReady > 0) && (newState == bytesReady))
-                    m_collider.executeInThreadPool( this );
-                return newState;
             }
-            state = m_state.get();
-        }
-    }
-
-    private long decState( long state, final long bytesSent )
-    {
-        for (;;)
-        {
-            assert( (state & LENGTH_MASK) >= bytesSent );
-            assert( (state & SOCK_RC_MASK) > 0 );
-
-            long newState = (state - bytesSent);
-            if ((newState & LENGTH_MASK) == 0)
-            {
-                if ((state & CLOSE) == 0)
-                {
-                    if (m_state.compareAndSet(state, newState))
-                        return newState;
-                }
-                else
-                {
-                    newState -= SOCK_RC;
-                    if (m_state.compareAndSet(state, newState))
-                    {
-                        if ((newState & SOCK_RC_MASK) == 0)
-                            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                        return newState;
-                    }
-                }
-            }
-            else if ((state & STATE_MASK) != ST_STARTING)
-            {
-                if (m_state.compareAndSet(state, newState))
-                {
-                    m_collider.executeInThreadPool( this );
-                    return newState;
-                }
-            }
-            else /* ((state  & LENGTH_MASK) > 0) && ((state & STATE_MASK) == ST_STARTING) */
-            {
-                if ((newState & WAIT_WRITE) == 0)
-                {
-                    newState |= WAIT_WRITE;
-                    if (m_state.compareAndSet(state, newState))
-                        return newState;
-                }
-                else
-                    return newState;
-            }
-            state = m_state.get();
-        }
-    }
-
-    private long sendDataSync( long state, ByteBuffer data )
-    {
-        try
-        {
-            final long bytesSent = m_socketChannel.write( data );
-            if (bytesSent == 0)
-                System.out.println( "strange" );
-
-            final long newState = decState( state, bytesSent );
-            final long length = (newState & LENGTH_MASK);
-
-            if (length > 0)
-                m_collider.executeInThreadPool( this );
-
-            if (s_logger.isLoggable(Level.FINEST))
-            {
-                s_logger.finest(
-                        m_remoteSocketAddress.toString() +
-                        ": ready=" + (state & LENGTH_MASK) + " sent=" + bytesSent + " " +
-                        stateToString(state) + " -> " + stateToString(newState) );
-            }
-
-            return length;
-        }
-        catch (IOException ex)
-        {
-            long newState;
-            for (;;)
-            {
-                assert( (state & SOCK_RC_MASK) > 0 );
-                newState = state;
-                newState |= CLOSE;
-                newState -= SOCK_RC;
-                newState &= ~LENGTH_MASK;
-                if (m_state.compareAndSet(state, newState))
-                    break;
-                state = m_state.get();
-            }
-
-            if (s_logger.isLoggable(Level.FINER))
-            {
-                s_logger.finer(
-                        m_remoteSocketAddress.toString() +
-                        ": " + ex.toString() + " " +
-                        stateToString(state) + " -> " + stateToString(newState) + "." );
-            }
-
-            if ((newState & SOCK_RC_MASK) == 0)
-                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-
-            return -1;
         }
     }
 
     public SessionImpl(
                 ColliderImpl collider,
                 SocketChannel socketChannel,
-                SelectionKey selectionKey,
-                DataBlockCache outputQueueDataBlockCache )
+                SelectionKey selectionKey )
     {
         m_collider = collider;
         m_socketChannel = socketChannel;
@@ -293,115 +188,35 @@ public class SessionImpl extends ThreadPool.Runnable
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
         m_starter = new Starter();
-        m_state = new AtomicLong( ST_STARTING + SOCK_RC + SOCK_RC );
-        m_outputQueue = new OutputQueue( outputQueueDataBlockCache );
-        m_iov = new ByteBuffer[8];
-    }
+        m_state = new AtomicInteger( ST_STARTING + SOCK_RC + SOCK_RC );
+        m_head = null;
+        m_tail = new AtomicReference<Node>();
+        m_iov = new ByteBuffer[32];
 
-    public Collider getCollider() { return m_collider; }
-    public SocketAddress getLocalAddress() { return m_localSocketAddress; }
-    public SocketAddress getRemoteAddress() { return m_remoteSocketAddress; }
-
-    public long sendData( ByteBuffer data )
-    {
-        final int dataSize = data.remaining();
-        long state = m_state.get();
-        for (;;)
-        {
-            if ((state & CLOSE) != 0)
-                return -1;
-
-            if ((state & (WRITERS_MASK|LENGTH_MASK)) == 0)
-            {
-                long newState = (state + dataSize);
-                if (m_state.compareAndSet(state, newState))
-                    return sendDataSync( newState, data );
-            }
-            else if ((state & WRITERS_MASK) != WRITERS_MASK)
-            {
-                long newState = (state + WRITER);
-                if (m_state.compareAndSet(state, newState))
-                    return addAndSendDataAsync( newState, data );
-            }
-            /* else maximum writers number reached */
-            state = m_state.get();
-        }
-    }
-
-    public long sendDataAsync( ByteBuffer data )
-    {
-        long state = m_state.get();
-        for (;;)
-        {
-            if ((state & CLOSE) != 0)
-                return -1;
-
-            if ((state & WRITERS_MASK) != WRITERS_MASK)
-            {
-                long newState = (state + WRITER);
-                if (m_state.compareAndSet(state, newState))
-                    return addAndSendDataAsync( newState, data );
-            }
-            /* else maximum number of writers reached,
-             * let's wait a bit.
-             */
-            state = m_state.get();
-        }
-    }
-
-    public long closeConnection()
-    {
-        long state = m_state.get();
-        long newState;
-        for (;;)
-        {
-            if ((state & CLOSE) != 0)
-                return (state & LENGTH_MASK);
-
-            newState = (state | CLOSE);
-            if (m_state.compareAndSet(state, newState))
-                break;
-
-            state = m_state.get();
-        }
-
-        if (s_logger.isLoggable(Level.FINER))
-        {
-            s_logger.finer(
-                    m_remoteSocketAddress.toString() +
-                    ": " + stateToString(state) + " -> " + stateToString(newState) );
-        }
-
-        if ((state & STATE_MASK) == ST_RUNNING)
-            m_inputQueue.stop();
-
-        return (newState & LENGTH_MASK);
+        m_selectionKey.attach( this );
     }
 
     public final void initialize(
-                int inputQueueMaxSize,
-                DataBlockCache inputQueueDataBlockCache,
-                Listener listener )
+            int inputQueueMaxSize,
+            DataBlockCache inputQueueDataBlockCache,
+            Listener listener )
     {
-        m_selectionKey.attach( this );
-
         if (listener == null)
             listener = new DummyListener();
 
         m_inputQueue = new InputQueue( m_collider,
-                                       inputQueueMaxSize,
-                                       inputQueueDataBlockCache,
-                                       this,
-                                       m_socketChannel,
-                                       m_selectionKey,
-                                       listener );
+                inputQueueMaxSize,
+                inputQueueDataBlockCache,
+                this,
+                m_socketChannel,
+                m_selectionKey,
+                listener );
 
-        long state = m_state.get();
-        long newState;
+        int state = m_state.get();
+        int newState;
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_STARTING );
-            assert( (state & SOCK_RC_MASK) == (SOCK_RC+SOCK_RC) );
 
             newState = state;
 
@@ -418,9 +233,6 @@ public class SessionImpl extends ThreadPool.Runnable
             else
             {
                 newState -= SOCK_RC;
-                if ((state & LENGTH_MASK) == 0)
-                    newState -= SOCK_RC;
-
                 if (m_state.compareAndSet(state, newState))
                 {
                     listener.onConnectionClosed();
@@ -438,10 +250,117 @@ public class SessionImpl extends ThreadPool.Runnable
                     m_remoteSocketAddress.toString() +
                     ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
         }
-
-        if ((newState & WAIT_WRITE) != 0)
-            m_collider.executeInSelectorThread( m_starter );
     }
+
+    public Collider getCollider() { return m_collider; }
+    public SocketAddress getLocalAddress() { return m_localSocketAddress; }
+    public SocketAddress getRemoteAddress() { return m_remoteSocketAddress; }
+
+    public int sendData( ByteBuffer data )
+    {
+        final Node node = new Node( data );
+        for (;;)
+        {
+            final Node tail = m_tail.get();
+            if (tail == CLOSE_MARKER)
+                return -1;
+
+            if (m_tail.compareAndSet(tail, node))
+            {
+                if (tail == null)
+                {
+                    m_head = node;
+                    m_collider.executeInThreadPool( this );
+                }
+                else
+                    tail.next = node;
+                return 1;
+            }
+        }
+    }
+
+    public int sendDataSync( ByteBuffer data )
+    {
+        final Node node = new Node( data );
+        for (;;)
+        {
+            final Node tail = m_tail.get();
+            if (tail == CLOSE_MARKER)
+                return -1;
+
+            if (m_tail.compareAndSet(tail, node))
+            {
+                if (tail == null)
+                {
+                    m_head = node;
+                    break;
+                }
+                else
+                {
+                    tail.next = node;
+                    return 1;
+                }
+            }
+        }
+
+        try
+        {
+            m_socketChannel.write( data );
+        }
+        catch (IOException ex)
+        {
+            handleWriteException( ex );
+            return -1;
+        }
+
+        if (data.remaining() > 0)
+        {
+            m_collider.executeInSelectorThread( m_starter );
+            return 1;
+        }
+
+        removeNode( node );
+        return 0;
+    }
+
+    public int closeConnection()
+    {
+        Node tail = m_tail.get();
+        for (;;)
+        {
+            if (tail == CLOSE_MARKER)
+                return -1;
+
+            if (m_tail.compareAndSet(tail, CLOSE_MARKER))
+            {
+                if (tail != null)
+                    tail.next = CLOSE_MARKER;
+                break;
+            }
+            tail = m_tail.get();
+        }
+
+        m_inputQueue.stop();
+
+        if (tail == null)
+        {
+            for (;;)
+            {
+                int state = m_state.get();
+                assert( (state & SOCK_RC_MASK) != 0 );
+                int newState = (state - SOCK_RC);
+                if (m_state.compareAndSet(state, newState))
+                {
+                    if ((newState & SOCK_RC_MASK) == 0)
+                        m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                    break;
+                }
+            }
+        }
+
+        return 0;
+    }
+
 
     public void handleReadyOps( ThreadPool threadPool )
     {
@@ -457,61 +376,170 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public void runInThreadPool()
     {
-        long state = m_state.get();
-        long bytesReady = (state & LENGTH_MASK);
-        assert( bytesReady > 0 );
-
-        bytesReady = m_outputQueue.getData( m_iov, bytesReady );
-        int pos0 = m_iov[0].position();
-
-        int iovc = 1; /* at least one ByteBuffer should be ready */
-        for (; iovc<m_iov.length && m_iov[iovc]!= null; iovc++);
+        int iovc = 0;
+        for (Node node=m_head;;)
+        {
+            m_iov[iovc] = node.buf;
+            if (++iovc == m_iov.length)
+                break;
+            node = node.next;
+            if ((node == null) || (node == CLOSE_MARKER))
+                break;
+        }
 
         try
         {
-            final long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
-            if (bytesSent == 0)
-                System.out.println( "strange" );
-
-            for (int idx=0; idx<iovc; idx++)
-                m_iov[idx] = null;
-
-            m_outputQueue.removeData( pos0, bytesSent );
-            final long newState = decState( state, bytesSent );
-
-            if (s_logger.isLoggable(Level.FINEST))
-            {
-                s_logger.finest(
-                        m_remoteSocketAddress.toString() +
-                        ": ready=" + bytesReady + " sent=" + bytesSent +
-                        " " + stateToString(state) + " -> " + stateToString(newState) );
-            }
+            m_socketChannel.write( m_iov, 0, iovc );
         }
         catch (IOException ex)
         {
-            long newState;
-            for (;;)
-            {
-                assert( (state & SOCK_RC_MASK) > 0 );
-                newState = state;
-                newState |= CLOSE;
-                newState -= SOCK_RC;
-                newState &= ~LENGTH_MASK;
-                if (m_state.compareAndSet(state, newState))
-                    break;
-                state = m_state.get();
-            }
+            handleWriteException( ex );
+            return;
+        }
 
-            if (s_logger.isLoggable(Level.FINER))
+        int idx = 0;
+        Node node = m_head;
+        for (;;)
+        {
+            assert( m_iov[idx] == node.buf );
+            m_iov[idx] = null;
+            if (node.buf.remaining() > 0)
             {
-                s_logger.finer(
-                        m_remoteSocketAddress.toString() +
-                        ": " + ex.toString() + " " +
-                        stateToString(state) + " -> " + stateToString(newState) + "." );
+                idx++;
+                for (; idx<iovc; idx++)
+                    m_iov[idx] = null;
+                m_head = node;
+                m_collider.executeInSelectorThread( m_starter );
+                return;
             }
+            if  (++idx == iovc)
+                break;
+            Node next = node.next;
+            node.next = null;
+            node = next;
+        }
 
-            if ((newState & SOCK_RC_MASK) == 0)
-                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+        removeNode( node );
+    }
+
+    private void handleWriteException( final IOException ex )
+    {
+        /* Session can be already closed, but can be not.
+         * Let's clean up and close output queue,
+         * input queue will be closed soon as well.
+         */
+        for (;;)
+        {
+            final Node tail = m_tail.get();
+            assert( tail != null );
+
+            if (tail == CLOSE_MARKER)
+                break; /* already closed */
+
+            if (m_tail.compareAndSet(tail, CLOSE_MARKER))
+            {
+                tail.next = CLOSE_MARKER;
+                break;
+            }
+        }
+
+        Node node = m_head;
+        while (node != CLOSE_MARKER)
+        {
+            Node next = node.next;
+            node.next = null;
+            node = next;
+        }
+        m_head = node;
+
+        for (;;)
+        {
+            final int state = m_state.get();
+            assert( (state & SOCK_RC_MASK) != 0 );
+            final int newState = (state - SOCK_RC);
+            if (m_state.compareAndSet(state, newState))
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                {
+                    s_logger.warning(
+                            m_remoteSocketAddress.toString() + ": " + ex.toString() +
+                            " (" + ex.getStackTrace()[0].toString() + "): " +
+                            stateToString(state) + " -> " + stateToString(newState) );
+                }
+                if ((newState & SOCK_RC_MASK) == 0)
+                    m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                break;
+            }
+        }
+    }
+
+    private void removeNode( Node node )
+    {
+        /* Two SOCK_RC updates in the next block looks similar,
+         * and it seems it can be moved outside avoiding code duplicate.
+         * Do not buy it!
+         */
+        Node next = node.next;
+        if (next == null)
+        {
+            m_head = null;
+            if (!m_tail.compareAndSet(node, null))
+            {
+                while (node.next == null);
+                m_head = node.next;
+                node.next = null;
+                if (m_head == CLOSE_MARKER)
+                {
+                    for (;;)
+                    {
+                        int state = m_state.get();
+                        assert( (state & SOCK_RC_MASK) == 0 );
+                        int newState = (state - SOCK_RC);
+                        if (m_state.compareAndSet(state, newState))
+                        {
+                            if (s_logger.isLoggable(Level.FINER))
+                            {
+                                s_logger.finer(
+                                        m_remoteSocketAddress.toString() +
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                            }
+                            if ((newState & SOCK_RC_MASK) == 0)
+                                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                            break;
+                        }
+                    }
+                }
+                else
+                    m_collider.executeInThreadPool( this );
+            }
+        }
+        else
+        {
+            node.next = null;
+            m_head = next;
+            if (m_head == CLOSE_MARKER)
+            {
+                for (;;)
+                {
+                    int state = m_state.get();
+                    assert( (state & SOCK_RC_MASK) > 0 );
+                    int newState = (state - SOCK_RC);
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        if (s_logger.isLoggable(Level.FINER))
+                        {
+                            s_logger.finer(
+                                    m_remoteSocketAddress.toString() +
+                                    ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                        }
+                        if ((newState & SOCK_RC_MASK) == 0)
+                            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                        break;
+                    }
+                }
+            }
+            else
+                m_collider.executeInThreadPool( this );
         }
     }
 }

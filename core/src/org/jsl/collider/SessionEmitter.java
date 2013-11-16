@@ -41,7 +41,6 @@ public abstract class SessionEmitter
     public int socketSendBufSize;
     public int inputQueueMaxSize;
     public int inputQueueBlockSize;
-    public int outputQueueBlockSize;
 
     public SessionEmitter( InetSocketAddress addr )
     {
@@ -55,7 +54,6 @@ public abstract class SessionEmitter
         socketSendBufSize = 0;
         inputQueueMaxSize = 0;
         inputQueueBlockSize = 0;
-        outputQueueBlockSize = 0;
     }
 
     public InetSocketAddress getAddr()

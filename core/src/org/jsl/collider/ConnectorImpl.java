@@ -150,11 +150,8 @@ public class ConnectorImpl extends SessionEmitterImpl
                 return;
             }
 
-            SessionImpl sessionImpl = new SessionImpl(
-                        m_collider,
-                        m_socketChannel,
-                        m_selectionKey,
-                        m_outputQueueDataBlockCache );
+            final SessionImpl sessionImpl = new SessionImpl(
+                        m_collider, m_socketChannel, m_selectionKey );
 
             Thread currentThread = Thread.currentThread();
             addThread( currentThread );
@@ -235,11 +232,10 @@ public class ConnectorImpl extends SessionEmitterImpl
     public ConnectorImpl(
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
-            DataBlockCache outputQueueDataBlockCache,
             Connector connector,
             Selector selector )
     {
-        super( collider, inputQueueDataBlockCache, outputQueueDataBlockCache, connector );
+        super( collider, inputQueueDataBlockCache, connector );
         m_connector = connector;
         m_selector = selector;
         m_state = new AtomicInteger( FL_STARTING );
