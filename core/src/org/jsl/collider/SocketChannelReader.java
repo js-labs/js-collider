@@ -26,9 +26,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
-public class InputQueue extends ThreadPool.Runnable
+public class SocketChannelReader extends ThreadPool.Runnable
 {
+    public interface StateListener
+    {
+        public void handleReaderStopped();
+        public String getPeerInfo();
+    }
+
     private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
         public void runInSelectorThread()
@@ -54,11 +59,7 @@ public class InputQueue extends ThreadPool.Runnable
             int interestOps = m_selectionKey.interestOps();
 
             if (s_logger.isLoggable(Level.FINER))
-            {
-                s_logger.finer(
-                        m_session.getRemoteAddress().toString() +
-                        ": interestOps=" + interestOps );
-            }
+                s_logger.finer( m_stateListener.getPeerInfo() + ": interestOps=" + interestOps );
 
             if ((interestOps & SelectionKey.OP_READ) == 0)
             {
@@ -83,7 +84,7 @@ public class InputQueue extends ThreadPool.Runnable
     {
         public void runInThreadPool()
         {
-            m_session.handleReaderStopped();
+            m_stateListener.handleReaderStopped();
 
             int state = m_state.get();
             int newState;
@@ -99,13 +100,13 @@ public class InputQueue extends ThreadPool.Runnable
             if (s_logger.isLoggable(Level.FINER))
             {
                 s_logger.finer(
-                        m_session.getRemoteAddress().toString() +
+                        m_stateListener.getPeerInfo() +
                         ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
             }
 
             if ((newState & LENGTH_MASK) == 0)
             {
-                m_listener.onConnectionClosed();
+                m_sessionListener.onConnectionClosed();
                 printStats();
             }
         }
@@ -135,10 +136,10 @@ public class InputQueue extends ThreadPool.Runnable
     private final int m_maxSize;
     private final DataBlockCache m_dataBlockCache;
     private final int m_blockSize;
-    private final SessionImpl m_session;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
-    private final Session.Listener m_listener;
+    private final StateListener m_stateListener;
+    private final Session.Listener m_sessionListener;
 
     private final Starter m_starter;
     private final AtomicInteger m_state;
@@ -166,14 +167,14 @@ public class InputQueue extends ThreadPool.Runnable
                 {
                     int limit = pos + bytesRemaining;
                     rw.limit( limit );
-                    m_listener.onDataReceived( rw );
+                    m_sessionListener.onDataReceived( rw );
                     rw.position( limit );
                     break;
                 }
 
                 bytesRemaining -= bb;
                 rw.limit( m_blockSize );
-                m_listener.onDataReceived( rw );
+                m_sessionListener.onDataReceived( rw );
 
                 DataBlock next = dataBlock.next;
                 dataBlock.reset();
@@ -282,7 +283,7 @@ public class InputQueue extends ThreadPool.Runnable
 
         if ((state & CLOSED) != 0)
         {
-            m_listener.onConnectionClosed();
+            m_sessionListener.onConnectionClosed();
             printStats();
         }
     }
@@ -290,23 +291,23 @@ public class InputQueue extends ThreadPool.Runnable
     private int m_statReads;
     private int m_statHandleData;
 
-    public InputQueue(
+    public SocketChannelReader(
             ColliderImpl colliderImpl,
             int maxSize,
             DataBlockCache dataBlockCache,
-            SessionImpl session,
             SocketChannel socketChannel,
             SelectionKey selectionKey,
-            Session.Listener listener )
+            StateListener stateListener,
+            Session.Listener sessionListener )
     {
         m_collider = colliderImpl;
         m_maxSize = maxSize;
         m_dataBlockCache = dataBlockCache;
         m_blockSize = dataBlockCache.getBlockSize();
-        m_session = session;
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-        m_listener = listener;
+        m_stateListener = stateListener;
+        m_sessionListener = sessionListener;
         m_starter = new Starter();
         m_state = new AtomicInteger();
         m_iov = new ByteBuffer[2];
@@ -315,7 +316,7 @@ public class InputQueue extends ThreadPool.Runnable
 
     private void printStats()
     {
-        System.out.println( m_session.getRemoteAddress() + ":" +
+        System.out.println( m_stateListener.getPeerInfo() + ":" +
                 " reads=" + m_statReads +
                 " handleData=" + m_statHandleData );
     }
@@ -569,7 +570,7 @@ public class InputQueue extends ThreadPool.Runnable
             /* Should be called first to be sure sendData()
              * will be blocked before onConnectionClose().
              */
-            m_session.handleReaderStopped();
+            m_stateListener.handleReaderStopped();
 
             int newState;
             for (;;)
@@ -592,7 +593,7 @@ public class InputQueue extends ThreadPool.Runnable
             if (s_logger.isLoggable(Level.FINER))
             {
                 s_logger.finer(
-                        m_session.getRemoteAddress().toString() +
+                        m_stateListener.getPeerInfo() +
                         ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
             }
 
@@ -603,7 +604,7 @@ public class InputQueue extends ThreadPool.Runnable
 
             if ((newState & LENGTH_MASK) == 0)
             {
-                m_listener.onConnectionClosed();
+                m_sessionListener.onConnectionClosed();
                 printStats();
 
                 if (tailLock > 0)

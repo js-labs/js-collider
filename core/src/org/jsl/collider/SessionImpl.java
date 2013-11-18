@@ -31,7 +31,7 @@ import java.util.logging.Logger;
 
 
 public class SessionImpl extends ThreadPool.Runnable
-        implements Session, ColliderImpl.ChannelHandler
+        implements Session, ColliderImpl.ChannelHandler, SocketChannelReader.StateListener
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
 
@@ -58,7 +58,7 @@ public class SessionImpl extends ThreadPool.Runnable
     private final AtomicReference<Node> m_tail;
     private final ByteBuffer [] m_iov;
 
-    private InputQueue m_inputQueue;
+    private SocketChannelReader m_socketChannelReader;
 
     private static class DummyListener implements Listener
     {
@@ -131,7 +131,9 @@ public class SessionImpl extends ThreadPool.Runnable
         return ret;
     }
 
-    public final void handleReaderStopped()
+    /* SocketChannelReader.StateListener interface implementation */
+
+    public void handleReaderStopped()
     {
         Node tail = m_tail.get();
         for (;;)
@@ -176,6 +178,11 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
+    public String getPeerInfo()
+    {
+        return m_remoteSocketAddress.toString();
+    }
+
     public SessionImpl(
                 ColliderImpl collider,
                 SocketChannel socketChannel,
@@ -204,12 +211,13 @@ public class SessionImpl extends ThreadPool.Runnable
         if (listener == null)
             listener = new DummyListener();
 
-        m_inputQueue = new InputQueue( m_collider,
+        m_socketChannelReader = new SocketChannelReader(
+                m_collider,
                 inputQueueMaxSize,
                 inputQueueDataBlockCache,
-                this,
                 m_socketChannel,
                 m_selectionKey,
+                this,
                 listener );
 
         int state = m_state.get();
@@ -226,7 +234,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 newState |= ST_RUNNING;
                 if (m_state.compareAndSet(state, newState))
                 {
-                    m_inputQueue.start();
+                    m_socketChannelReader.start();
                     break;
                 }
             }
@@ -340,7 +348,7 @@ public class SessionImpl extends ThreadPool.Runnable
             tail = m_tail.get();
         }
 
-        m_inputQueue.stop();
+        m_socketChannelReader.stop();
 
         if (tail == null)
         {
@@ -368,7 +376,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
-            threadPool.execute( m_inputQueue );
+            threadPool.execute(m_socketChannelReader);
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
             threadPool.execute( this );
