@@ -81,13 +81,14 @@ public interface Session
     public int sendDataSync( ByteBuffer data );
 
     /**
-     * Method to be used to close session.
+     * Method to be used to close the session.
      * Works asynchronously so connection will not be closed immediately
      * after function return. Outgoing data scheduled but not sent yet
-     * will be sent. Any data already read from the socket but not processed
-     * yet will be processed. <em>onConnectionClosed</em> will be called
-     * after all received data will be processed. All further <em>sendData</em>
-     * and <em>sendDataAsync</em> calls will return -1.
+     * will be sent. Any data already read from the socket at the moment
+     * but not processed yet will be processed. <em>onConnectionClosed</em>
+     * will be called after all received data will be processed.
+     * All further <em>sendData</em>, <em>sendDataAsync</em> and
+     * <em>closeConnection</em> calls will return -1.
      * @return >0 - amount of data waiting to be sent
      *         <0 - session already closed and has no data to be sent
      */
