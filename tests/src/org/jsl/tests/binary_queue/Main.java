@@ -15,17 +15,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.output_queue;
+package org.jsl.tests.binary_queue;
 
+import org.jsl.collider.BinaryQueue;
 import org.jsl.collider.DataBlockCache;
-import org.jsl.collider.OutputQueue;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.ConsoleHandler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,7 +37,7 @@ public class Main
     private final Semaphore m_sema;
     private final AtomicLong m_state;
     private final DataBlockCache m_dataBlockCache;
-    private final OutputQueue m_outputQueue;
+    private final BinaryQueue m_outputQueue;
     private final Stream m_stream;
     private int m_waitMessages;
     private int m_messages;
@@ -61,7 +60,7 @@ public class Main
         m_sema = new Semaphore(0);
         m_state = new AtomicLong(0);
         m_dataBlockCache = new DataBlockCache( false, 1000, 20, 100 );
-        m_outputQueue = new OutputQueue( m_dataBlockCache );
+        m_outputQueue = new BinaryQueue( m_dataBlockCache );
         m_stream = new Stream();
         m_waitMessages = 0;
         m_messages = 0;
@@ -85,6 +84,7 @@ public class Main
         this.startGenerator( MESSAGES, 510 );
         this.startGenerator( MESSAGES, 4576 );
         this.startGenerator( MESSAGES, 777 );
+        this.startGenerator( MESSAGES, 4 );
 
         ByteBuffer [] iov = new ByteBuffer[4];
         long bytesProcessed = 0;
@@ -113,9 +113,12 @@ public class Main
                     ByteBuffer msg = m_stream.getNext( iov[idx] );
                     while (msg != null)
                     {
-                        msg.getInt(); // skip length
-                        int magic = msg.getInt();
-                        assert( magic == MESSAGE_MAGIC );
+                        final int messageLength = msg.getInt();
+                        if (messageLength > 4)
+                        {
+                            final int magic = msg.getInt();
+                            assert( magic == MESSAGE_MAGIC );
+                        }
                         m_messages++;
                         msg = m_stream.getNext();
                     }
@@ -137,9 +140,20 @@ public class Main
         m_dataBlockCache.clear( s_logger );
     }
 
-    public void addData( ByteBuffer data )
+    public void putData( ByteBuffer data )
     {
-        long bytesReady = m_outputQueue.addData( data );
+        long bytesReady = m_outputQueue.putData( data );
+        if (bytesReady > 0)
+        {
+            long state = m_state.addAndGet( bytesReady );
+            if (state == bytesReady)
+                m_sema.release();
+        }
+    }
+
+    public void putInt( int value )
+    {
+        int bytesReady = m_outputQueue.putInt( value );
         if (bytesReady > 0)
         {
             long state = m_state.addAndGet( bytesReady );

@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.output_queue;
+package org.jsl.tests.binary_queue;
 
 import org.jsl.tests.Util;
 import java.nio.ByteBuffer;
@@ -28,15 +28,19 @@ public class Generator extends Thread
 
     public Generator( Main main, int messages, int messageSize, int magic )
     {
-        assert( messageSize >= 8 );
         m_main = main;
         m_msgs = messages;
-        m_msg = ByteBuffer.allocate( messageSize );
-        m_msg.putInt( messageSize );
-        m_msg.putInt( magic );
-        for (int idx=0; idx<messageSize-8; idx++)
-            m_msg.put( (byte) idx );
-        m_msg.flip();
+        if (messageSize > 4)
+        {
+            if (messageSize < 8)
+                messageSize = 8;
+            m_msg = ByteBuffer.allocate( messageSize );
+            m_msg.putInt( messageSize );
+            m_msg.putInt( magic );
+            for (int idx=0; idx<messageSize-8; idx++)
+                m_msg.put( (byte) idx );
+            m_msg.flip();
+        }
     }
 
     public void run()
@@ -44,15 +48,24 @@ public class Generator extends Thread
         System.out.println( Thread.currentThread().getName() + ": started." );
 
         long startTime = System.nanoTime();
-        for (int idx=0; idx<m_msgs; idx++)
+        if (m_msg == null)
         {
-            m_main.addData( m_msg );
-            m_msg.rewind();
+            for (int idx=0; idx<m_msgs; idx++)
+                m_main.putInt( 4 );
+        }
+        else
+        {
+            for (int idx=0; idx<m_msgs; idx++)
+            {
+                m_main.putData( m_msg );
+                m_msg.rewind();
+            }
         }
         long endTime = System.nanoTime();
 
-        System.out.println( Thread.currentThread().getName()
-                            + ": sent " + m_msgs + " messages (" + ((long)m_msgs)*m_msg.capacity()
-                            + " bytes) at " + Util.formatDelay(startTime, endTime) + "." );
+        System.out.println( Thread.currentThread().getName() +
+                            ": sent " + m_msgs + " messages (" +
+                            ((long)m_msgs) * ((m_msg == null) ? 4 : m_msg.capacity()) +
+                            " bytes) at " + Util.formatDelay(startTime, endTime) + "." );
     }
 }
