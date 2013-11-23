@@ -68,6 +68,10 @@
         <run-test name="binary_queue"/>
     </target>
 
+    <target name="test.buffer_overlap_copy" depends="compile_tests">
+        <run-test name="buffer_overlap_copy"/>
+    </target>
+
     <target name="test.sched_latency" depends="compile_tests">
         <run-test name="sched_latency"/>
     </target>
