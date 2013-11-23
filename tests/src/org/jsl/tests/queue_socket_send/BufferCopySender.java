@@ -20,10 +20,11 @@
 package org.jsl.tests.queue_socket_send;
 
 import org.jsl.collider.ThreadPool;
-import org.jsl.collider.OutputQueue;
+import org.jsl.collider.BinaryQueue;
 import org.jsl.collider.DataBlockCache;
 import org.jsl.collider.PerfCounter;
 import org.jsl.collider.StatCounter;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -35,7 +36,7 @@ public class BufferCopySender extends Sender
     private static class SessionImpl extends Session
     {
         private final ThreadPool m_threadPool;
-        private final OutputQueue m_outputQueue;
+        private final BinaryQueue m_outputQueue;
         private final PerfCounter m_perfCounter;
         private final StatCounter m_statCounter;
         private final AtomicLong m_state;
@@ -95,7 +96,7 @@ public class BufferCopySender extends Sender
         {
             super( socketChannel );
             m_threadPool = threadPool;
-            m_outputQueue = new OutputQueue( dataBlockCache );
+            m_outputQueue = new BinaryQueue( dataBlockCache );
             m_perfCounter = perfCounter;
             m_statCounter = statCounter;
             m_state = new AtomicLong();
@@ -105,7 +106,7 @@ public class BufferCopySender extends Sender
 
         public void sendData( ByteBuffer data )
         {
-            long bytesReady = m_outputQueue.addData( data );
+            long bytesReady = m_outputQueue.putData( data );
             if (bytesReady > 0)
             {
                 for (;;)
