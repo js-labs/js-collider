@@ -23,6 +23,8 @@ import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+/* Collider public API interface. */
+
 public abstract class Collider
 {
     public static class Config
@@ -36,9 +38,6 @@ public abstract class Collider
         public int inputQueueBlockSize;
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
-        public int outputQueueBlockSize;
-        public int outputQueueCacheInitialSize;
-        public int outputQueueCacheMaxSize;
 
         public Config()
         {
@@ -52,9 +51,6 @@ public abstract class Collider
             inputQueueBlockSize         = ((32 * 1024) - 128);
             inputQueueCacheInitialSize  = 64;
             inputQueueCacheMaxSize      = 128;
-            outputQueueBlockSize        = ((16 * 1024) - 128);
-            outputQueueCacheInitialSize = 0;
-            outputQueueCacheMaxSize     = 0; /* by default = (threadPoolThreads*3) */
         }
     }
 
@@ -71,7 +67,13 @@ public abstract class Collider
         return m_config;
     }
 
+    /* Method to be called to run the collider instance.
+     * Do not return the control back while collider is not stopped.
+     */
     public abstract void run();
+
+    /* Stops the running collider.
+     */
     public abstract void stop();
 
     public abstract void addAcceptor( Acceptor acceptor );

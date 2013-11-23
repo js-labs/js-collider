@@ -256,9 +256,6 @@ public class ColliderImpl extends Collider
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
 
-        if (config.outputQueueCacheMaxSize == 0)
-            config.outputQueueCacheMaxSize = (threadPoolThreads * 3);
-
         m_dummyRunnable = new DummyRunnable();
         m_state = ST_RUNNING;
 
