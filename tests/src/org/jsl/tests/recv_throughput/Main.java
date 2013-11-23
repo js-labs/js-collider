@@ -17,7 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.session_throughput;
+package org.jsl.tests.recv_throughput;
 
 public class Main
 {
