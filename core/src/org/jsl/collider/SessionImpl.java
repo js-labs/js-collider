@@ -62,7 +62,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
     private static class DummyListener implements Listener
     {
-        public void onDataReceived(ByteBuffer data) { }
+        public void onDataReceived( ByteBuffer data ) { }
         public void onConnectionClosed() { }
     }
 
@@ -369,14 +369,13 @@ public class SessionImpl extends ThreadPool.Runnable
         return 0;
     }
 
-
     public void handleReadyOps( ThreadPool threadPool )
     {
         int readyOps = m_selectionKey.readyOps();
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
-            threadPool.execute(m_socketChannelReader);
+            threadPool.execute( m_socketChannelReader );
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
             threadPool.execute( this );
