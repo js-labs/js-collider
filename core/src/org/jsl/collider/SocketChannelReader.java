@@ -148,6 +148,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
     private DataBlock m_tail;
 
     static public final PerfCounter s_pc = new PerfCounter("PC");
+    static public final StatCounter s_sc = new StatCounter("SC");
 
     private void handleData( DataBlock dataBlock, int state )
     {
@@ -235,9 +236,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
                 {
                     if (m_state.compareAndSet(state, newState))
                     {
-                        if ((state & LENGTH_MASK) > m_maxSize)
+                        if (((state & LENGTH_MASK) > m_maxSize) &&
+                            ((newState & LENGTH_MASK) <= m_maxSize))
                         {
-                            assert( (newState & LENGTH_MASK) <= m_maxSize );
                             assert( (newState & CLOSED) == 0 );
                             m_speculativeRead = true;
                             m_collider.executeInThreadPool( this );
@@ -397,8 +398,11 @@ public class SocketChannelReader extends ThreadPool.Runnable
             //long startTime = System.nanoTime();
             bytesReceived = m_socketChannel.read( m_iov, 0, 2 );
             /*
+            s_logger.finer(
+                    m_stateListener.getPeerInfo() + ": received " + bytesReceived +
+                    " space=" + space + " SR=" + m_speculativeRead + "." );
             long endTime = System.nanoTime();
-            System.out.println( m_session.getRemoteAddress() +
+            System.out.println( m_stateListener.getPeerInfo() +
                                 ": " +
                                 Util.formatDelay(startTime, endTime) + " sec." +
                                 " space=" + space +
@@ -597,9 +601,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
                         ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
             }
 
-            /* dataBlock1 will always be freed, dataBlock0 - sometimes */
-
-            assert( dataBlock0.next == null );
+            /* assert( dataBlock0.next == null );
+             * dataBlock1 will always be freed, dataBlock0 - sometimes.
+             */
             assert( dataBlock1.next == null );
 
             if ((newState & LENGTH_MASK) == 0)

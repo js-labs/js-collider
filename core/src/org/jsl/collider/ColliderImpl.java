@@ -350,6 +350,7 @@ public class ColliderImpl extends Collider
         m_dataBlockCache.clear();
 
         System.out.println( SocketChannelReader.s_pc.getStats() );
+        System.out.println( SocketChannelReader.s_sc.getStats() );
 
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "stopped." );
