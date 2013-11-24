@@ -25,9 +25,7 @@ import org.jsl.collider.Session;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
