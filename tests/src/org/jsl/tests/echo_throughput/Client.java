@@ -22,9 +22,8 @@ package org.jsl.tests.echo_throughput;
 import org.jsl.tests.Util;
 
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Semaphore;
@@ -33,12 +32,11 @@ public class Client
 {
     private final int m_messages;
     private final int m_messageLength;
-    private final int m_sendBufferSize;
-    private final int m_receiveBufferSize;
+    private final int m_socketBufferSize;
 
     private ByteBuffer m_messageBlock;
     private Thread [] m_threads;
-    private InetSocketAddress m_addr;
+    private SocketAddress m_addr;
 
     private class SenderThread extends Thread
     {
@@ -49,8 +47,8 @@ public class Client
                 SocketChannel socketChannel = SocketChannel.open( m_addr );
                 Socket socket = socketChannel.socket();
                 socket.setTcpNoDelay( true );
-                socket.setSendBufferSize( m_sendBufferSize );
-                socket.setReceiveBufferSize( m_receiveBufferSize );
+                socket.setSendBufferSize( m_socketBufferSize );
+                socket.setReceiveBufferSize( m_socketBufferSize );
 
                 System.out.println( "Client connected " + socket.getRemoteSocketAddress() + "." );
 
@@ -84,7 +82,7 @@ public class Client
                 double tm = ((endTime - startTime) / 1000);
                 tm /= 1000000;
                 tm = (m_messages / tm);
-                System.out.println( "Processed " + m_messages + " messages (" +
+                System.out.println( "Received back " + m_messages + " messages (" +
                         m_messages*m_messageLength + " bytes) at " +
                         Util.formatDelay(startTime, endTime) + " sec (" +
                         (int)tm + " msgs/sec)." );
@@ -110,7 +108,7 @@ public class Client
 
         public void run()
         {
-            ByteBuffer bb = ByteBuffer.allocateDirect( (int)(m_receiveBufferSize * 1.2) );
+            ByteBuffer bb = ByteBuffer.allocateDirect( (int)(m_socketBufferSize * 1.2) );
             m_sem.release();
 
             int bytesRemaining = (m_messages * m_messageLength);
@@ -145,16 +143,14 @@ public class Client
     public Client( int sessions,
                    int messages,
                    int messageLength,
-                   int sendBufferSize,
-                   int receiveBufferSize )
+                   int socketBufferSize )
     {
         if (messageLength < 12)
             messageLength = 12;
 
         m_messages = messages;
         m_messageLength = messageLength;
-        m_sendBufferSize = sendBufferSize;
-        m_receiveBufferSize = receiveBufferSize;
+        m_socketBufferSize = socketBufferSize;
 
         int blockSize = (messages * messageLength);
         if (blockSize > 1024*1024)
@@ -180,9 +176,9 @@ public class Client
             m_threads[idx] = new SenderThread();
     }
 
-    public void start( InetAddress addr, int portNumber )
+    public void start( SocketAddress addr )
     {
-        m_addr = new InetSocketAddress( addr, portNumber );
+        m_addr = addr;
         for (Thread thread : m_threads)
             thread.start();
     }

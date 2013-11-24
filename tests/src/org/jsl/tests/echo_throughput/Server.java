@@ -40,10 +40,10 @@ public class Server
     {
         private final Session m_session;
         private final StreamDefragger m_stream;
-        private int m_messagesTotal;
+        private int m_messagesExpected;
+        private int m_sessionsExpected;
         private int m_messagesReceived;
-        private int m_bytesTotal;
-        private int m_sessionsTotal;
+        private int m_bytesReceived;
         private long m_startTime;
 
         public ServerListener( Session session )
@@ -63,7 +63,7 @@ public class Server
         {
             final int bytesReceived = data.remaining();
             assert( bytesReceived > 0 );
-            m_bytesTotal += bytesReceived;
+            m_bytesReceived += bytesReceived;
 
             ByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
@@ -73,28 +73,31 @@ public class Server
                 final int messageLength = msg.getInt();
                 assert( messageLength == bytesReady );
 
-                final int sessionsTotal = msg.getInt();
-                final int messagesTotal = msg.getInt();
-                if (m_messagesTotal == 0)
+                final int sessionsExpected = msg.getInt();
+                final int messagesExpected = msg.getInt();
+                if (m_messagesExpected == 0)
                 {
                     m_startTime = System.nanoTime();
-                    m_sessionsTotal = sessionsTotal;
-                    m_messagesTotal = messagesTotal;
+                    m_sessionsExpected = sessionsExpected;
+                    m_messagesExpected = messagesExpected;
                 }
                 else
                 {
-                    assert( m_sessionsTotal == sessionsTotal );
-                    assert( m_messagesTotal == messagesTotal );
+                    assert( m_sessionsExpected == sessionsExpected );
+                    assert( m_messagesExpected == messagesExpected );
                 }
                 m_messagesReceived++;
 
                 msg.position( pos );
-                m_session.sendData( msg );
+                ByteBuffer bb = ByteBuffer.allocateDirect( messageLength );
+                bb.put( msg );
+                bb.position( 0 );
+                m_session.sendData( bb );
 
                 msg = m_stream.getNext();
             }
 
-            if (m_messagesReceived == m_messagesTotal)
+            if (m_messagesReceived == m_messagesExpected)
             {
                 long endTime = System.nanoTime();
                 double tm = (endTime - m_startTime) / 1000;
@@ -102,7 +105,7 @@ public class Server
                 tm = (m_messagesReceived / tm);
                 System.out.println( m_session.getRemoteAddress() + ": " +
                         m_messagesReceived + " messages (" +
-                        m_bytesTotal + " bytes) received at " +
+                        m_bytesReceived + " bytes) processed at " +
                         Util.formatDelay(m_startTime, endTime) + " sec (" +
                         (int)tm + " msgs/sec). " );
             }
@@ -112,35 +115,26 @@ public class Server
         {
             System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
             int sessionsDone = m_sessionsDone.incrementAndGet();
-            if (sessionsDone == m_sessionsTotal)
+            if (sessionsDone == m_sessionsExpected)
                 m_session.getCollider().stop();
         }
     }
 
     private class TestAcceptor extends Acceptor
     {
-        public TestAcceptor( int socketRecvBufSize )
+        public TestAcceptor( int socketBufferSize )
         {
             super( new InetSocketAddress(0) );
-            this.tcpNoDelay = true;
-            this.socketRecvBufSize = socketRecvBufSize;
+            tcpNoDelay = true;
+            socketRecvBufSize = socketBufferSize;
+            socketSendBufSize = socketBufferSize;
         }
 
         public void onAcceptorStarted( int localPort )
         {
             System.out.println( "Server started at port " + localPort );
             if (m_client != null)
-            {
-                try
-                {
-                    final byte byteAddr[] = { 127, 0, 0, 1 };
-                    m_client.start( InetAddress.getByAddress(byteAddr), localPort );
-                }
-                catch (UnknownHostException ex)
-                {
-                    ex.printStackTrace();
-                }
-            }
+                m_client.start( new InetSocketAddress("localhost", localPort) );
         }
 
         public Session.Listener createSessionListener( Session session )
