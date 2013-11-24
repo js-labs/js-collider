@@ -96,6 +96,10 @@
         <run-test name="send_throughput"/>
     </target>
 
+    <target name="test.echo_throughput" depends="compile_tests">
+        <run-test name="echo_throughput"/>
+    </target>
+
     <target name="test.acceptor_perf" depends="compile_tests">
         <run-test name="acceptor_perf"/>
     </target>
