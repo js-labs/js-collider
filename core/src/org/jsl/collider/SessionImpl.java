@@ -396,7 +396,12 @@ public class SessionImpl extends ThreadPool.Runnable
 
         try
         {
-            m_socketChannel.write( m_iov, 0, iovc );
+            final long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+            if (bytesSent == 0)
+            {
+                m_collider.executeInSelectorThread( m_starter );
+                return;
+            }
         }
         catch (IOException ex)
         {
@@ -416,7 +421,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 for (; idx<iovc; idx++)
                     m_iov[idx] = null;
                 m_head = node;
-                m_collider.executeInSelectorThread( m_starter );
+                m_collider.executeInThreadPool( this );
                 return;
             }
             if  (++idx == iovc)
