@@ -100,6 +100,10 @@
         <run-test name="echo_throughput"/>
     </target>
 
+    <target name="test.queue_socket_send" depends="compile_tests">
+        <run-test name="queue_socket_send"/>
+    </target>
+
     <target name="test.acceptor_perf" depends="compile_tests">
         <run-test name="acceptor_perf"/>
     </target>
