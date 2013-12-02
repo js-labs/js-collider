@@ -25,11 +25,9 @@ import org.jsl.tests.Util;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 
 public class Server
 {
-    private final static Logger s_logger = Logger.getLogger( Server.class.getName() );
     private final Client m_client;
     private final AtomicInteger m_sessionsDone;
     private CachedByteBuffer.Cache m_bufferCache;
