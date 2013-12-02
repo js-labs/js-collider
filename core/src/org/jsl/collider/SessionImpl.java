@@ -34,8 +34,7 @@ public class SessionImpl extends ThreadPool.Runnable
         implements Session, ColliderImpl.ChannelHandler, SocketChannelReader.StateListener
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
-
-    private static final Node CLOSE_MARKER  = new Node( null );
+    private static final Node CLOSE_MARKER  = new Node();
 
     private static final int STATE_MASK   = 0x0003;
     private static final int ST_STARTING  = 0x0000;
@@ -57,6 +56,7 @@ public class SessionImpl extends ThreadPool.Runnable
     private Node m_head;
     private final AtomicReference<Node> m_tail;
     private final ByteBuffer [] m_iov;
+    private int m_iovc;
 
     private SocketChannelReader m_socketChannelReader;
 
@@ -103,10 +103,24 @@ public class SessionImpl extends ThreadPool.Runnable
     {
         public volatile Node next;
         public final ByteBuffer buf;
+        public final CachedByteBuffer cachedBuf;
+
+        public Node()
+        {
+            this.buf = null;
+            this.cachedBuf = null;
+        }
 
         public Node( ByteBuffer buf )
         {
             this.buf = buf;
+            this.cachedBuf = null;
+        }
+
+        public Node( ByteBuffer buf, CachedByteBuffer cachedBuf )
+        {
+            this.buf = buf;
+            this.cachedBuf = cachedBuf;
         }
     }
 
@@ -199,6 +213,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_head = null;
         m_tail = new AtomicReference<Node>();
         m_iov = new ByteBuffer[32];
+        m_iovc = 0;
 
         m_selectionKey.attach( this );
     }
@@ -287,6 +302,30 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
+    public int sendData( CachedByteBuffer data )
+    {
+        final Node node = new Node( data.getByteBuffer(), data );
+        for (;;)
+        {
+            final Node tail = m_tail.get();
+            if (tail == CLOSE_MARKER)
+                return -1;
+
+            if (m_tail.compareAndSet(tail, node))
+            {
+                data.retain();
+                if (tail == null)
+                {
+                    m_head = node;
+                    m_collider.executeInThreadPool( this );
+                }
+                else
+                    tail.next = node;
+                return 1;
+            }
+        }
+    }
+
     public int sendDataSync( ByteBuffer data )
     {
         final Node node = new Node( data );
@@ -351,20 +390,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_socketChannelReader.stop();
 
         if (tail == null)
-        {
-            for (;;)
-            {
-                int state = m_state.get();
-                assert( (state & SOCK_RC_MASK) != 0 );
-                int newState = (state - SOCK_RC);
-                if (m_state.compareAndSet(state, newState))
-                {
-                    if ((newState & SOCK_RC_MASK) == 0)
-                        m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                    break;
-                }
-            }
-        }
+            releaseSocket( "closeConnection()" );
 
         return 0;
     }
@@ -383,20 +409,26 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public void runInThreadPool()
     {
-        int iovc = 0;
-        for (Node node=m_head;;)
-        {
-            m_iov[iovc] = node.buf;
-            if (++iovc == m_iov.length)
-                break;
+        Node node = m_head;
+        int idx = 0;
+        for (; idx<m_iovc; idx++)
             node = node.next;
+
+        for (;;)
+        {
+            if (m_iovc == m_iov.length)
+                break;
             if ((node == null) || (node == CLOSE_MARKER))
                 break;
+            assert( m_iov[m_iovc] == null );
+            m_iov[m_iovc] = node.buf.duplicate();
+            m_iovc++;
+            node = node.next;
         }
 
         try
         {
-            final long bytesSent = m_socketChannel.write( m_iov, 0, iovc );
+            final long bytesSent = m_socketChannel.write( m_iov, 0, m_iovc );
             if (bytesSent == 0)
             {
                 m_collider.executeInSelectorThread( m_starter );
@@ -409,28 +441,38 @@ public class SessionImpl extends ThreadPool.Runnable
             return;
         }
 
-        int idx = 0;
-        Node node = m_head;
+        idx = 0;
+        node = m_head;
         for (;;)
         {
-            assert( m_iov[idx] == node.buf );
-            m_iov[idx] = null;
-            if (node.buf.remaining() > 0)
+            if (m_iov[idx].remaining() > 0)
             {
-                idx++;
-                for (; idx<iovc; idx++)
-                    m_iov[idx] = null;
+                final int cc = (m_iovc - idx);
+                int jj = 0;
+                for (; jj<cc; jj++)
+                {
+                    m_iov[jj] = m_iov[jj+idx];
+                    m_iov[jj+idx] = null;
+                }
+                m_iovc = cc;
                 m_head = node;
                 m_collider.executeInThreadPool( this );
                 return;
             }
-            if  (++idx == iovc)
+
+            if (node.cachedBuf != null)
+                node.cachedBuf.release();
+
+            m_iov[idx] = null;
+            if  (++idx == m_iovc)
                 break;
+
             Node next = node.next;
             node.next = null;
             node = next;
         }
 
+        m_iovc = 0;
         removeNode( node );
     }
 
@@ -464,19 +506,24 @@ public class SessionImpl extends ThreadPool.Runnable
         }
         m_head = node;
 
+        releaseSocket( ex.toString() );
+    }
+
+    private void releaseSocket( final String hint )
+    {
         for (;;)
         {
             final int state = m_state.get();
-            assert( (state & SOCK_RC_MASK) != 0 );
+            assert( (state & SOCK_RC_MASK) > 0 );
             final int newState = (state - SOCK_RC);
             if (m_state.compareAndSet(state, newState))
             {
-                if (s_logger.isLoggable(Level.WARNING))
+                if (s_logger.isLoggable(Level.FINER))
                 {
-                    s_logger.warning(
-                            m_remoteSocketAddress.toString() + ": " + ex.toString() +
-                            " (" + ex.getStackTrace()[0].toString() + "): " +
-                            stateToString(state) + " -> " + stateToString(newState) );
+                    s_logger.finer(
+                            m_remoteSocketAddress.toString() +
+                            ": " + hint + " "
+                            + stateToString(state) + " -> " + stateToString(newState) + "." );
                 }
                 if ((newState & SOCK_RC_MASK) == 0)
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );
@@ -487,10 +534,6 @@ public class SessionImpl extends ThreadPool.Runnable
 
     private void removeNode( Node node )
     {
-        /* Two SOCK_RC updates in the next block looks similar,
-         * and it seems it can be moved outside avoiding code duplicate.
-         * Do not buy it!
-         */
         Node next = node.next;
         if (next == null)
         {
@@ -501,26 +544,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 m_head = node.next;
                 node.next = null;
                 if (m_head == CLOSE_MARKER)
-                {
-                    for (;;)
-                    {
-                        int state = m_state.get();
-                        assert( (state & SOCK_RC_MASK) == 0 );
-                        int newState = (state - SOCK_RC);
-                        if (m_state.compareAndSet(state, newState))
-                        {
-                            if (s_logger.isLoggable(Level.FINER))
-                            {
-                                s_logger.finer(
-                                        m_remoteSocketAddress.toString() +
-                                        ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
-                            }
-                            if ((newState & SOCK_RC_MASK) == 0)
-                                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                            break;
-                        }
-                    }
-                }
+                    releaseSocket( "removeNode(CAS failed)" );
                 else
                     m_collider.executeInThreadPool( this );
             }
@@ -530,26 +554,7 @@ public class SessionImpl extends ThreadPool.Runnable
             node.next = null;
             m_head = next;
             if (m_head == CLOSE_MARKER)
-            {
-                for (;;)
-                {
-                    int state = m_state.get();
-                    assert( (state & SOCK_RC_MASK) > 0 );
-                    int newState = (state - SOCK_RC);
-                    if (m_state.compareAndSet(state, newState))
-                    {
-                        if (s_logger.isLoggable(Level.FINER))
-                        {
-                            s_logger.finer(
-                                    m_remoteSocketAddress.toString() +
-                                    ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
-                        }
-                        if ((newState & SOCK_RC_MASK) == 0)
-                            m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                        break;
-                    }
-                }
-            }
+                releaseSocket( "removeNode" );
             else
                 m_collider.executeInThreadPool( this );
         }
