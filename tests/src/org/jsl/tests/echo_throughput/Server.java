@@ -19,20 +19,20 @@
 
 package org.jsl.tests.echo_throughput;
 
-import org.jsl.collider.Acceptor;
-import org.jsl.collider.Collider;
-import org.jsl.collider.Session;
-import org.jsl.collider.StreamDefragger;
+import org.jsl.collider.*;
 import org.jsl.tests.Util;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
 
 public class Server
 {
+    private final static Logger s_logger = Logger.getLogger( Server.class.getName() );
     private final Client m_client;
     private final AtomicInteger m_sessionsDone;
+    private CachedByteBuffer.Cache m_bufferCache;
 
     private class ServerListener implements Session.Listener
     {
@@ -75,6 +75,7 @@ public class Server
                 final int messagesExpected = msg.getInt();
                 if (m_messagesExpected == 0)
                 {
+                    m_bufferCache = new CachedByteBuffer.Cache( true, messageLength, 100 );
                     m_startTime = System.nanoTime();
                     m_sessionsExpected = sessionsExpected;
                     m_messagesExpected = messagesExpected;
@@ -87,10 +88,11 @@ public class Server
                 m_messagesReceived++;
 
                 msg.position( pos );
-                ByteBuffer bb = ByteBuffer.allocateDirect( messageLength );
+                final CachedByteBuffer bb = m_bufferCache.get();
                 bb.put( msg );
                 bb.position( 0 );
                 m_session.sendData( bb );
+                bb.release();
 
                 msg = m_stream.getNext();
             }
@@ -147,11 +149,13 @@ public class Server
         m_sessionsDone = new AtomicInteger(0);
     }
 
-    public void run( int sockRecvBufSize )
+    public void run( int socketBufferSize )
     {
         Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor(sockRecvBufSize) );
+        collider.addAcceptor( new TestAcceptor(socketBufferSize) );
         collider.run();
         m_client.stopAndWait();
+        if (m_bufferCache != null)
+            System.out.println( m_bufferCache.clear() );
     }
 }
