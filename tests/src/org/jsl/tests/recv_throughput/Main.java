@@ -25,7 +25,7 @@ public class Main
     {
         int sessions = 1;
         int messages = 1000000;
-        int messageLength = 100;
+        int messageLength = 500;
         int socketRecvBufSize = (64*1024);
 
         if (args.length > 0)
