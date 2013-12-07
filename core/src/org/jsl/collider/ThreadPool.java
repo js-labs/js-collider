@@ -30,13 +30,6 @@ public class ThreadPool
     public static abstract class Runnable
     {
         public volatile Runnable threadPoolRunnable_next;
-        public final int threadPoolRunnable_hash;
-
-        public Runnable()
-        {
-            threadPoolRunnable_hash = System.identityHashCode( this );
-        }
-
         public abstract void runInThreadPool();
     }
 
@@ -116,42 +109,40 @@ public class ThreadPool
 
     private Runnable getNext( int idx )
     {
-        idx *= FS_PADDING;
+        idx = (idx * FS_PADDING) + FS_PADDING - 1;
         for (;;)
         {
-            Runnable head = m_hra.get( idx );
+            Runnable runnable = m_hra.get( idx );
 
-            if (head == null)
+            if (runnable == null)
                 return null;
 
             /* Schmidt D. algorithm suitable for the garbage collector
              * environment can not be used here because the same Runnable
              * can be scheduled multiple times (to avoid useless object allocation).
-             * Let's use stupid but effective in this particular case
-             * spin lock variation to avoid ABA problem.
              */
 
-            if (head == LOCK)
+            if (runnable == LOCK)
                 continue;
 
-            if (m_hra.compareAndSet(idx, head, LOCK))
+            if (m_hra.compareAndSet(idx, runnable, LOCK))
             {
-                if (head.threadPoolRunnable_next == null)
+                if (runnable.threadPoolRunnable_next == null)
                 {
                     m_hra.set( idx, null );
-                    if (!m_tra.compareAndSet(idx, head, null))
+                    if (!m_tra.compareAndSet(idx, runnable, null))
                     {
-                        while (head.threadPoolRunnable_next == null);
-                        m_hra.set( idx, head.threadPoolRunnable_next );
-                        head.threadPoolRunnable_next = null;
+                        while (runnable.threadPoolRunnable_next == null);
+                        m_hra.set( idx, runnable.threadPoolRunnable_next );
+                        runnable.threadPoolRunnable_next = null;
                     }
                 }
                 else
                 {
-                    m_hra.set( idx, head.threadPoolRunnable_next );
-                    head.threadPoolRunnable_next = null;
+                    m_hra.set( idx, runnable.threadPoolRunnable_next );
+                    runnable.threadPoolRunnable_next = null;
                 }
-                return head;
+                return runnable;
             }
         }
     }
@@ -223,9 +214,8 @@ public class ThreadPool
     {
         assert( runnable.threadPoolRunnable_next == null );
 
-        int idx = runnable.threadPoolRunnable_hash;
-        idx %= m_contentionFactor;
-        idx *= FS_PADDING;
+        int idx = (int) Thread.currentThread().getId();
+        idx = (idx % m_contentionFactor) * FS_PADDING + FS_PADDING - 1;
 
         Runnable tail = m_tra.getAndSet( idx, runnable );
         if (tail == null)
