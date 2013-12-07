@@ -38,7 +38,7 @@ public abstract class ObjectCache<TYPE>
         m_size = 0;
     }
 
-    public boolean put( TYPE obj )
+    public final boolean put( TYPE obj )
     {
         m_lock.lock();
         try
@@ -67,7 +67,9 @@ public abstract class ObjectCache<TYPE>
             {
                 final int idx = --m_size;
                 assert( m_cache[idx] != null );
-                return m_cache[idx];
+                TYPE ret = m_cache[idx];
+                m_cache[idx] = null;
+                return ret;
             }
             finally
             {
@@ -81,7 +83,7 @@ public abstract class ObjectCache<TYPE>
         }
     }
 
-    protected final void clear( Logger logger, String name, int initialSize )
+    protected final String clear( int initialSize )
     {
         for (int idx=0; idx<m_size; idx++)
         {
@@ -89,21 +91,17 @@ public abstract class ObjectCache<TYPE>
             m_cache[idx] = null;
         }
 
+        final int size = m_size;
+        m_size = 0;
+
         if (m_size < initialSize)
         {
-            if (logger.isLoggable(Level.WARNING))
-            {
-                logger.warning(
-                    name + ": resource leak detected: current size " +
-                    m_size + " less than initial size (" + initialSize + ")." );
-            }
+            return "resource leak detected: current size " +
+                    size + " less than initial size (" + initialSize + ").";
         }
         else
         {
-            if (logger.isLoggable(Level.FINE))
-                logger.fine( name + ": size=" + m_size + "." );
+            return "size=" + size;
         }
-
-        m_size = 0;
     }
 }
