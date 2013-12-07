@@ -371,7 +371,7 @@ public class SessionImpl extends ThreadPool.Runnable
 
     public void handleReadyOps( ThreadPool threadPool )
     {
-        int readyOps = m_selectionKey.readyOps();
+        final int readyOps = m_selectionKey.readyOps();
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
