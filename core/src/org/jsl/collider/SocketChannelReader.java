@@ -346,9 +346,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
     private void printStats()
     {
-        System.out.println( m_session.getRemoteAddress() + ":" +
-                " reads=" + m_statReads +
-                " handleData=" + m_statHandleData );
+        System.out.println( m_session.getRemoteAddress() +
+               ": reads=" + m_statReads +
+               " handleData=" + m_statHandleData );
     }
 
     private int stop( int state, boolean releaseTailLock )

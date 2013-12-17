@@ -683,6 +683,12 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         m_socketChannelReader.accelerate( shMem.getIn() );
         m_writer = new ShMemWriter( shMem.getOut(), 128*1024 );
 
+        if (s_logger.isLoggable(Level.FINE))
+        {
+            s_logger.fine(
+                    m_remoteSocketAddress + ": switched to ShMem IPC (" + shMem + ")" );
+        }
+
         removeNode( node );
         return 0;
     }

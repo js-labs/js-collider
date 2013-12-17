@@ -74,6 +74,16 @@ public abstract class ShMem
             }
         }
 
+        public final int getBlockSize()
+        {
+            return m_blockSize;
+        }
+
+        public final File getFile()
+        {
+            return m_file;
+        }
+
         public void close()
         {
             try
@@ -260,6 +270,13 @@ public abstract class ShMem
                 m_idx = idx;
             }
         }
+    }
+
+    public String toString()
+    {
+        return getIn().getBlockSize() + ";" +
+               getIn().getFile().getAbsolutePath() + ";" +
+               getOut().getFile().getAbsolutePath();
     }
 
     abstract ChannelIn getIn();
