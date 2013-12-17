@@ -23,10 +23,15 @@ import java.net.InetSocketAddress;
 
 public abstract class Acceptor extends SessionEmitter
 {
+    public Acceptor()
+    {
+        this( new InetSocketAddress(0) );
+    }
+
     public Acceptor( InetSocketAddress addr )
     {
         super( addr );
     }
 
-    public void onAcceptorStarted( int localPort ) {}
+    public void onAcceptorStarted( Collider collider, int localPort ) {}
 }

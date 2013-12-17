@@ -39,7 +39,7 @@ public abstract class SessionEmitter
 
     public int socketRecvBufSize;
     public int socketSendBufSize;
-    public int inputQueueMaxSize;
+    public int forwardReadMaxSize;
     public int inputQueueBlockSize;
 
     public SessionEmitter( InetSocketAddress addr )
@@ -52,7 +52,7 @@ public abstract class SessionEmitter
         /* Use collider global settings by default */
         socketRecvBufSize = 0;
         socketSendBufSize = 0;
-        inputQueueMaxSize = 0;
+        forwardReadMaxSize = 0;
         inputQueueBlockSize = 0;
     }
 

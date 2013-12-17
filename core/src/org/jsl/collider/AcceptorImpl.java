@@ -162,7 +162,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             addThread( currentThread );
             try
             {
-                m_acceptor.onAcceptorStarted( m_channel.socket().getLocalPort() );
+                m_acceptor.onAcceptorStarted( m_collider, m_channel.socket().getLocalPort() );
                 m_collider.executeInSelectorThread( m_starter3 );
             }
             finally

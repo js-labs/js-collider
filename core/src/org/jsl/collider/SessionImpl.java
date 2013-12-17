@@ -30,8 +30,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
-public class SessionImpl extends ThreadPool.Runnable
-        implements Session, ColliderImpl.ChannelHandler, SocketChannelReader.StateListener
+public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
     private static final Node CLOSE_MARKER  = new Node();
@@ -55,10 +54,9 @@ public class SessionImpl extends ThreadPool.Runnable
 
     private Node m_head;
     private final AtomicReference<Node> m_tail;
-    private final ByteBuffer [] m_iov;
-    private int m_iovc;
 
     private SocketChannelReader m_socketChannelReader;
+    private ThreadPool.Runnable m_writer;
 
     private static class DummyListener implements Listener
     {
@@ -102,8 +100,8 @@ public class SessionImpl extends ThreadPool.Runnable
     private static class Node
     {
         public volatile Node next;
-        public final ByteBuffer buf;
-        public final CachedByteBuffer cachedBuf;
+        public ByteBuffer buf;
+        public CachedByteBuffer cachedBuf;
 
         public Node()
         {
@@ -121,6 +119,253 @@ public class SessionImpl extends ThreadPool.Runnable
         {
             this.buf = buf;
             this.cachedBuf = cachedBuf;
+        }
+    }
+
+    private class SocketWriter extends ThreadPool.Runnable
+    {
+        private final ByteBuffer [] m_iov;
+        private int m_iovc;
+
+        public SocketWriter()
+        {
+            m_iov = new ByteBuffer[32];
+        }
+
+        public void runInThreadPool()
+        {
+            Node node = m_head;
+            int idx = 0;
+            for (; idx<m_iovc; idx++)
+                node = node.next;
+
+            for (;;)
+            {
+                if (m_iovc == m_iov.length)
+                    break;
+                if ((node == null) || (node == CLOSE_MARKER))
+                    break;
+                assert( m_iov[m_iovc] == null );
+                m_iov[m_iovc] = node.buf.duplicate();
+                m_iovc++;
+                node = node.next;
+            }
+
+            try
+            {
+                final long bytesSent = m_socketChannel.write( m_iov, 0, m_iovc );
+                if (bytesSent == 0)
+                {
+                    m_collider.executeInSelectorThread( m_starter );
+                    return;
+                }
+            }
+            catch (IOException ex)
+            {
+                closeAndCleanupQueue( ex );
+                releaseSocket( "SocketWriter");
+                return;
+            }
+
+            idx = 0;
+            node = m_head;
+            for (;;)
+            {
+                if (m_iov[idx].remaining() > 0)
+                {
+                    final int cc = (m_iovc - idx);
+                    int jj = 0;
+                    for (; jj<cc; jj++)
+                    {
+                        m_iov[jj] = m_iov[jj+idx];
+                        m_iov[jj+idx] = null;
+                    }
+                    m_iovc = cc;
+                    m_head = node;
+                    m_collider.executeInThreadPool( m_writer );
+                    return;
+                }
+
+                node.buf = null;
+                if (node.cachedBuf != null)
+                {
+                    node.cachedBuf.release();
+                    node.cachedBuf = null;
+                }
+
+                m_iov[idx] = null;
+                if  (++idx == m_iovc)
+                    break;
+
+                Node next = node.next;
+                node.next = null;
+                node = next;
+            }
+
+            m_iovc = 0;
+            removeNode( node );
+        }
+    }
+
+    private class ShMemWriter extends ThreadPool.Runnable
+    {
+        private final ShMem.ChannelOut m_shm;
+        private final int m_batchMaxSize;
+        private final ByteBuffer m_buf;
+
+        public ShMemWriter( ShMem.ChannelOut shm, int batchMaxSize )
+        {
+            m_shm = shm;
+            m_batchMaxSize = batchMaxSize;
+            m_buf = ByteBuffer.allocateDirect( 64 ); // Do not really need too much.
+        }
+
+        public void runInThreadPool()
+        {
+            /* m_buf can contain some data was not sent last time. */
+            final int capacity = m_buf.capacity();
+            final int pos = m_buf.position();
+            Node node = m_head;
+
+            if ((node == null) || (node == CLOSE_MARKER))
+            {
+                assert( pos > 0 );
+                m_buf.flip();
+                try
+                {
+                    m_socketChannel.write( m_buf );
+                }
+                catch (IOException ex)
+                {
+                    closeAndCleanupQueue( ex );
+                    releaseSocket( "ShMemWriter1" );
+                    return;
+                }
+            }
+            else if ((pos+4) <= capacity)
+            {
+                boolean breakLoop = false;
+                int bytesSent = 0;
+                int msgs;
+
+                if (pos > 0)
+                {
+                    /* Last time the socket buffer was overflowed,
+                     * makes no sense to rush.
+                     */
+                    msgs = Integer.MAX_VALUE;
+                }
+                else
+                {
+                    /* First message should be sent as soon as possible. */
+                    msgs = 1;
+                }
+
+                for (;;)
+                {
+                    int bytesReady = 0;
+                    for (int idx=msgs;;)
+                    {
+                        final int length = m_shm.addData( node.buf.duplicate() );
+                        if (length < 0)
+                        {
+                            /* There is only one reason:
+                             * we failed to map block of the shared memory file.
+                             * Unfortunately no other option, only close a connection.
+                             */
+                            m_head = node;
+                            closeAndCleanupQueue( null );
+                            m_socketChannelReader.stop();
+                            releaseSocket( "ShMemWriter2" );
+                            return;
+                        }
+
+                        if (node.cachedBuf != null)
+                            node.cachedBuf.release();
+
+                        bytesReady += length;
+                        bytesSent += length;
+
+                        if (--idx == 0)
+                            break;
+
+                        if (bytesSent >= m_batchMaxSize)
+                        {
+                            breakLoop = true;
+                            break;
+                        }
+
+                        Node next = node.next;
+                        if ((next == null) || (next == CLOSE_MARKER))
+                        {
+                            breakLoop = true;
+                            break;
+                        }
+                        node.next = null;
+                        node = next;
+                    }
+
+                    //System.out.println( "bytesReady=" + bytesReady );
+                    m_buf.putInt( bytesReady );
+                    m_buf.flip();
+
+                    try
+                    {
+                        m_socketChannel.write( m_buf );
+                    }
+                    catch (IOException ex)
+                    {
+                        closeAndCleanupQueue( ex );
+                        releaseSocket( "ShMemWriter3" );
+                        return;
+                    }
+
+                    if ((m_buf.remaining() > 0) || breakLoop)
+                        break;
+
+                    m_buf.clear();
+                    msgs *= 2;
+                }
+            }
+
+            if (m_buf.remaining() > 0)
+            {
+                /* Socket send buffer overflowed.
+                 * One important thing: we can not remove the latest node
+                 * to avoid scheduling the session for writing again.
+                 */
+                ByteBuffer dup = m_buf.duplicate();
+                m_buf.clear();
+                m_buf.put( dup );
+
+                if (node != null)
+                {
+                    Node next = node.next;
+                    if (next == null)
+                    {
+                        m_head = null;
+                        if (!m_tail.compareAndSet(node, null))
+                        {
+                            while (node.next == null);
+                            m_head = node.next;
+                            node.next = null;
+                        }
+                    }
+                    else
+                    {
+                        node.next = null;
+                        m_head = next;
+                    }
+                }
+
+                m_collider.executeInSelectorThread( m_starter );
+            }
+            else
+            {
+                m_buf.clear();
+                if (node != null)
+                    removeNode( node );
+            }
         }
     }
 
@@ -144,8 +389,6 @@ public class SessionImpl extends ThreadPool.Runnable
         ret += "RC=" + sockRC + "]";
         return ret;
     }
-
-    /* SocketChannelReader.StateListener interface implementation */
 
     public void handleReaderStopped()
     {
@@ -192,11 +435,6 @@ public class SessionImpl extends ThreadPool.Runnable
         }
     }
 
-    public String getPeerInfo()
-    {
-        return m_remoteSocketAddress.toString();
-    }
-
     public SessionImpl(
                 ColliderImpl collider,
                 SocketChannel socketChannel,
@@ -212,8 +450,7 @@ public class SessionImpl extends ThreadPool.Runnable
         m_state = new AtomicInteger( ST_STARTING + SOCK_RC + SOCK_RC );
         m_head = null;
         m_tail = new AtomicReference<Node>();
-        m_iov = new ByteBuffer[32];
-        m_iovc = 0;
+        m_writer = new SocketWriter();
 
         m_selectionKey.attach( this );
     }
@@ -228,11 +465,11 @@ public class SessionImpl extends ThreadPool.Runnable
 
         m_socketChannelReader = new SocketChannelReader(
                 m_collider,
+                this,
                 inputQueueMaxSize,
                 inputQueueDataBlockCache,
                 m_socketChannel,
                 m_selectionKey,
-                this,
                 listener );
 
         int state = m_state.get();
@@ -293,7 +530,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 if (tail == null)
                 {
                     m_head = node;
-                    m_collider.executeInThreadPool( this );
+                    m_collider.executeInThreadPool( m_writer );
                 }
                 else
                     tail.next = node;
@@ -317,7 +554,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 if (tail == null)
                 {
                     m_head = node;
-                    m_collider.executeInThreadPool( this );
+                    m_collider.executeInThreadPool( m_writer );
                 }
                 else
                     tail.next = node;
@@ -356,7 +593,8 @@ public class SessionImpl extends ThreadPool.Runnable
         }
         catch (IOException ex)
         {
-            handleWriteException( ex );
+            closeAndCleanupQueue( ex );
+            releaseSocket( "sendDataSync()" );
             return -1;
         }
 
@@ -395,6 +633,65 @@ public class SessionImpl extends ThreadPool.Runnable
         return 0;
     }
 
+    public int accelerate( ShMem shMem, ByteBuffer message )
+    {
+        final Node node = new Node();
+        Node tail;
+        for (;;)
+        {
+            tail = m_tail.get();
+            if (tail == CLOSE_MARKER)
+            {
+                /* Session already closed, can happen. */
+                shMem.close();
+                return -1;
+            }
+
+            /* Session.accelerate() is not supposed to be used
+             * while some other thread send data.
+             */
+            assert( tail == null );
+            if (m_tail.compareAndSet(tail, node))
+            {
+                m_head = node;
+                break;
+            }
+        }
+
+        if ((message != null) && (message.remaining() > 0))
+        {
+            /* Asynchronous reply send implementation would be a pain,
+             * let's do it synchronously, not a big problem.
+             */
+            try
+            {
+                for (;;)
+                {
+                    m_socketChannel.write( message );
+                    if (message.remaining() == 0)
+                        break;
+                }
+            }
+            catch (IOException ex)
+            {
+                closeAndCleanupQueue( ex );
+                releaseSocket( "accelerate" );
+                return -1;
+            }
+        }
+
+        m_socketChannelReader.accelerate( shMem.getIn() );
+        m_writer = new ShMemWriter( shMem.getOut(), 128*1024 );
+
+        removeNode( node );
+        return 0;
+    }
+
+    public Listener replaceListener( Listener newListener )
+    {
+        return m_socketChannelReader.replaceListener( newListener );
+    }
+
     public void handleReadyOps( ThreadPool threadPool )
     {
         final int readyOps = m_selectionKey.readyOps();
@@ -404,83 +701,14 @@ public class SessionImpl extends ThreadPool.Runnable
             threadPool.execute( m_socketChannelReader );
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
-            threadPool.execute( this );
+            threadPool.execute( m_writer );
     }
 
-    public void runInThreadPool()
-    {
-        Node node = m_head;
-        int idx = 0;
-        for (; idx<m_iovc; idx++)
-            node = node.next;
-
-        for (;;)
-        {
-            if (m_iovc == m_iov.length)
-                break;
-            if ((node == null) || (node == CLOSE_MARKER))
-                break;
-            assert( m_iov[m_iovc] == null );
-            m_iov[m_iovc] = node.buf.duplicate();
-            m_iovc++;
-            node = node.next;
-        }
-
-        try
-        {
-            final long bytesSent = m_socketChannel.write( m_iov, 0, m_iovc );
-            if (bytesSent == 0)
-            {
-                m_collider.executeInSelectorThread( m_starter );
-                return;
-            }
-        }
-        catch (IOException ex)
-        {
-            handleWriteException( ex );
-            return;
-        }
-
-        idx = 0;
-        node = m_head;
-        for (;;)
-        {
-            if (m_iov[idx].remaining() > 0)
-            {
-                final int cc = (m_iovc - idx);
-                int jj = 0;
-                for (; jj<cc; jj++)
-                {
-                    m_iov[jj] = m_iov[jj+idx];
-                    m_iov[jj+idx] = null;
-                }
-                m_iovc = cc;
-                m_head = node;
-                m_collider.executeInThreadPool( this );
-                return;
-            }
-
-            if (node.cachedBuf != null)
-                node.cachedBuf.release();
-
-            m_iov[idx] = null;
-            if  (++idx == m_iovc)
-                break;
-
-            Node next = node.next;
-            node.next = null;
-            node = next;
-        }
-
-        m_iovc = 0;
-        removeNode( node );
-    }
-
-    private void handleWriteException( final IOException ex )
+    private void closeAndCleanupQueue( final Exception ex )
     {
         /* Session can be already closed, but can be not.
          * Let's clean up and close output queue,
-         * input queue will be closed soon as well.
+         * socket channel reader queue will be closed soon as well.
          */
         for (;;)
         {
@@ -501,12 +729,18 @@ public class SessionImpl extends ThreadPool.Runnable
         while (node != CLOSE_MARKER)
         {
             Node next = node.next;
+            if (node.cachedBuf != null)
+                node.cachedBuf.release();
             node.next = null;
             node = next;
         }
         m_head = node;
 
-        releaseSocket( ex.toString() );
+        if (ex != null)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
+        }
     }
 
     private void releaseSocket( final String hint )
@@ -546,7 +780,7 @@ public class SessionImpl extends ThreadPool.Runnable
                 if (m_head == CLOSE_MARKER)
                     releaseSocket( "removeNode(CAS failed)" );
                 else
-                    m_collider.executeInThreadPool( this );
+                    m_collider.executeInThreadPool( m_writer );
             }
         }
         else
@@ -554,9 +788,9 @@ public class SessionImpl extends ThreadPool.Runnable
             node.next = null;
             m_head = next;
             if (m_head == CLOSE_MARKER)
-                releaseSocket( "removeNode" );
+                releaseSocket( "removeNode()" );
             else
-                m_collider.executeInThreadPool( this );
+                m_collider.executeInThreadPool( m_writer );
         }
     }
 }

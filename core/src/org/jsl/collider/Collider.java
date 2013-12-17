@@ -23,7 +23,7 @@ import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/* Collider public API interface. */
+/* Collider public API. */
 
 public abstract class Collider
 {
@@ -34,7 +34,7 @@ public abstract class Collider
 
         public int socketSendBufSize;
         public int socketRecvBufSize;
-        public int inputQueueMaxSize;
+        public int forwardReadMaxSize;
         public int inputQueueBlockSize;
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
@@ -47,7 +47,7 @@ public abstract class Collider
             socketSendBufSize = 0; /* Use system default settings by default */
             socketRecvBufSize = 0; /* Use system default settings by default */
 
-            inputQueueMaxSize           = (256 * 1024);
+            forwardReadMaxSize          = (256 * 1024);
             inputQueueBlockSize         = (32 * 1024);
             inputQueueCacheInitialSize  = 64;
             inputQueueCacheMaxSize      = 128;
@@ -67,12 +67,20 @@ public abstract class Collider
         return m_config;
     }
 
-    /* Method to be called to run the collider instance.
+    /**
+     * Starts the collider.
      * Do not return the control back while collider is not stopped.
      */
     public abstract void run();
 
-    /* Stops the running collider.
+    /**
+     * Stops the running collider.
+     * The call is asynchronous, on return collider can still run some time.
+     * All currently registered acceptors and connectors will be removed.
+     * After that all established sessions will be closed
+     * (Session.Listener.onConnectionClose() will be called for each).
+     * Only after that collider run loop stops and the thread running
+     * Collider.run() function gets control back.
      */
     public abstract void stop();
 

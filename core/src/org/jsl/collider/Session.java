@@ -39,8 +39,8 @@ public interface Session
         public abstract void onDataReceived( ByteBuffer data );
 
         /**
-         * Called by framework when underlying socket is closed
-         * and all income data is processed.
+         * Called by framework when underlying socket channel
+         * is closed and all income data is processed.
          */
         public abstract void onConnectionClosed();
     }
@@ -64,7 +64,7 @@ public interface Session
      * Sends data to the underlying socket channel. In most cases data will be written
      * asynchronously, but sometimes not. Retains the data buffer if it going to be sent
      * asynchronously.
-     * @return  0 - data written to the socket or internal memory, byte buffer can be reused
+     * @return  0 - data written to the socket channel, byte buffer can be reused
      *         >0 - byte buffer is retained by the framework, will be send as soon as possible
      *         -1 - the session is closed
      */
@@ -72,10 +72,10 @@ public interface Session
     public int sendData( CachedByteBuffer data );
 
     /**
-     * Method tries to writes data to the session underlying socket channel
+     * Method tries to write data to the session underlying socket channel
      * if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
      * Otherwise data will sent as <em>sendData</em> would be called.
-     * @return  0 - data written to socket or internal memory, byte buffer can be reused
+     * @return  0 - data written to socket, byte buffer can be reused
      *         >0 - byte buffer is retained by the framework, will be send as soon as possible
      *         -1 - the session is closed
      */
@@ -94,4 +94,8 @@ public interface Session
      *         <0 - session already closed and has no data to be sent
      */
     public int closeConnection();
+
+    public int accelerate( ShMem shMem, ByteBuffer message );
+
+    public Listener replaceListener( Listener listener );
 }

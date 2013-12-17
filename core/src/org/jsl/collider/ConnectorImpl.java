@@ -159,7 +159,7 @@ public class ConnectorImpl extends SessionEmitterImpl
             {
                 Session.Listener sessionListener = m_connector.createSessionListener( sessionImpl );
                 sessionImpl.initialize(
-                        m_connector.inputQueueMaxSize,
+                        m_connector.forwardReadMaxSize,
                         m_inputQueueDataBlockCache,
                         sessionListener );
             }
