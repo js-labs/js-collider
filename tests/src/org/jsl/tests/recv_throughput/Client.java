@@ -22,14 +22,14 @@ package org.jsl.tests.recv_throughput;
 import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 
 public class Client
 {
-    private InetAddress m_addr;
-    private int m_portNumber;
+    private InetSocketAddress m_addr;
     private final int m_messages;
     private final int m_messageLength;
     private final byte [] m_messageBlock;
@@ -41,7 +41,7 @@ public class Client
         {
             try
             {
-                Socket socket = new Socket( "localhost", m_portNumber );
+                Socket socket = new Socket( m_addr.getAddress(), m_addr.getPort() );
                 socket.setTcpNoDelay( true );
 
                 System.out.println( "Client socket connected " + socket.getRemoteSocketAddress() + "." );
@@ -105,10 +105,9 @@ public class Client
             m_threads[idx] = new SessionThread();
     }
 
-    public void start( InetAddress addr, int portNumber )
+    public void start( InetSocketAddress addr )
     {
         m_addr = addr;
-        m_portNumber = portNumber;
         for (Thread thread : m_threads)
             thread.start();
     }
@@ -138,13 +137,14 @@ public class Client
 
         try
         {
-            InetAddress addr = InetAddress.getByName( args[0] );
+            final InetAddress inetAddr = InetAddress.getByName( args[0] );
             int portNumber = Integer.parseInt( args[1] );
             int sessions = Integer.parseInt( args[2] );
             int messages = Integer.parseInt( args[3] );
             int messageLength = Integer.parseInt( args[4] );
 
-            new Client(sessions, messages, messageLength).start( addr, portNumber );
+            final InetSocketAddress addr = new InetSocketAddress( inetAddr, portNumber );
+            new Client(sessions, messages, messageLength).start( addr );
         }
         catch (UnknownHostException ex)
         {

@@ -85,11 +85,10 @@ public class Server
                 double tm = (endTime - m_startTime) / 1000;
                 tm /= 1000000.0;
                 tm = (m_messagesReceived / tm);
-                System.out.println( m_session.getRemoteAddress() + ": " +
+                System.out.println( m_session.getRemoteAddress() + ": received " +
                         m_messagesReceived + " messages (" +
-                        m_bytesTotal + " bytes) received at " +
-                        Util.formatDelay(m_startTime, endTime) + " sec (" +
-                        (int)tm + " msgs/sec), " + m_callbacks + " callbacks." );
+                        m_bytesTotal + " bytes) at " + Util.formatDelay(m_startTime, endTime) +
+                        " sec (" + (int)tm + " msgs/sec), " + m_callbacks + " callbacks." );
             }
         }
 
@@ -106,26 +105,16 @@ public class Server
     {
         public TestAcceptor()
         {
-            super( new InetSocketAddress(0) );
             tcpNoDelay = true;
             socketRecvBufSize = m_socketRecvBufSize;
         }
 
-        public void onAcceptorStarted( int localPort )
+        public void onAcceptorStarted( Collider collider, int portNumber )
         {
-            System.out.println( "Server started at port " + localPort );
+            System.out.println( "Server started at port " + portNumber );
             if (m_client != null)
             {
-                try
-                {
-                    final byte byteAddr[] = { 127, 0, 0, 1 };
-                    InetAddress addr = InetAddress.getByAddress( byteAddr );
-                    m_client.start( InetAddress.getByAddress(byteAddr), localPort );
-                }
-                catch (UnknownHostException ex)
-                {
-                    ex.printStackTrace();
-                }
+                m_client.start( new InetSocketAddress(InetAddress.getLoopbackAddress(), portNumber) );
             }
         }
 
@@ -135,10 +124,10 @@ public class Server
         }
     }
 
-    public Server( Client client, int socketRecvBufeSize )
+    public Server( Client client, int socketRecvBufSize )
     {
         m_client = client;
-        m_socketRecvBufSize = socketRecvBufeSize;
+        m_socketRecvBufSize = socketRecvBufSize;
         m_sessionsDone = new AtomicInteger(0);
     }
 
