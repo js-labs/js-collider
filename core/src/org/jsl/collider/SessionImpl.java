@@ -222,15 +222,117 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
         public void runInThreadPool()
         {
-            /* m_buf can contain some data was not sent last time. */
-            final int capacity = m_buf.capacity();
+            /* m_buf can contain some data was not sent last time,
+             * m_head should never be null.
+             */
+            assert( m_head != null );
+
             final int pos = m_buf.position();
             Node node = m_head;
+            int msgs;
 
-            if ((node == null) || (node == CLOSE_MARKER))
+            if (pos == 0)
             {
-                assert( pos > 0 );
+                /* First message should be sent as soon as possible. */
+                msgs = 1;
+            }
+            else
+            {
+                /* At last write the socket buffer overflowed, makes no sense to rush. */
+                msgs = Integer.MAX_VALUE;
+
+                if (node.buf == null)
+                {
+                    final Node next = node.next;
+                    if ((next == null) || (next == CLOSE_MARKER))
+                    {
+                        try
+                        {
+                            m_socketChannel.write( m_buf );
+                        }
+                        catch (IOException ex)
+                        {
+                            closeAndCleanupQueue( ex );
+                            releaseSocket( "ShMemWriter1" );
+                        }
+
+                        if (m_buf.remaining() > 0)
+                        {
+                            /* Probably can happen. */
+                            m_collider.executeInSelectorThread( m_starter );
+                        }
+                        else
+                        {
+                            if (next == CLOSE_MARKER)
+                            {
+                                node.next = null;
+                                m_head = next;
+                                releaseSocket( "ShMemWriter3" );
+                            }
+                        }
+                        return;
+                    }
+
+                    node.next = null;
+                    node = next;
+                }
+            }
+
+            boolean breakLoop = false;
+            int bytesSent = 0;
+
+            for (;;)
+            {
+                int bytesReady = 0;
+                for (int idx=msgs;;)
+                {
+                    final int length = m_shm.addData( node.buf.duplicate() );
+                    if (length < 0)
+                    {
+                        /* Only one possible reason:
+                         * we failed to map block of the shared memory file.
+                         * Unfortunately no chance to recover, close a connection.
+                         */
+                        m_head = node;
+                        closeAndCleanupQueue( null );
+                        m_socketChannelReader.stop();
+                        releaseSocket( "ShMemWriter4" );
+                        return;
+                    }
+
+                    node.buf = null;
+                    if (node.cachedBuf != null)
+                    {
+                        node.cachedBuf.release();
+                        node.cachedBuf = null;
+                    }
+
+                    bytesReady += length;
+                    bytesSent += length;
+
+                    if (--idx == 0)
+                        break;
+
+                    if (bytesSent >= m_batchMaxSize)
+                    {
+                        breakLoop = true;
+                        break;
+                    }
+
+                    final Node next = node.next;
+                    if ((next == null) || (next == CLOSE_MARKER))
+                    {
+                        breakLoop = true;
+                        break;
+                    }
+
+                    node.next = null;
+                    node = next;
+                }
+
+                m_buf.putInt( bytesReady );
                 m_buf.flip();
+
                 try
                 {
                     m_socketChannel.write( m_buf );
@@ -238,124 +340,41 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 catch (IOException ex)
                 {
                     closeAndCleanupQueue( ex );
-                    releaseSocket( "ShMemWriter1" );
+                    releaseSocket( "ShMemWriter5" );
                     return;
                 }
-            }
-            else if ((pos+4) <= capacity)
-            {
-                boolean breakLoop = false;
-                int bytesSent = 0;
-                int msgs;
 
-                if (pos > 0)
-                {
-                    /* Last time the socket buffer was overflowed,
-                     * makes no sense to rush.
-                     */
-                    msgs = Integer.MAX_VALUE;
-                }
-                else
-                {
-                    /* First message should be sent as soon as possible. */
-                    msgs = 1;
-                }
+                if ((m_buf.remaining() > 0) || breakLoop)
+                    break;
 
-                for (;;)
-                {
-                    int bytesReady = 0;
-                    for (int idx=msgs;;)
-                    {
-                        final int length = m_shm.addData( node.buf.duplicate() );
-                        if (length < 0)
-                        {
-                            /* There is only one reason:
-                             * we failed to map block of the shared memory file.
-                             * Unfortunately no other option, only close a connection.
-                             */
-                            m_head = node;
-                            closeAndCleanupQueue( null );
-                            m_socketChannelReader.stop();
-                            releaseSocket( "ShMemWriter2" );
-                            return;
-                        }
+                final Node next = node.next;
+                node.next = null;
+                node = next;
 
-                        if (node.cachedBuf != null)
-                            node.cachedBuf.release();
-
-                        bytesReady += length;
-                        bytesSent += length;
-
-                        if (--idx == 0)
-                            break;
-
-                        if (bytesSent >= m_batchMaxSize)
-                        {
-                            breakLoop = true;
-                            break;
-                        }
-
-                        Node next = node.next;
-                        if ((next == null) || (next == CLOSE_MARKER))
-                        {
-                            breakLoop = true;
-                            break;
-                        }
-                        node.next = null;
-                        node = next;
-                    }
-
-                    //System.out.println( "bytesReady=" + bytesReady );
-                    m_buf.putInt( bytesReady );
-                    m_buf.flip();
-
-                    try
-                    {
-                        m_socketChannel.write( m_buf );
-                    }
-                    catch (IOException ex)
-                    {
-                        closeAndCleanupQueue( ex );
-                        releaseSocket( "ShMemWriter3" );
-                        return;
-                    }
-
-                    if ((m_buf.remaining() > 0) || breakLoop)
-                        break;
-
-                    m_buf.clear();
-                    msgs *= 2;
-                }
+                m_buf.clear();
+                msgs *= 2;
             }
 
             if (m_buf.remaining() > 0)
             {
-                /* Socket send buffer overflowed.
-                 * One important thing: we can not remove the latest node
-                 * to avoid scheduling the session for writing again.
-                 */
+                /* Socket send buffer overflowed. */
+                if (s_logger.isLoggable(Level.FINER))
+                    s_logger.finer( m_remoteSocketAddress + ": m_buf.remaining()=" + m_buf.remaining() + "." );
+
                 ByteBuffer dup = m_buf.duplicate();
                 m_buf.clear();
                 m_buf.put( dup );
 
-                if (node != null)
+                /* Important: we can not remove the latest node
+                 * to avoid scheduling the session for writing again.
+                 */
+                final Node next = node.next;
+                if (next == null)
+                    m_head = node;
+                else
                 {
-                    Node next = node.next;
-                    if (next == null)
-                    {
-                        m_head = null;
-                        if (!m_tail.compareAndSet(node, null))
-                        {
-                            while (node.next == null);
-                            m_head = node.next;
-                            node.next = null;
-                        }
-                    }
-                    else
-                    {
-                        node.next = null;
-                        m_head = next;
-                    }
+                    node.next = null;
+                    m_head = next;
                 }
 
                 m_collider.executeInSelectorThread( m_starter );
@@ -363,8 +382,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             else
             {
                 m_buf.clear();
-                if (node != null)
-                    removeNode( node );
+                removeNode( node );
             }
         }
     }
@@ -658,7 +676,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             }
         }
 
-        if ((message != null) && (message.remaining() > 0))
+        final int messageSize = ((message == null) ? 0 : message.remaining());
+        if (messageSize > 0)
         {
             /* Asynchronous reply send implementation would be a pain,
              * let's do it synchronously, not a big problem.
@@ -685,8 +704,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
         if (s_logger.isLoggable(Level.FINE))
         {
-            s_logger.fine(
-                    m_remoteSocketAddress + ": switched to ShMem IPC (" + shMem + ")" );
+            /* Use a local address for client and peer address for server. */
+            final String prefix = (messageSize == 0) ?
+                    (m_localSocketAddress + "[C]") : (m_remoteSocketAddress + "[S]");
+            s_logger.fine( prefix + ": switched to ShMem IPC (" + shMem + ")" );
         }
 
         removeNode( node );
@@ -774,7 +795,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     private void removeNode( Node node )
     {
-        Node next = node.next;
+        final Node next = node.next;
         if (next == null)
         {
             m_head = null;
