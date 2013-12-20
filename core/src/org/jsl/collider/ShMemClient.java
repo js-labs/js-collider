@@ -62,11 +62,6 @@ public class ShMemClient extends ShMem
         this( fileHint, blockSize, null );
     }
 
-    public ShMemClient( String fileHint ) throws IOException
-    {
-        this( fileHint, 1024*64, null );
-    }
-
     public int getDescriptorLength()
     {
         /* Shared memory session descriptor structure:
