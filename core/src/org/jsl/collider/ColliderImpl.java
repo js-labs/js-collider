@@ -228,7 +228,6 @@ public class ColliderImpl extends Collider
 
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
-    private final DummyRunnable m_dummyRunnable;
     private int m_state;
 
     private final ReentrantLock m_lock;
@@ -256,7 +255,6 @@ public class ColliderImpl extends Collider
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
 
-        m_dummyRunnable = new DummyRunnable();
         m_state = ST_RUNNING;
 
         m_lock = new ReentrantLock();
@@ -275,6 +273,7 @@ public class ColliderImpl extends Collider
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "starting." );
 
+        final DummyRunnable dummyRunnable = new DummyRunnable();
         m_threadPool.start();
 
         for (;;)
@@ -298,11 +297,11 @@ public class ColliderImpl extends Collider
             }
 
             SelectorThreadRunnable strHead;
-            assert( m_dummyRunnable.nextSelectorThreadRunnable == null );
-            if (m_strTail.compareAndSet(null, m_dummyRunnable))
+            assert( dummyRunnable.nextSelectorThreadRunnable == null );
+            if (m_strTail.compareAndSet(null, dummyRunnable))
             {
                 assert( m_strHead == null );
-                strHead = m_dummyRunnable;
+                strHead = dummyRunnable;
             }
             else
             {
