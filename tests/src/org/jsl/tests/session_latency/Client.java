@@ -19,56 +19,65 @@
 
 package org.jsl.tests.session_latency;
 
+import org.jsl.collider.StatCounter;
 import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 
 public class Client
 {
-    private InetAddress m_addr;
-    private int m_portNumber;
-    private int m_messages;
-    private byte [] m_message;
+    private InetSocketAddress m_addr;
     private Thread [] m_threads;
 
-    private class SessionThread extends Thread
+    private class ClientThread extends Thread
     {
         public void run()
         {
             try
             {
-                byte [] bb = new byte[m_message.length];
-                Socket socket = new Socket( m_addr, m_portNumber );
-                System.out.println( "Client socket connected " + socket.getRemoteSocketAddress() + "." );
-                socket.setTcpNoDelay( true );
+                SocketChannel socketChannel = SocketChannel.open( m_addr );
+                socketChannel.socket().setTcpNoDelay( true );
+                System.out.println( "Client connected " + socketChannel.getLocalAddress() + "." );
 
-                for (int idx=0; idx<10; idx++)
+                final StatCounter statCounter = new StatCounter( socketChannel.getLocalAddress() + " latency" );
+                final ByteBuffer bb = ByteBuffer.allocateDirect( 1024*16 );
+                int bytesReceived = socketChannel.read( bb );
+                long recvTime = System.nanoTime();
+                int messages = 1;
+                bb.flip();
+                int messageLength = bb.getInt(0);
+                assert( bytesReceived == messageLength );
+
+                for (;;)
                 {
-                    socket.getOutputStream().write(m_message);
-                    int rc = socket.getInputStream().read( bb );
-                    if (rc != bb.length)
-                        throw new IOException("Invalid message received.");
-                }
+                    final long sendTime = bb.getLong(4);
+                    if ((sendTime > 0) && (messages > 5))
+                        statCounter.trace( (recvTime - sendTime) / 1000 );
 
-                long startTime = System.nanoTime();
-                for (int c=m_messages; c>0; c--)
-                {
-                    socket.getOutputStream().write( m_message );
-                    int rc = socket.getInputStream().read( bb );
-                    if (rc != bb.length)
-                        throw new IOException("Invalid message received.");
-                }
-                long endTime = System.nanoTime();
-                socket.close();
+                    bb.putLong( 4, System.nanoTime() );
+                    final int bytesSent = socketChannel.write( bb );
+                    assert( bytesSent == messageLength );
 
-                int messages = (m_messages * 2);
-                long tm = ((endTime - startTime) / 1000);
-                System.out.println( messages + " messages exchanged at " +
-                                    Util.formatDelay(startTime, endTime) + " sec (" +
-                                    (tm / messages) + " usec/msg)" );
+                    bb.clear();
+                    bytesReceived = socketChannel.read( bb );
+                    recvTime = System.nanoTime();
+                    messages++;
+
+                    if (bytesReceived == 4)
+                        break;
+
+                    bb.flip();
+                    messageLength = bb.getInt(0);
+                    assert( messageLength == bytesReceived );
+                }
+                socketChannel.close();
+
+                System.out.println( statCounter.getStats() );
             }
             catch (IOException ex)
             {
@@ -77,26 +86,16 @@ public class Client
         }
     }
 
-    public Client( int sessions, int messages, int messageLength )
+    public Client( int sessions )
     {
-        m_messages = messages;
-        m_message = new byte[messageLength];
-        ByteBuffer byteBuffer = ByteBuffer.wrap( m_message );
-        byteBuffer.putInt( messageLength );
-        byteBuffer.putInt( sessions );
-
-        for (int i=0; i<messageLength-8; i++)
-            byteBuffer.put( (byte) i );
-
         m_threads = new Thread[sessions];
         for (int idx=0; idx<sessions; idx++)
-            m_threads[idx] = new SessionThread();
+            m_threads[idx] = new ClientThread();
     }
 
-    public void start( InetAddress addr, int portNumber )
+    public void start( InetSocketAddress addr )
     {
         m_addr = addr;
-        m_portNumber = portNumber;
         for (Thread thread : m_threads)
             thread.start();
     }
@@ -113,30 +112,6 @@ public class Client
             {
                 ex.printStackTrace();
             }
-        }
-    }
-
-    public static void main( String [] args )
-    {
-        if (args.length != 5)
-        {
-            System.out.println( "Usage: <server_addr> <server_port> <sessions> <messages> <message_length>" );
-            return;
-        }
-
-        try
-        {
-            InetAddress addr = InetAddress.getByName( args[0] );
-            int portNumber = Integer.parseInt( args[1] );
-            int sessions = Integer.parseInt( args[2] );
-            int messages = Integer.parseInt( args[3] );
-            int messageLength = Integer.parseInt( args[4] );
-
-            new Client(sessions, messages, messageLength).start( addr, portNumber );
-        }
-        catch (UnknownHostException ex)
-        {
-            ex.printStackTrace();
         }
     }
 }

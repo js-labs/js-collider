@@ -23,9 +23,9 @@ public class Main
 {
     public static void main( String args[] )
     {
-        int sessions = 1;
+        int sessions = 2;
         int messages = 50;
-        int messageLength = 250;
+        int messageLength = 500;
 
         if (args.length > 0)
             sessions = Integer.parseInt( args[0] );
@@ -42,7 +42,7 @@ public class Main
                 messages + " messages, " +
                 messageLength + " bytes/message." );
 
-        Client client = new Client( sessions, messages, messageLength );
-        new Server(client).run();
+        Client client = new Client( sessions );
+        new Server(sessions, messages, messageLength, client).run();
     }
 }
