@@ -30,6 +30,7 @@
                     <pathelement location="${OUT_DIR}/tests"/>
                 </classpath>
                 <jvmarg value="-ea"/>
+                <jvmarg value="-server"/>
                 <!--<jvmarg value="-Djava.util.logging.config.file=tests\logging.config"/>-->
             </java>
         </sequential>
@@ -100,12 +101,20 @@
         <run-test name="echo_throughput"/>
     </target>
 
+    <target name="test.echo_latency" depends="compile_tests">
+        <run-test name="echo_latency"/>
+    </target>
+
     <target name="test.queue_socket_send" depends="compile_tests">
         <run-test name="queue_socket_send"/>
     </target>
 
-    <target name="test.acceptor_perf" depends="compile_tests">
-        <run-test name="acceptor_perf"/>
-    </target>
+    <target name="tests"
+            depends="test.buffer_overlap_copy,
+                     test.sched_latency,
+                     test.thread_pool,
+                     test.thread_pool_throughput,
+                     test.echo_latency,
+                     test.session_latency"/>
 
 </project>
