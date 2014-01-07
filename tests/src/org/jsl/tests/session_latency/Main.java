@@ -24,7 +24,7 @@ public class Main
     public static void main( String args[] )
     {
         int sessions = 2;
-        int messages = 50;
+        int messages = 100;
         int messageLength = 500;
 
         if (args.length > 0)
