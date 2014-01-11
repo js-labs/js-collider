@@ -6,7 +6,6 @@ import org.jsl.collider.Session;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -49,7 +48,7 @@ public class Server
         public void onConnectionClosed()
         {
             System.out.println(
-                    m_session.getRemoteAddress() + ": connection closed (" + m_messages + ")." );
+                    m_session.getRemoteAddress() + ": connection closed (" + m_messages + " messages)." );
             int sessionsDone = m_sessionsDone.incrementAndGet();
             if (sessionsDone == m_sessionsTotal)
                 m_session.getCollider().stop();
@@ -66,7 +65,7 @@ public class Server
 
         public void onAcceptorStarted( Collider collider, int localPort )
         {
-            System.out.println( "Echo latency test server started at port " + localPort );
+            System.out.println( "Echo latency server started at port " + localPort );
             if (m_client != null)
                 m_client.start( new InetSocketAddress(InetAddress.getLoopbackAddress(), localPort) );
         }
