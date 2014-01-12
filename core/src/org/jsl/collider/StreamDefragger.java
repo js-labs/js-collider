@@ -30,7 +30,8 @@ import java.nio.ByteBuffer;
  *
  * Derived class is supposed to implement method <tt>validateHeader</tt>
  * which is called when whole header is available for decoding and
- * should return the length of the message.
+ * should return the length of the message. ByteBuffer containing the
+ * header can has a position greater than 0.
  * Method <tt>getNext</tt> returns the next available whole message,
  * or null if no message is available.
  *
@@ -78,9 +79,9 @@ public abstract class StreamDefragger
 
     private static boolean copyData( ByteBuffer dst, ByteBuffer src, int bytes )
     {
-        int pos = src.position();
-        int limit = src.limit();
-        int available = (limit - pos);
+        final int pos = src.position();
+        final int limit = src.limit();
+        final int available = (limit - pos);
         if (available < bytes)
         {
             dst.put( src );
@@ -165,7 +166,7 @@ public abstract class StreamDefragger
         m_data.position( m_pos );
         m_data.limit( m_limit );
 
-        int bytesRemaining = (m_limit - m_pos);
+        final int bytesRemaining = (m_limit - m_pos);
         if (bytesRemaining == 0)
         {
             if (m_buf != null)
