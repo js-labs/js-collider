@@ -19,7 +19,6 @@
 
 package org.jsl.tests.session_throughput;
 
-import org.jsl.collider.StatCounter;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 import java.io.IOException;
@@ -138,10 +137,15 @@ public class Client
                         break;
                 }
 
+                final long endTime = System.nanoTime();
+
+                System.out.println(
+                        socketChannel.getLocalAddress() + ": " + m_sessions*m_messages +
+                        " messages received at " + Util.formatDelay(startTime, endTime) + " sec." );
+
                 int sessionsDone = m_sessionsDone.incrementAndGet();
                 if (sessionsDone == m_sessions)
                 {
-                    final long endTime = System.nanoTime();
                     System.out.println(
                             "Test done at " + Util.formatDelay(m_startTime.get(), endTime) + " sec." );
                 }
