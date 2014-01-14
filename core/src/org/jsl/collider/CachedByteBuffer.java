@@ -32,9 +32,9 @@ public class CachedByteBuffer
         private final int m_bufferCapacity;
         private final int m_initialSize;
 
-        public Cache( boolean useDirectBuffers, int bufferCapacity, int maxCacheSize )
+        public Cache( boolean useDirectBuffers, int bufferCapacity )
         {
-            this( useDirectBuffers, bufferCapacity, maxCacheSize, 0 );
+            this( useDirectBuffers, bufferCapacity, 1000, 100 );
         }
 
         public Cache( boolean useDirectBuffers, int bufferCapacity, int maxCacheSize, int initialSize )
@@ -57,6 +57,11 @@ public class CachedByteBuffer
             else
                 buf = ByteBuffer.allocate( m_bufferCapacity );
             return new CachedByteBuffer( this, buf );
+        }
+
+        public final int getBufferCapacity()
+        {
+            return m_bufferCapacity;
         }
 
         public final void clear( Logger logger )
@@ -127,6 +132,11 @@ public class CachedByteBuffer
     public final void position( int pos )
     {
         m_buf.position( pos );
+    }
+
+    public final void flip()
+    {
+        m_buf.flip();
     }
 
     public final void clear()
