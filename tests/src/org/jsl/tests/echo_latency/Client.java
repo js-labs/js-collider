@@ -23,7 +23,6 @@ import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -41,7 +40,8 @@ public class Client
         {
             try
             {
-                ByteBuffer bb = ByteBuffer.allocateDirect( m_msg.capacity() );
+                final ByteBuffer msg = m_msg.duplicate();
+                final ByteBuffer buf = ByteBuffer.allocateDirect( m_msg.capacity() );
                 SocketChannel socketChannel = SocketChannel.open( m_addr );
                 socketChannel.socket().setTcpNoDelay( true );
                 System.out.println( "Client socket connected " + socketChannel.getRemoteAddress() + "." );
@@ -49,21 +49,21 @@ public class Client
                 /* Warming up the server */
                 for (int idx=0; idx<10; idx++)
                 {
-                    socketChannel.write( m_msg );
-                    m_msg.flip();
-                    final int bytesReceived = socketChannel.read( bb );
+                    socketChannel.write( msg );
+                    msg.flip();
+                    final int bytesReceived = socketChannel.read( buf );
                     assert( bytesReceived == m_msg.capacity() );
-                    bb.clear();
+                    buf.clear();
                 }
 
                 final long startTime = System.nanoTime();
                 for (int c=m_messages; c>0; c--)
                 {
-                    socketChannel.write( m_msg );
-                    m_msg.flip();
-                    final int bytesReceived = socketChannel.read( bb );
+                    socketChannel.write( msg );
+                    msg.flip();
+                    final int bytesReceived = socketChannel.read( buf );
                     assert( bytesReceived == m_msg.capacity() );
-                    bb.clear();
+                    buf.clear();
                 }
                 long endTime = System.nanoTime();
                 socketChannel.close();
