@@ -23,16 +23,17 @@ import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 
 public class Client
 {
     private InetSocketAddress m_addr;
     private final int m_messages;
     private final int m_messageLength;
-    private final byte [] m_messageBlock;
+    private final int m_socketSendBufferSize;
+    private final ByteBuffer m_batch;
     private Thread [] m_threads;
 
     private class SessionThread extends Thread
@@ -41,22 +42,26 @@ public class Client
         {
             try
             {
-                Socket socket = new Socket( m_addr.getAddress(), m_addr.getPort() );
-                socket.setTcpNoDelay( true );
+                SocketChannel socketChannel = SocketChannel.open( m_addr );
+                socketChannel.socket().setTcpNoDelay( true );
+                socketChannel.socket().setSendBufferSize( m_socketSendBufferSize );
+                System.out.println( "Client connected " + socketChannel.getLocalAddress() + "." );
 
-                System.out.println( "Client socket connected " + socket.getRemoteSocketAddress() + "." );
-                int messagesRest = m_messages;
-                int blockMessages = (m_messageBlock.length / m_messageLength);
-                long startTime = System.nanoTime();
+                final int batchMessages = (m_batch.capacity() / m_messageLength);
+                final long startTime = System.nanoTime();
+                final ByteBuffer batch = m_batch.duplicate();
+                int messagesRemaining = m_messages;
 
-                while (messagesRest > blockMessages)
+                while (messagesRemaining > batchMessages)
                 {
-                    socket.getOutputStream().write( m_messageBlock );
-                    messagesRest -= blockMessages;
+                    socketChannel.write( batch );
+                    batch.position(0);
+                    messagesRemaining -= batchMessages;
                 }
-                socket.getOutputStream().write( m_messageBlock, 0, messagesRest*m_messageLength );
-                long endTime = System.nanoTime();
-                socket.close();
+                batch.limit( messagesRemaining * m_messageLength );
+                socketChannel.write( batch );
+                final long endTime = System.nanoTime();
+                socketChannel.close();
 
                 double tm = ((endTime - startTime) / 1000);
                 tm /= 1000000;
@@ -73,32 +78,32 @@ public class Client
         }
     }
 
-    public Client( int sessions, int messages, int messageLength )
+    public Client( int sessions, int messages, int messageLength, int socketSendBufferSize )
     {
         if (messageLength < 12)
             messageLength = 12;
 
         m_messages = messages;
         m_messageLength = messageLength;
+        m_socketSendBufferSize = socketSendBufferSize;
 
-        int blockSize = (messages * messageLength);
-        if (blockSize > 1024*1024)
-            blockSize = 1024*1024;
+        int batchSize = (messages * messageLength);
+        if (batchSize > 1024*1024)
+            batchSize = 1024*1024;
 
-        int blockMessages = (blockSize / messageLength);
-        blockSize = (blockMessages * messageLength);
+        int batchMessages = (batchSize / messageLength);
+        batchSize = (batchMessages * messageLength);
 
-        m_messageBlock = new byte[blockSize];
-        ByteBuffer byteBuffer = ByteBuffer.wrap( m_messageBlock );
-        for (int idx=0; idx<blockMessages; idx++)
+        m_batch = ByteBuffer.allocateDirect( batchSize );
+        for (int idx=0; idx<batchMessages; idx++)
         {
-            byteBuffer.putInt( messageLength );
-            byteBuffer.putInt( messages );
-            byteBuffer.putInt( sessions );
-            int cc = (messageLength - 12);
-            for (; cc>0; cc--)
-                byteBuffer.put( (byte) cc );
+            m_batch.putInt(messageLength);
+            m_batch.putInt( messages );
+            m_batch.putInt( sessions );
+            for (int cc=12; cc<messageLength; cc++)
+                m_batch.put( (byte) cc );
         }
+        m_batch.position(0);
 
         m_threads = new Thread[sessions];
         for (int idx=0; idx<sessions; idx++)
@@ -129,26 +134,40 @@ public class Client
 
     public static void main( String [] args )
     {
-        if (args.length != 5)
+        int sessions = 1;
+        int messages = 1000000;
+        int messageLength = 500;
+        int socketSendBufferSize = (64 * 1024);
+
+        if (args.length < 2)
         {
-            System.out.println( "Usage: <server_addr> <server_port> <sessions> <messages> <message_length>" );
+            System.out.println( "Usage: <server_addr> <server_port> [<sessions>] [<messages>] [<message_length>]" );
             return;
         }
 
+        InetSocketAddress addr;
         try
         {
-            final InetAddress inetAddr = InetAddress.getByName( args[0] );
-            int portNumber = Integer.parseInt( args[1] );
-            int sessions = Integer.parseInt( args[2] );
-            int messages = Integer.parseInt( args[3] );
-            int messageLength = Integer.parseInt( args[4] );
-
-            final InetSocketAddress addr = new InetSocketAddress( inetAddr, portNumber );
-            new Client(sessions, messages, messageLength).start( addr );
+            final int portNumber = Integer.parseInt( args[1] );
+            addr = new InetSocketAddress( InetAddress.getByName(args[0]), portNumber );
         }
         catch (UnknownHostException ex)
         {
             ex.printStackTrace();
+            return;
         }
+
+        if (args.length <= 2)
+        {
+            sessions = Integer.parseInt( args[2] );
+            if (args.length <= 3)
+            {
+                messages = Integer.parseInt( args[3] );
+                if (args.length <= 4)
+                    messageLength = Integer.parseInt( args[4] );
+            }
+        }
+
+        new Client(sessions, messages, messageLength, socketSendBufferSize).start( addr );
     }
 }

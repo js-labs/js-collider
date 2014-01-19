@@ -26,7 +26,7 @@ public class Main
         int sessions = 1;
         int messages = 1000000;
         int messageLength = 500;
-        int socketRecvBufSize = (64*1024);
+        int socketBufferSize = (64*1024);
 
         if (args.length > 0)
             sessions = Integer.parseInt( args[0] );
@@ -35,7 +35,7 @@ public class Main
         if (args.length > 2)
             messageLength = Integer.parseInt( args[2] );
 
-        Client client = new Client( sessions, messages, messageLength );
-        new Server(client, socketRecvBufSize).run();
+        Client client = new Client( sessions, messages, messageLength, socketBufferSize );
+        new Server(client, socketBufferSize).run();
     }
 }
