@@ -55,7 +55,7 @@ public abstract class SessionEmitterImpl
             m_socketChannel = socketChannel;
         }
 
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             try
             {
@@ -66,6 +66,7 @@ public abstract class SessionEmitterImpl
             {
                 m_collider.executeInThreadPool( new ExceptionNotifier(ex, m_socketChannel) );
             }
+            return 0;
         }
     }
 

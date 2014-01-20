@@ -92,7 +92,7 @@ public class AcceptorImpl extends SessionEmitterImpl
 
     private class Starter1 extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             int state = m_state.get();
             int newState;
@@ -151,6 +151,8 @@ public class AcceptorImpl extends SessionEmitterImpl
                 s_logger.fine( m_localAddr.toString() +
                         ": state=(" + state + " -> " + newState + ")." );
             }
+
+            return 0;
         }
     }
 
@@ -174,7 +176,7 @@ public class AcceptorImpl extends SessionEmitterImpl
 
     private class Starter3 extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             if (m_selectionKey != null)
             {
@@ -196,12 +198,13 @@ public class AcceptorImpl extends SessionEmitterImpl
                 }
                 m_channel = null;
             }
+            return 0;
         }
     }
 
     private class Stopper extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             int interestOps = m_selectionKey.interestOps();
             m_selectionKey.cancel();
@@ -229,10 +232,11 @@ public class AcceptorImpl extends SessionEmitterImpl
                 }
                 m_channel = null;
             }
+            return 0;
         }
     }
 
-    private static final Logger s_logger = Logger.getLogger( AcceptorImpl.class.getName() );
+    private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Acceptor" );
     private static final int FL_STARTING = 0x0001;
     private static final int FL_STOP     = 0x0002;
 
@@ -325,9 +329,10 @@ public class AcceptorImpl extends SessionEmitterImpl
         waitMonitor();
     }
 
-    public void handleReadyOps( ThreadPool threadPool )
+    public int handleReadyOps( ThreadPool threadPool )
     {
         m_selectionKey.interestOps( 0 );
         threadPool.execute( m_channelAcceptor );
+        return 0;
     }
 }

@@ -66,7 +66,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             if (s_logger.isLoggable(Level.FINE))
                 s_logger.fine( m_remoteSocketAddress.toString() );
@@ -84,16 +84,18 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
             }
             m_socketChannel = null;
+            return 0;
         }
     }
 
     private class Starter extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             int interestOps = m_selectionKey.interestOps();
             interestOps |= SelectionKey.OP_WRITE;
             m_selectionKey.interestOps( interestOps );
+            return 0;
         }
     }
 
@@ -408,7 +410,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         return ret;
     }
 
-    public void handleReaderStopped()
+    public final void handleReaderStopped()
     {
         Node tail = m_tail.get();
         for (;;)
@@ -427,7 +429,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
         for (;;)
         {
-            int state = m_state.get();
+            final int state = m_state.get();
             assert( (state & STATE_MASK) == ST_RUNNING );
             assert( (state & SOCK_RC_MASK) > 0 );
 
@@ -442,7 +444,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if (s_logger.isLoggable(Level.FINER))
                 {
                     s_logger.finer(
-                            m_remoteSocketAddress.toString() +
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress +
                             ": " + stateToString(state) + " -> " + stateToString(newState) );
                 }
 
@@ -451,6 +453,47 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 break;
             }
         }
+    }
+
+    public final void handleReaderStoppedST()
+    {
+        assert( m_tail.get() == CLOSE_MARKER );
+
+        for (;;)
+        {
+            final int state = m_state.get();
+            assert( (state & STATE_MASK) == ST_RUNNING );
+            assert( (state & SOCK_RC_MASK) == SOCK_RC_MASK );
+            assert( (state & CLOSE) != 0 );
+
+            int newState = (state | CLOSE);
+            newState -= SOCK_RC;
+
+            if (m_state.compareAndSet(state, newState))
+            {
+                if (s_logger.isLoggable(Level.FINER))
+                {
+                    s_logger.finer(
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                            ": " + stateToString(state) + " -> " + stateToString(newState) );
+                }
+                break;
+            }
+        }
+
+        m_selectionKey.cancel();
+        m_selectionKey = null;
+
+        try
+        {
+            m_socketChannel.close();
+        }
+        catch (IOException ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
+        }
+        m_socketChannel = null;
     }
 
     public SessionImpl(
@@ -491,28 +534,37 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 listener );
 
         int state = m_state.get();
-        int newState;
         for (;;)
         {
             assert( (state & STATE_MASK) == ST_STARTING );
-
-            newState = state;
-
             if ((state & CLOSE) == 0)
             {
+                int newState = state;
                 newState &= ~STATE_MASK;
                 newState |= ST_RUNNING;
                 if (m_state.compareAndSet(state, newState))
                 {
+                    if (s_logger.isLoggable(Level.FINE))
+                    {
+                        s_logger.fine(
+                                m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                    }
                     m_socketChannelReader.start();
                     break;
                 }
             }
             else
             {
-                newState -= SOCK_RC;
+                int newState = (state - SOCK_RC);
                 if (m_state.compareAndSet(state, newState))
                 {
+                    if (s_logger.isLoggable(Level.FINE))
+                    {
+                        s_logger.fine(
+                                m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                    }
                     listener.onConnectionClosed();
                     if ((newState & SOCK_RC_MASK) == 0)
                         m_collider.executeInSelectorThread( new SelectorDeregistrator() );
@@ -520,13 +572,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 }
             }
             state = m_state.get();
-        }
-
-        if (s_logger.isLoggable(Level.FINE))
-        {
-            s_logger.fine(
-                    m_remoteSocketAddress.toString() +
-                    ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
         }
     }
 
@@ -719,16 +764,22 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         return m_socketChannelReader.replaceListener( newListener );
     }
 
-    public void handleReadyOps( ThreadPool threadPool )
+    public int handleReadyOps( ThreadPool threadPool )
     {
         final int readyOps = m_selectionKey.readyOps();
-        m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
+        int ret = 0;
 
         if ((readyOps & SelectionKey.OP_READ) != 0)
+        {
             threadPool.execute( m_socketChannelReader );
+            ret = 1;
+        }
 
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
             threadPool.execute( m_writer );
+
+        m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
+        return ret;
     }
 
     private void closeAndCleanupQueue( final Exception ex )
@@ -766,7 +817,11 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         if (ex != null)
         {
             if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
+            {
+                s_logger.warning(
+                        m_localSocketAddress + " -> " + m_remoteSocketAddress.toString() +
+                        ": " + ex.toString() );
+            }
         }
     }
 
@@ -782,9 +837,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if (s_logger.isLoggable(Level.FINER))
                 {
                     s_logger.finer(
-                            m_remoteSocketAddress.toString() +
-                            ": " + hint + " "
-                            + stateToString(state) + " -> " + stateToString(newState) + "." );
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                            ": " + hint + " " + stateToString(state) + " -> " + stateToString(newState) + "." );
                 }
                 if ((newState & SOCK_RC_MASK) == 0)
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );

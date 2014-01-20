@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -39,13 +40,13 @@ public class ColliderImpl extends Collider
 {
     public interface ChannelHandler
     {
-        public void handleReadyOps( ThreadPool threadPool );
+        public int handleReadyOps( ThreadPool threadPool );
     }
 
     public static abstract class SelectorThreadRunnable
     {
         public volatile SelectorThreadRunnable nextSelectorThreadRunnable;
-        abstract public void runInSelectorThread();
+        abstract public int runInSelectorThread();
     }
 
     private class Stopper1 extends ThreadPool.Runnable
@@ -102,7 +103,7 @@ public class ColliderImpl extends Collider
 
     private class Stopper2 extends SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             Set<SelectionKey> keys = m_selector.keys();
             for (SelectionKey key : keys)
@@ -121,30 +122,32 @@ public class ColliderImpl extends Collider
                  */
             }
             m_state = ST_STOPPING;
+            return 0;
         }
     }
 
     private static class DummyRunnable extends SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
+            return 0;
         }
     }
 
     private class SelectorAlarm extends ThreadPool.Runnable
     {
-        public SelectorThreadRunnable str;
+        public SelectorThreadRunnable cmp;
 
         public SelectorAlarm( SelectorThreadRunnable runnable )
         {
-            str = runnable;
+            cmp = runnable;
         }
 
         public void runInThreadPool()
         {
-            if (m_strHead == str)
+            if (m_strList.get(15) == cmp)
                 m_selector.wakeup();
-            str = null;
+            cmp = null;
             m_alarm.compareAndSet( null, this );
         }
     }
@@ -235,8 +238,8 @@ public class ColliderImpl extends Collider
     private final Map<Integer, DataBlockCache> m_dataBlockCache;
     private boolean m_stop;
 
-    private volatile SelectorThreadRunnable m_strHead;
-    private final AtomicReference<SelectorThreadRunnable> m_strTail;
+    private final AtomicReferenceArray<SelectorThreadRunnable> m_strList;
+    private SelectorThreadRunnable m_strLater;
     private final AtomicReference<SelectorAlarm> m_alarm;
 
     public ColliderImpl( Config config ) throws IOException
@@ -262,81 +265,110 @@ public class ColliderImpl extends Collider
         m_dataBlockCache = new HashMap<Integer, DataBlockCache>();
         m_stop = false;
 
-        m_strHead = null;
-        m_strTail = new AtomicReference<SelectorThreadRunnable>();
-
+        m_strList = new AtomicReferenceArray<SelectorThreadRunnable>( 16+16+15 );
         m_alarm = new AtomicReference<SelectorAlarm>( new SelectorAlarm(null) );
     }
 
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "starting." );
+            s_logger.fine( "start" );
 
-        final DummyRunnable dummyRunnable = new DummyRunnable();
         m_threadPool.start();
 
-        for (;;)
-        {
-            try
-            {
-                if (m_state != ST_STOPPING)
-                    m_selector.select();
-                else
-                {
-                    if (m_selector.keys().size() == 0)
-                        break;
-                    else
-                        m_selector.selectNow();
-                }
-            }
-            catch (IOException ex)
-            {
-                if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex.toString() );
-            }
-
-            SelectorThreadRunnable strHead;
-            assert( dummyRunnable.nextSelectorThreadRunnable == null );
-            if (m_strTail.compareAndSet(null, dummyRunnable))
-            {
-                assert( m_strHead == null );
-                strHead = dummyRunnable;
-            }
-            else
-            {
-                while (m_strHead == null);
-                strHead = m_strHead;
-                m_strHead = null;
-            }
-
-            Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
-            for (SelectionKey key : selectedKeys)
-            {
-                ChannelHandler channelHandler = (ChannelHandler) key.attachment();
-                channelHandler.handleReadyOps( m_threadPool );
-            }
-            selectedKeys.clear();
-
-            while (strHead != null)
-            {
-                strHead.runInSelectorThread();
-                SelectorThreadRunnable next = strHead.nextSelectorThreadRunnable;
-                if (next == null)
-                {
-                    if (m_strTail.compareAndSet(strHead, null))
-                        break;
-                    while (strHead.nextSelectorThreadRunnable == null);
-                    next = strHead.nextSelectorThreadRunnable;
-                }
-                strHead.nextSelectorThreadRunnable = null;
-                strHead = next;
-            }
-        }
+        final DummyRunnable dummyRunnable = new DummyRunnable();
+        int statLoopIt = 0;
+        int statLoopReadersG0 = 0;
+        int readers = 0;
 
         try
         {
+            for (;;)
+            {
+                statLoopIt++;
+                if (m_state != ST_STOPPING)
+                {
+                    if (readers > 0)
+                    {
+                        statLoopReadersG0++;
+                        m_selector.selectNow();
+                    }
+                    else
+                        m_selector.select();
+                }
+                else
+                {
+                    if (m_selector.keys().size() == 0)
+                    {
+                        //assert( readers == 0 );
+                        break;
+                    }
+                    else
+                        m_selector.selectNow();
+                }
+
+                if (m_strList.compareAndSet(31, null, dummyRunnable))
+                    m_strList.set( 15, dummyRunnable );
+
+                Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
+                for (SelectionKey key : selectedKeys)
+                {
+                    ChannelHandler channelHandler = (ChannelHandler) key.attachment();
+                    readers += channelHandler.handleReadyOps( m_threadPool );
+                }
+                selectedKeys.clear();
+
+                SelectorThreadRunnable runnable;
+                do { runnable = m_strList.get( 15 ); }
+                while (runnable == null);
+
+                for (;;)
+                {
+                    SelectorThreadRunnable next = runnable.nextSelectorThreadRunnable;
+                    if (next == null)
+                    {
+                        m_strList.set( 15, null );
+                        if (!m_strList.compareAndSet(31, runnable, null))
+                        {
+                            while (runnable.nextSelectorThreadRunnable == null);
+                            next = runnable.nextSelectorThreadRunnable;
+                            runnable.nextSelectorThreadRunnable = null;
+                        }
+                    }
+                    else
+                        runnable.nextSelectorThreadRunnable = null;
+
+                    readers -= runnable.runInSelectorThread();
+
+                    runnable = next;
+                    if (runnable == null)
+                    {
+                        runnable = m_strList.get( 15 );
+                        if (runnable == null)
+                            break;
+                    }
+                }
+
+                SelectorThreadRunnable strLater = m_strLater;
+                m_strLater = null;
+                while (strLater != null)
+                {
+                    runnable = strLater;
+                    strLater = runnable.nextSelectorThreadRunnable;
+                    runnable.nextSelectorThreadRunnable = null;
+                    final int rc = runnable.runInSelectorThread();
+                    assert( rc == 0 );
+                }
+
+                /* End of select loop */
+            }
+
             m_threadPool.stopAndWait();
+        }
+        catch (IOException ex)
+        {
+            if (s_logger.isLoggable(Level.WARNING))
+                s_logger.warning( ex.toString() );
         }
         catch (InterruptedException ex)
         {
@@ -348,11 +380,8 @@ public class ColliderImpl extends Collider
             me.getValue().clear( s_logger );
         m_dataBlockCache.clear();
 
-        System.out.println( SocketChannelReader.s_pc.getStats() );
-        System.out.println( SocketChannelReader.s_sc.getStats() );
-
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "stopped." );
+            s_logger.fine( "finish (" + statLoopIt + ", " + statLoopReadersG0 + ")." );
     }
 
     public void stop()
@@ -378,10 +407,10 @@ public class ColliderImpl extends Collider
     public final void executeInSelectorThread( SelectorThreadRunnable runnable )
     {
         assert( runnable.nextSelectorThreadRunnable == null );
-        SelectorThreadRunnable tail = m_strTail.getAndSet( runnable );
+        SelectorThreadRunnable tail = m_strList.getAndSet( 31, runnable );
         if (tail == null)
         {
-            m_strHead = runnable;
+            m_strList.set( 15, runnable );
 
             for (;;)
             {
@@ -393,7 +422,7 @@ public class ColliderImpl extends Collider
                 }
                 else if (m_alarm.compareAndSet(alarm, null))
                 {
-                    alarm.str = runnable;
+                    alarm.cmp = runnable;
                     m_threadPool.execute( alarm );
                     break;
                 }
@@ -401,6 +430,23 @@ public class ColliderImpl extends Collider
         }
         else
             tail.nextSelectorThreadRunnable = runnable;
+    }
+
+    public final void executeInSelectorThreadNoWakeup( SelectorThreadRunnable runnable )
+    {
+        assert( runnable.nextSelectorThreadRunnable == null );
+        SelectorThreadRunnable tail = m_strList.getAndSet( 31, runnable );
+        if (tail == null)
+            m_strList.set( 15, runnable );
+        else
+            tail.nextSelectorThreadRunnable = runnable;
+    }
+
+    public final void executeInSelectorThreadLater( SelectorThreadRunnable runnable )
+    {
+        assert( runnable.nextSelectorThreadRunnable == null );
+        runnable.nextSelectorThreadRunnable = m_strLater;
+        m_strLater = runnable;
     }
 
     public final void executeInThreadPool( ThreadPool.Runnable runnable )

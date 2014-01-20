@@ -44,7 +44,7 @@ public class ConnectorImpl extends SessionEmitterImpl
     private class Starter1 extends ColliderImpl.SelectorThreadRunnable
              implements ColliderImpl.ChannelHandler
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             for (;;)
             {
@@ -92,9 +92,10 @@ public class ConnectorImpl extends SessionEmitterImpl
                     break;
                 }
             }
+            return 0;
         }
 
-        public void handleReadyOps( ThreadPool threadPool )
+        public int handleReadyOps( ThreadPool threadPool )
         {
             m_selectionKey.interestOps(0);
 
@@ -114,6 +115,7 @@ public class ConnectorImpl extends SessionEmitterImpl
             m_socketChannel = null;
 
             m_collider.executeInThreadPool( starter2 );
+            return 0;
         }
     }
 
@@ -172,7 +174,7 @@ public class ConnectorImpl extends SessionEmitterImpl
 
     private class Stopper1 extends ColliderImpl.SelectorThreadRunnable
     {
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             if ((m_selectionKey != null) &&
                 (m_selectionKey.interestOps() == SelectionKey.OP_CONNECT))
@@ -200,6 +202,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                 }
                 m_socketChannel = null;
             }
+            return 0;
         }
     }
 
@@ -214,7 +217,7 @@ public class ConnectorImpl extends SessionEmitterImpl
             m_selectionKey = selectionKey;
         }
 
-        public void runInSelectorThread()
+        public int runInSelectorThread()
         {
             m_selectionKey.cancel();
             try
@@ -226,6 +229,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
             }
+            return 0;
         }
     }
 
