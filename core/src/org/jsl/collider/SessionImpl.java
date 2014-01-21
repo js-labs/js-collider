@@ -33,7 +33,7 @@ import java.util.logging.Logger;
 public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
-    private static final Node CLOSE_MARKER  = new Node();
+    private static final Node CLOSE_MARKER = new Node();
 
     private static final int STATE_MASK   = 0x0003;
     private static final int ST_STARTING  = 0x0000;
@@ -52,7 +52,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private final Starter m_starter;
     private final AtomicInteger m_state;
 
-    private Node m_head;
+    private volatile Node m_head;
     private final AtomicReference<Node> m_tail;
 
     private SocketChannelReader m_socketChannelReader;
@@ -395,7 +395,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         if ((state & CLOSE) != 0)
             ret += "CLOSE ";
 
-        long sockRC = (state & SOCK_RC_MASK);
+        int sockRC = (state & SOCK_RC_MASK);
 
         state &= STATE_MASK;
         if (state == ST_STARTING)
