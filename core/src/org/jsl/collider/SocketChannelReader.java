@@ -23,6 +23,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -64,8 +65,6 @@ public class SocketChannelReader extends ThreadPool.Runnable
             }
             else
             {
-                assert( interestOps == SelectionKey.OP_READ );
-
                 for (;;)
                 {
                     final int state = m_state.get();
@@ -79,8 +78,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
                             if (s_logger.isLoggable(Level.FINER))
                             {
                                 s_logger.finer(
-                                        m_session.getRemoteAddress() + ": " + stateToString(state) +
-                                        " -> " + stateToString(newState) + " (" + m_waits + " waits).");
+                                        m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) +
+                                        " (" + m_waits + " waits).");
                             }
 
                             if ((newState & LENGTH_MASK) == 0)
@@ -94,14 +94,14 @@ public class SocketChannelReader extends ThreadPool.Runnable
                         if (s_logger.isLoggable(Level.FINER))
                         {
                             s_logger.finer(
-                                    m_session.getRemoteAddress() + ": " + stateToString(state) +
-                                    " (" + m_waits + " waits).");
+                                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                                    ": " + stateToString(state) + " (" + m_waits + " waits).");
                         }
                         break;
                     }
                 }
 
-                m_selectionKey.interestOps( 0 );
+                m_selectionKey.interestOps( interestOps & ~SelectionKey.OP_READ );
                 m_selectionKey = null;
                 m_socketChannel = null;
 
@@ -115,7 +115,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
     {
         public void runInThreadPool()
         {
-            m_sessionListener.onConnectionClosed();
+            m_closeListener.onConnectionClosed();
             printStats();
         }
     }
@@ -124,7 +124,6 @@ public class SocketChannelReader extends ThreadPool.Runnable
     {
         private final ShMem.ChannelIn m_shMem;
         private Session.Listener m_listener;
-        private volatile boolean m_stop;
 
         public ShMemListener( ShMem.ChannelIn shMem, Session.Listener listener )
         {
@@ -139,9 +138,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
             return ret;
         }
 
-        public final void stop()
+        public final void close()
         {
-            m_stop = true;
+            m_shMem.close();
         }
 
         public void onDataReceived( ByteBuffer data )
@@ -164,15 +163,25 @@ public class SocketChannelReader extends ThreadPool.Runnable
                     m_session.closeConnection();
                     break;
                 }
-
-                if (m_stop)
-                    break;
             }
         }
 
         public void onConnectionClosed()
         {
             m_listener.onConnectionClosed();
+        }
+    }
+
+    private static class DummyListener implements Session.Listener
+    {
+        public void onDataReceived( ByteBuffer data )
+        {
+        }
+
+        public void onConnectionClosed()
+        {
+            /* Should never be called. */
+            assert( false );
         }
     }
 
@@ -195,6 +204,12 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
 
+    private static final AtomicReferenceFieldUpdater<SocketChannelReader, Session.Listener>
+        s_dataListenerUpdater = AtomicReferenceFieldUpdater.newUpdater(
+            SocketChannelReader.class, Session.Listener.class, "m_dataListener" );
+
+    private static final DummyListener s_dummyListener = new DummyListener();
+
     private static final int LENGTH_MASK = 0x0FFFFFFF;
     private static final int TAIL_LOCK   = 0x10000000;
     private static final int STOP        = 0x20000000;
@@ -207,7 +222,8 @@ public class SocketChannelReader extends ThreadPool.Runnable
     private final int m_blockSize;
     private SocketChannel m_socketChannel;
     private SelectionKey m_selectionKey;
-    private Session.Listener m_sessionListener;
+    private volatile Session.Listener m_dataListener;
+    private Session.Listener m_closeListener;
     private ShMemListener m_shMemListener;
 
     private final Starter m_starter;
@@ -234,14 +250,14 @@ public class SocketChannelReader extends ThreadPool.Runnable
                 {
                     int limit = pos + bytesRemaining;
                     rw.limit( limit );
-                    m_sessionListener.onDataReceived( rw );
+                    m_dataListener.onDataReceived( rw );
                     rw.position( limit );
                     break;
                 }
 
                 bytesRemaining -= bb;
                 rw.limit( m_blockSize );
-                m_sessionListener.onDataReceived( rw );
+                m_dataListener.onDataReceived( rw );
 
                 DataBlock next = dataBlock.next;
                 dataBlock.reset();
@@ -336,7 +352,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
             for (;;)
             {
                 assert( (state & TAIL_LOCK) != 0 );
-                int newState = (state - TAIL_LOCK);
+                final int newState = (state - TAIL_LOCK);
                 if (m_state.compareAndSet(state, newState))
                 {
                     state = newState;
@@ -351,7 +367,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
         if ((state & CLOSE) != 0)
         {
-            m_sessionListener.onConnectionClosed();
+            m_closeListener.onConnectionClosed();
             printStats();
         }
     }
@@ -375,7 +391,8 @@ public class SocketChannelReader extends ThreadPool.Runnable
         m_blockSize = dataBlockCache.getBlockSize();
         m_socketChannel = socketChannel;
         m_selectionKey = selectionKey;
-        m_sessionListener = sessionListener;
+        m_dataListener = sessionListener;
+        m_closeListener = sessionListener;
         m_starter = new Starter();
         m_suspender = new Suspender();
         m_state = new AtomicInteger();
@@ -399,6 +416,34 @@ public class SocketChannelReader extends ThreadPool.Runnable
         int state = m_state.get();
         for (;;)
         {
+            if ((state & STOP) != 0)
+            {
+                for (;;)
+                {
+                    assert( (state & CLOSE) == 0 );
+                    final int newState = (state | CLOSE);
+                    if (m_state.compareAndSet(state, newState))
+                    {
+                        if (s_logger.isLoggable(Level.FINER))
+                        {
+                            s_logger.finer(
+                                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                                    ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                        }
+
+                        if ((state & LENGTH_MASK) == 0)
+                        {
+                            m_closeListener.onConnectionClosed();
+                            printStats();
+                        }
+
+                        m_collider.executeInSelectorThread( m_starter );
+                        return;
+                    }
+                    state = m_state.get();
+                }
+            }
+
             if ((state & LENGTH_MASK) == 0)
             {
                 if ((state & TAIL_LOCK) == 0)
@@ -601,7 +646,10 @@ public class SocketChannelReader extends ThreadPool.Runnable
                     }
 
                     if ((newState & STOP) == 0)
+                    {
+                        m_collider.executeInSelectorThread( m_suspender );
                         m_session.handleReaderStopped();
+                    }
                     else
                         m_collider.executeInSelectorThread( m_starter );
 
@@ -618,7 +666,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
             if ((state & LENGTH_MASK) == 0)
             {
-                m_sessionListener.onConnectionClosed();
+                m_closeListener.onConnectionClosed();
                 printStats();
 
                 if (tailLock > 0)
@@ -663,22 +711,64 @@ public class SocketChannelReader extends ThreadPool.Runnable
         }
     }
 
-    public final Session.Listener replaceListener( Session.Listener sessionListener )
+    public final Session.Listener replaceListener( Session.Listener newListener )
     {
+        /* Supposed to be called from the SessionListener.onDataReceived() trace only,
+         * but keep in mind Session.closeConnection() can be called any time.
+         */
         if (m_shMemListener == null)
         {
-            Session.Listener ret = m_sessionListener;
-            m_sessionListener = sessionListener;
-            return ret;
+            for (;;)
+            {
+                final Session.Listener dataListener = m_dataListener;
+                if (dataListener == s_dummyListener)
+                {
+                    /* SocketChannelReader.stop() already called,
+                     * let's change only m_closeListener.
+                     */
+                    Session.Listener ret = m_closeListener;
+                    m_closeListener = newListener;
+                    return ret;
+                }
+
+                if (s_dataListenerUpdater.compareAndSet(this, dataListener, newListener))
+                {
+                    assert( m_closeListener == dataListener );
+                    m_closeListener = newListener;
+                    return dataListener;
+                }
+            }
         }
         else
-            return m_shMemListener.replaceListener( sessionListener );
+            return m_shMemListener.replaceListener( newListener );
     }
 
     public final void accelerate( ShMem.ChannelIn shMemIn )
     {
-        m_shMemListener = new ShMemListener( shMemIn, m_sessionListener );
-        m_sessionListener = m_shMemListener;
+        /* Supposed to be called only from the Session.Listener.onDataReceived() trace only. */
+        assert( m_shMemListener == null );
+        final Session.Listener dataListener = m_dataListener;
+        if (dataListener == s_dummyListener)
+        {
+            /* Session is being stopped */
+            shMemIn.close();
+        }
+        else
+        {
+            final ShMemListener shMemListener = new ShMemListener( shMemIn, dataListener );
+            if (s_dataListenerUpdater.compareAndSet(this, dataListener, shMemListener))
+            {
+                m_closeListener = shMemListener;
+                m_shMemListener = shMemListener;
+            }
+            else
+            {
+                /* Session is being stopped,
+                 * but owner of the shMemIn is ShMemListener now.
+                 */
+                shMemListener.close();
+            }
+        }
     }
 
     public final void start()
@@ -732,6 +822,14 @@ public class SocketChannelReader extends ThreadPool.Runnable
                     break;
                 }
             }
+        }
+
+        for (;;)
+        {
+            final Session.Listener dataListener = m_dataListener;
+            assert( dataListener != s_dummyListener );
+            if (s_dataListenerUpdater.compareAndSet(this, dataListener, s_dummyListener))
+                break;
         }
     }
 }
