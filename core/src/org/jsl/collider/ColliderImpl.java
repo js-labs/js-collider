@@ -300,7 +300,7 @@ public class ColliderImpl extends Collider
                 {
                     if (m_selector.keys().size() == 0)
                     {
-                        //assert( readers == 0 );
+                        assert( readers == 0 );
                         break;
                     }
                     else
