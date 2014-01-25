@@ -436,11 +436,12 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             assert( (state & SOCK_RC_MASK) > 0 );
             assert( (state & CLOSE) == 0 );
 
-            int newState = (state | CLOSE);
-            newState -= SOCK_RC;
-
+            int newState = (state - SOCK_RC);
             if (tail == null)
+            {
+                assert( (newState & SOCK_RC_MASK) > 0 );
                 newState -= SOCK_RC;
+            }
 
             if (m_state.compareAndSet(state, newState))
             {
@@ -468,9 +469,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             assert( (state & SOCK_RC_MASK) > 0 );
             assert( (state & CLOSE) == 0 );
 
-            int newState = (state | CLOSE);
-            newState -= SOCK_RC;
-
+            final int newState = (state - SOCK_RC);
             if (m_state.compareAndSet(state, newState))
             {
                 if (s_logger.isLoggable(Level.FINER))
@@ -514,7 +513,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         m_remoteSocketAddress = socketChannel.socket().getRemoteSocketAddress();
 
         m_starter = new Starter();
-        m_state = new AtomicInteger( ST_STARTING + SOCK_RC + SOCK_RC );
+        m_state = new AtomicInteger( ST_STARTING + SOCK_RC );
         m_head = null;
         m_tail = new AtomicReference<Node>();
         m_writer = new SocketWriter();
@@ -543,11 +542,13 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         {
             final int state = m_state.get();
             assert( (state & STATE_MASK) == ST_STARTING );
+            assert( (state & SOCK_RC_MASK) == SOCK_RC );
             if ((state & CLOSE) == 0)
             {
                 int newState = state;
                 newState &= ~STATE_MASK;
                 newState |= ST_RUNNING;
+                newState += SOCK_RC;
                 if (m_state.compareAndSet(state, newState))
                 {
                     if (s_logger.isLoggable(Level.FINE))
@@ -562,20 +563,14 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             }
             else
             {
-                int newState = (state - SOCK_RC);
-                if (m_state.compareAndSet(state, newState))
+                if (s_logger.isLoggable(Level.FINE))
                 {
-                    if (s_logger.isLoggable(Level.FINE))
-                    {
-                        s_logger.fine(
-                                m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                                ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
-                    }
-                    listener.onConnectionClosed();
-                    if ((newState & SOCK_RC_MASK) == 0)
-                        m_collider.executeInSelectorThread( new SelectorDeregistrator() );
-                    break;
+                    s_logger.fine(
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                            ": " + stateToString(state) + "." );
                 }
+                listener.onConnectionClosed();
+                break;
             }
         }
     }
@@ -689,19 +684,78 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if (s_logger.isLoggable(Level.FINER))
                 {
                     s_logger.finer(
-                            m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                            " (" + tail + ")" );
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress + ": " + tail );
                 }
-
-                m_socketChannelReader.stop();
 
                 if (tail == null)
                 {
                     m_head = CLOSE_MARKER;
-                    releaseSocket( "closeConnection()" );
+                    for (;;)
+                    {
+                        final int state = m_state.get();
+                        if ((state & STATE_MASK) == ST_STARTING)
+                        {
+                            assert( (state & SOCK_RC_MASK) == SOCK_RC );
+                            final int newState = (state | CLOSE - SOCK_RC);
+                            if (m_state.compareAndSet(state, newState))
+                            {
+                                s_logger.finer(
+                                        m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                m_collider.executeInSelectorThread( new SelectorDeregistrator() );
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            assert( (state & STATE_MASK) == ST_RUNNING );
+                            assert( (state & SOCK_RC_MASK) > 0 );
+                            final int newState = (state - SOCK_RC);
+                            if (m_state.compareAndSet(state, newState))
+                            {
+                                s_logger.finer(
+                                        m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+
+                                m_socketChannelReader.stop();
+
+                                if ((state & SOCK_RC_MASK) == 0)
+                                    m_collider.executeInSelectorThread(new SelectorDeregistrator());
+
+                                break;
+                            }
+                        }
+                    }
                 }
                 else
+                {
                     tail.next = CLOSE_MARKER;
+                    for (;;)
+                    {
+                        final int state = m_state.get();
+                        if ((state & STATE_MASK) == ST_STARTING)
+                        {
+                            assert( (state & SOCK_RC_MASK) == SOCK_RC );
+                            final int newState = (state | CLOSE);
+                            if (m_state.compareAndSet(state, newState))
+                            {
+                                s_logger.finer(
+                                        m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            assert( (state & STATE_MASK) == ST_RUNNING );
+                            s_logger.finer(
+                                    m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                    ": " + stateToString(state) );
+                            m_socketChannelReader.stop();
+                            break;
+                        }
+                    }
+                }
 
                 return 0;
             }
