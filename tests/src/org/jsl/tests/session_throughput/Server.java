@@ -23,6 +23,7 @@ import org.jsl.collider.*;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
 import java.util.concurrent.locks.ReentrantLock;
@@ -145,8 +146,15 @@ public class Server
             System.out.println( "Session throughput server started at port " + localPort );
             if (m_client != null)
             {
-                final InetSocketAddress addr = new InetSocketAddress( InetAddress.getLoopbackAddress(), localPort );
-                m_client.start( addr );
+                try
+                {
+                    final InetAddress inetAddr = InetAddress.getByAddress( new byte [] {127, 0, 0, 1} );
+                    m_client.start( new InetSocketAddress(inetAddr, localPort) );
+                }
+                catch (UnknownHostException ex)
+                {
+                    ex.printStackTrace();
+                }
             }
         }
 

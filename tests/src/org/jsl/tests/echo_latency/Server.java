@@ -6,6 +6,7 @@ import org.jsl.collider.Session;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -67,7 +68,17 @@ public class Server
         {
             System.out.println( "Echo latency server started at port " + localPort );
             if (m_client != null)
-                m_client.start( new InetSocketAddress(InetAddress.getLoopbackAddress(), localPort) );
+            {
+                try
+                {
+                    final InetAddress addr = InetAddress.getByAddress( new byte [] {127, 0, 0, 1} );
+                    m_client.start( new InetSocketAddress(addr, localPort) );
+                }
+                catch (UnknownHostException ex)
+                {
+                    ex.printStackTrace();
+                }
+            }
         }
 
         public Session.Listener createSessionListener( Session session )

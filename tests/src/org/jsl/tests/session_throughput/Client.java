@@ -23,6 +23,7 @@ import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.Semaphore;
@@ -93,10 +94,14 @@ public class Client
         {
             try
             {
-                SocketChannel socketChannel = SocketChannel.open( m_addr );
-                socketChannel.socket().setTcpNoDelay( true );
-                socketChannel.socket().setSendBufferSize( m_socketSendBufferSize );
-                System.out.println( "Client connected " + socketChannel.getLocalAddress() + "." );
+                final SocketChannel socketChannel = SocketChannel.open( m_addr );
+                final Socket socket = socketChannel.socket();
+                socket.setTcpNoDelay( true );
+                socket.setSendBufferSize( m_socketSendBufferSize );
+                
+                System.out.println(
+                        "Client connected " + socket.getLocalSocketAddress() +
+                        " -> " + socket.getRemoteSocketAddress() + "." );
 
                 ByteBuffer buf = ByteBuffer.allocateDirect( 128*1024 );
                 StreamDefragger streamDefragger = new StreamDefragger(4)
@@ -140,10 +145,11 @@ public class Client
                 final long endTime = System.nanoTime();
 
                 System.out.println(
-                        socketChannel.getLocalAddress() + ": " + m_sessions*m_messages +
-                        " messages received at " + Util.formatDelay(startTime, endTime) + " sec." );
+                        socket.getLocalSocketAddress() + " -> " + socket.getRemoteSocketAddress() +
+                        ": " + m_sessions*m_messages + " messages received at " +
+                        Util.formatDelay(startTime, endTime) + " sec." );
 
-                int sessionsDone = m_sessionsDone.incrementAndGet();
+                final int sessionsDone = m_sessionsDone.incrementAndGet();
                 if (sessionsDone == m_sessions)
                 {
                     System.out.println(

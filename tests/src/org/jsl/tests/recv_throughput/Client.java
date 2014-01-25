@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
@@ -42,10 +43,14 @@ public class Client
         {
             try
             {
-                SocketChannel socketChannel = SocketChannel.open( m_addr );
-                socketChannel.socket().setTcpNoDelay( true );
-                socketChannel.socket().setSendBufferSize( m_socketSendBufferSize );
-                System.out.println( "Client connected " + socketChannel.getLocalAddress() + "." );
+                final SocketChannel socketChannel = SocketChannel.open( m_addr );
+                final Socket socket = socketChannel.socket();
+                socket.setTcpNoDelay( true );
+                socket.setSendBufferSize( m_socketSendBufferSize );
+                
+                System.out.println(
+                        "Client connected " + socket.getLocalSocketAddress() + 
+                        " -> " + socket.getRemoteSocketAddress() + "." );
 
                 final int batchMessages = (m_batch.capacity() / m_messageLength);
                 final long startTime = System.nanoTime();

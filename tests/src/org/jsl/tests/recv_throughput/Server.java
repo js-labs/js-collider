@@ -114,7 +114,15 @@ public class Server
             System.out.println( "Server started at port " + portNumber );
             if (m_client != null)
             {
-                m_client.start( new InetSocketAddress(InetAddress.getLoopbackAddress(), portNumber) );
+                try
+                {
+                    final InetAddress addr = InetAddress.getByAddress( new byte[] {127, 0, 0, 1} );
+                    m_client.start( new InetSocketAddress(addr, portNumber) );
+                }
+                catch (UnknownHostException ex)
+                {
+                    ex.printStackTrace();
+                }
             }
         }
 

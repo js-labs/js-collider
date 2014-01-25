@@ -21,6 +21,7 @@ package org.jsl.tests.echo_latency;
 
 import org.jsl.tests.Util;
 import java.io.IOException;
+import java.net.Socket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -42,9 +43,12 @@ public class Client
             {
                 final ByteBuffer msg = m_msg.duplicate();
                 final ByteBuffer buf = ByteBuffer.allocateDirect( m_msg.capacity() );
-                SocketChannel socketChannel = SocketChannel.open( m_addr );
-                socketChannel.socket().setTcpNoDelay( true );
-                System.out.println( "Client socket connected " + socketChannel.getRemoteAddress() + "." );
+                final SocketChannel socketChannel = SocketChannel.open( m_addr );
+                final Socket socket = socketChannel.socket();
+                socket.setTcpNoDelay( true );
+                System.out.println( 
+                        "Client socket connected " + socket.getLocalSocketAddress() +
+                        " -> " + socket.getRemoteSocketAddress() + "." );
 
                 /* Warming up the server */
                 for (int idx=0; idx<10; idx++)

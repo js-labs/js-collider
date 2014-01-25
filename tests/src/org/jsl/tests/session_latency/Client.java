@@ -40,11 +40,14 @@ public class Client
         {
             try
             {
-                SocketChannel socketChannel = SocketChannel.open( m_addr );
-                socketChannel.socket().setTcpNoDelay( true );
-                System.out.println( "Client connected " + socketChannel.getLocalAddress() + "." );
+                final SocketChannel socketChannel = SocketChannel.open( m_addr );
+                final Socket socket = socketChannel.socket();
+                socket.setTcpNoDelay( true );
+                System.out.println(
+                        "Client connected " + socket.getLocalSocketAddress() +
+                        " -> " + socket.getRemoteSocketAddress() + "." );
 
-                final StatCounter statCounter = new StatCounter( socketChannel.getLocalAddress() + " latency" );
+                final StatCounter statCounter = new StatCounter( socket.getLocalSocketAddress() + " latency" );
                 final ByteBuffer bb = ByteBuffer.allocateDirect( 1024*16 );
                 int bytesReceived = socketChannel.read( bb );
                 long recvTime = System.nanoTime();

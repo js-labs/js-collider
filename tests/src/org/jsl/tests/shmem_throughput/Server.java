@@ -27,6 +27,7 @@ import org.jsl.tests.Util;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -55,9 +56,17 @@ public class Server
         public void onAcceptorStarted( Collider collider, int portNumber )
         {
             System.out.println( "Server started at port " + portNumber );
-            final InetSocketAddress addr = new InetSocketAddress( InetAddress.getLoopbackAddress(), portNumber );
-            for (int idx=0; idx<m_sessions; idx++)
-                collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
+            try
+            {
+                final InetAddress inetAddr = InetAddress.getByAddress( new byte [] {127, 0, 0, 1} );
+                final InetSocketAddress addr = new InetSocketAddress( inetAddr, portNumber );
+                for (int idx=0; idx<m_sessions; idx++)
+                    collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
+            }
+            catch (UnknownHostException ex)
+            {
+                ex.printStackTrace();
+            }
         }
     }
 
