@@ -29,7 +29,7 @@ public class ThreadPool
 {
     public static abstract class Runnable
     {
-        public volatile Runnable threadPoolRunnable_next;
+        public volatile Runnable nextThreadPoolRunnable;
         public abstract void runInThreadPool();
     }
 
@@ -127,20 +127,20 @@ public class ThreadPool
 
             if (m_hra.compareAndSet(idx, runnable, LOCK))
             {
-                if (runnable.threadPoolRunnable_next == null)
+                if (runnable.nextThreadPoolRunnable == null)
                 {
                     m_hra.set( idx, null );
                     if (!m_tra.compareAndSet(idx, runnable, null))
                     {
-                        while (runnable.threadPoolRunnable_next == null);
-                        m_hra.set( idx, runnable.threadPoolRunnable_next );
-                        runnable.threadPoolRunnable_next = null;
+                        while (runnable.nextThreadPoolRunnable == null);
+                        m_hra.set( idx, runnable.nextThreadPoolRunnable );
+                        runnable.nextThreadPoolRunnable = null;
                     }
                 }
                 else
                 {
-                    m_hra.set( idx, runnable.threadPoolRunnable_next );
-                    runnable.threadPoolRunnable_next = null;
+                    m_hra.set( idx, runnable.nextThreadPoolRunnable );
+                    runnable.nextThreadPoolRunnable = null;
                 }
                 return runnable;
             }
@@ -212,7 +212,7 @@ public class ThreadPool
 
     public final void execute( Runnable runnable )
     {
-        assert( runnable.threadPoolRunnable_next == null );
+        assert( runnable.nextThreadPoolRunnable == null );
 
         int idx = (int) Thread.currentThread().getId();
         idx = (idx % m_contentionFactor) * FS_PADDING + FS_PADDING - 1;
@@ -221,7 +221,7 @@ public class ThreadPool
         if (tail == null)
             m_hra.set( idx, runnable );
         else
-            tail.threadPoolRunnable_next = runnable;
+            tail.nextThreadPoolRunnable = runnable;
 
         m_sync.releaseShared(1);
     }
