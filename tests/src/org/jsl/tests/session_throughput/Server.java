@@ -31,6 +31,7 @@ import java.util.concurrent.locks.ReentrantLock;
 public class Server
 {
     private final Client m_client;
+    private final int m_socketBufferSize;
     private final CachedByteBuffer.Cache m_byteBufferCache;
 
     private final ReentrantLock m_lock;
@@ -139,6 +140,8 @@ public class Server
         {
             super( new InetSocketAddress(0) );
             tcpNoDelay = true;
+            socketRecvBufSize = Server.this.m_socketBufferSize;
+            socketSendBufSize = Server.this.m_socketBufferSize;
         }
 
         public void onAcceptorStarted( Collider collider, int localPort )
@@ -164,9 +167,10 @@ public class Server
         }
     }
 
-    public Server( Client client )
+    public Server( Client client, int socketBufferSize )
     {
         m_client = client;
+        m_socketBufferSize = socketBufferSize;
         m_byteBufferCache = new CachedByteBuffer.Cache( true, client.getMessageLength() );
         m_lock = new ReentrantLock();
         m_clients = new HashSet<Session>();

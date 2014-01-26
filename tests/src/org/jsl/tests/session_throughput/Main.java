@@ -23,10 +23,10 @@ public class Main
 {
     public static void main( String args[] )
     {
-        int sessions = 1;
-        int messages = 1000;
+        int sessions = 2;
+        int messages = 100000;
         int messageLength = 500;
-        int socketSendBufferSize = (64 * 1024);
+        int socketBufferSize = (64 * 1024);
 
         if (args.length > 0)
             sessions = Integer.parseInt( args[0] );
@@ -43,7 +43,7 @@ public class Main
                 messages + " messages, " +
                 messageLength + " bytes/message." );
 
-        Client client = new Client( sessions, messages, messageLength, socketSendBufferSize );
-        new Server(client).run();
+        Client client = new Client( sessions, messages, messageLength, socketBufferSize );
+        new Server(client, socketBufferSize).run();
     }
 }
