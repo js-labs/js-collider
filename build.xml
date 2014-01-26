@@ -85,10 +85,6 @@
         <run-test name="thread_pool_throughput"/>
     </target>
 
-    <target name="test.session_latency" depends="compile_tests">
-        <run-test name="session_latency"/>
-    </target>
-
     <target name="test.recv_throughput" depends="compile_tests">
         <run-test name="recv_throughput"/>
     </target>
@@ -97,16 +93,24 @@
         <run-test name="send_throughput"/>
     </target>
 
-    <target name="test.echo_throughput" depends="compile_tests">
-        <run-test name="echo_throughput"/>
-    </target>
-
     <target name="test.echo_latency" depends="compile_tests">
         <run-test name="echo_latency"/>
     </target>
 
+    <target name="test.echo_throughput" depends="compile_tests">
+        <run-test name="echo_throughput"/>
+    </target>
+
     <target name="test.queue_socket_send" depends="compile_tests">
         <run-test name="queue_socket_send"/>
+    </target>
+
+    <target name="test.session_latency" depends="compile_tests">
+        <run-test name="session_latency"/>
+    </target>
+
+    <target name="test.session_throughput" depends="compile_tests">
+        <run-test name="session_throughput"/>
     </target>
 
     <target name="tests"
@@ -114,7 +118,10 @@
                      test.sched_latency,
                      test.thread_pool,
                      test.thread_pool_throughput,
+                     test.recv_throughput,
                      test.echo_latency,
-                     test.session_latency"/>
+                     test.echo_throughput,
+                     test.session_latency,
+                     test.session_throughput"/>
 
 </project>
