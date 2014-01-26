@@ -31,7 +31,7 @@
                 </classpath>
                 <jvmarg value="-ea"/>
                 <jvmarg value="-server"/>
-                <!--<jvmarg value="-Djava.util.logging.config.file=tests\logging.config"/>-->
+                <jvmarg value="-Djava.util.logging.config.file=tests/logging.config"/>
             </java>
         </sequential>
     </macrodef>
