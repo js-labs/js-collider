@@ -73,7 +73,7 @@ public class Server
                 final int messagesExpected = msg.getInt();
                 if (m_messagesExpected == 0)
                 {
-                    m_bufferCache = new CachedByteBuffer.Cache( true, messageLength, 100 );
+                    m_bufferCache = new CachedByteBuffer.Cache( true, messageLength );
                     m_startTime = System.nanoTime();
                     m_sessionsExpected = sessionsExpected;
                     m_messagesExpected = messagesExpected;
@@ -128,7 +128,7 @@ public class Server
             socketSendBufSize = socketBufferSize;
         }
 
-        public void onAcceptorStarted( int localPort )
+        public void onAcceptorStarted( Collider collider, int localPort )
         {
             System.out.println( "Server started at port " + localPort );
             if (m_client != null)
