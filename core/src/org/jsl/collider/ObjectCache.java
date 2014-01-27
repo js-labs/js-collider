@@ -94,7 +94,7 @@ public abstract class ObjectCache<TYPE>
         final int size = m_size;
         m_size = 0;
 
-        if (m_size < initialSize)
+        if (size < initialSize)
         {
             return "resource leak detected: current size " +
                     size + " less than initial size (" + initialSize + ").";
