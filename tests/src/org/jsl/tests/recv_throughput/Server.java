@@ -25,9 +25,7 @@ import org.jsl.collider.Session;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
-import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -113,17 +111,7 @@ public class Server
         {
             System.out.println( "Server started at port " + portNumber );
             if (m_client != null)
-            {
-                try
-                {
-                    final InetAddress addr = InetAddress.getByAddress( new byte[] {127, 0, 0, 1} );
-                    m_client.start( new InetSocketAddress(addr, portNumber) );
-                }
-                catch (UnknownHostException ex)
-                {
-                    ex.printStackTrace();
-                }
-            }
+                m_client.start( new InetSocketAddress("localhost", portNumber) );
         }
 
         public Session.Listener createSessionListener( Session session )
