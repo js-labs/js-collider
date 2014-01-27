@@ -36,7 +36,8 @@ public class Main
                 max = tt;
             sum += tt;
             tt /= 1000;
-            System.out.print( tt + " " );
+            if (idx < (skip+20))
+                System.out.print( tt + " " );
         }
         System.out.println();
 
