@@ -96,7 +96,7 @@ public class CachedByteBuffer
             final int retainCount = m_retainCount.get();
             assert( retainCount > 0 );
             if (m_retainCount.compareAndSet(retainCount, retainCount+1))
-                return;
+                break;
         }
     }
 
@@ -114,7 +114,7 @@ public class CachedByteBuffer
                     m_buf.clear();
                     m_cache.put( this );
                 }
-                return;
+                break;
             }
         }
     }
@@ -127,6 +127,11 @@ public class CachedByteBuffer
     public final void put( ByteBuffer src )
     {
         m_buf.put( src );
+    }
+
+    public final void putInt( int index, int value )
+    {
+        m_buf.putInt( index, value );
     }
 
     public final void position( int pos )
