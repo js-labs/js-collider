@@ -68,17 +68,7 @@ public class Server
         {
             System.out.println( "Echo latency server started at port " + localPort );
             if (m_client != null)
-            {
-                try
-                {
-                    final InetAddress addr = InetAddress.getByAddress( new byte [] {127, 0, 0, 1} );
-                    m_client.start( new InetSocketAddress(addr, localPort) );
-                }
-                catch (UnknownHostException ex)
-                {
-                    ex.printStackTrace();
-                }
-            }
+                m_client.start( new InetSocketAddress("localhost", localPort) );
         }
 
         public Session.Listener createSessionListener( Session session )
