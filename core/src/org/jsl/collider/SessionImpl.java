@@ -681,12 +681,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
             if (m_tail.compareAndSet(tail, CLOSE_MARKER))
             {
-                if (s_logger.isLoggable(Level.FINER))
-                {
-                    s_logger.finer(
-                            m_localSocketAddress + " -> " + m_remoteSocketAddress + ": " + tail );
-                }
-
                 if (tail == null)
                 {
                     m_head = CLOSE_MARKER;
@@ -701,7 +695,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             {
                                 s_logger.finer(
                                         m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) + " tail==null" );
                                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
                                 break;
                             }
@@ -715,7 +709,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             {
                                 s_logger.finer(
                                         m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) + " tail==null" );
 
                                 m_socketChannelReader.stop();
 
@@ -741,7 +735,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             {
                                 s_logger.finer(
                                         m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                                        ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                        ": " + stateToString(state) + " -> " + stateToString(newState) + " tail!=null" );
                                 break;
                             }
                         }
@@ -750,7 +744,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             assert( (state & STATE_MASK) == ST_RUNNING );
                             s_logger.finer(
                                     m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                                    ": " + stateToString(state) );
+                                    ": " + stateToString(state) + " tail!=null" );
                             m_socketChannelReader.stop();
                             break;
                         }
