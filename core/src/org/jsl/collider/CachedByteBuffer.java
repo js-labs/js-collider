@@ -124,28 +124,43 @@ public class CachedByteBuffer
         return m_buf;
     }
 
-    public final void put( ByteBuffer src )
+    public final CachedByteBuffer put( ByteBuffer src )
     {
         m_buf.put( src );
+        return this;
     }
 
-    public final void putInt( int index, int value )
+    public final CachedByteBuffer putInt( int index, int value )
     {
         m_buf.putInt( index, value );
+        return this;
     }
 
-    public final void position( int pos )
+    public final int position()
     {
-        m_buf.position( pos );
+        return m_buf.position();
     }
 
-    public final void flip()
+    public final CachedByteBuffer position( int newPosition )
+    {
+        m_buf.position( newPosition );
+        return this;
+    }
+
+    public final int remaining()
+    {
+        return m_buf.remaining();
+    }
+
+    public final CachedByteBuffer flip()
     {
         m_buf.flip();
+        return this;
     }
 
-    public final void clear()
+    public final CachedByteBuffer clear()
     {
         m_buf.clear();
+        return this;
     }
 }
