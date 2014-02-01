@@ -21,12 +21,9 @@ public class Util
 {
     public static String formatDelay( long startTime, long endTime )
     {
-        long delay = (endTime - startTime);
-        delay /= 1000;
-        if (delay == 0)
-            return "0.0";
-        long sec = (delay / 1000000);
-        long usec = (delay % 1000000);
-        return String.format( "%d.%06d", sec, usec );
+        final long delay = ((endTime - startTime) / 1000);
+        if (delay > 0)
+            return String.format( "%d.%06d", delay/1000000, delay%1000000 );
+        return "0.0";
     }
 }
