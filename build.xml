@@ -113,6 +113,10 @@
         <run-test name="session_throughput"/>
     </target>
 
+    <target name="test.session_close" depends="compile_tests">
+        <run-test name="session_close"/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.sched_latency,
@@ -122,6 +126,7 @@
                      test.echo_latency,
                      test.echo_throughput,
                      test.session_latency,
-                     test.session_throughput"/>
+                     test.session_throughput,
+                     test.session_close"/>
 
 </project>
