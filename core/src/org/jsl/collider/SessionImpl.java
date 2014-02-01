@@ -162,7 +162,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     return;
                 }
             }
-            catch (IOException ex)
+            catch (Exception ex)
             {
                 closeAndCleanupQueue( ex );
                 releaseSocket( "SocketWriter");
@@ -252,7 +252,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         {
                             m_socketChannel.write( m_buf );
                         }
-                        catch (IOException ex)
+                        catch (Exception ex)
                         {
                             closeAndCleanupQueue( ex );
                             releaseSocket( "ShMemWriter1" );
@@ -339,7 +339,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 {
                     m_socketChannel.write( m_buf );
                 }
-                catch (IOException ex)
+                catch (Exception ex)
                 {
                     closeAndCleanupQueue( ex );
                     releaseSocket( "ShMemWriter5" );
@@ -581,6 +581,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     public int sendData( ByteBuffer data )
     {
+        assert( data.remaining() > 0 );
         final Node node = new Node( data );
         for (;;)
         {
@@ -604,6 +605,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     public int sendData( CachedByteBuffer data )
     {
+        assert( data.remaining() > 0 );
         final Node node = new Node( data.getByteBuffer(), data );
         for (;;)
         {
@@ -628,6 +630,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     public int sendDataSync( ByteBuffer data )
     {
+        assert( data.remaining() > 0 );
         final Node node = new Node( data );
         for (;;)
         {
@@ -654,7 +657,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         {
             m_socketChannel.write( data );
         }
-        catch (IOException ex)
+        catch (Exception ex)
         {
             closeAndCleanupQueue( ex );
             releaseSocket( "sendDataSync()" );
@@ -714,7 +717,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                                 m_socketChannelReader.stop();
 
                                 if ((state & SOCK_RC_MASK) == 0)
-                                    m_collider.executeInSelectorThread(new SelectorDeregistrator());
+                                    m_collider.executeInSelectorThread( new SelectorDeregistrator() );
 
                                 break;
                             }
@@ -745,6 +748,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             s_logger.finer(
                                     m_localSocketAddress + " -> " + m_remoteSocketAddress +
                                     ": " + stateToString(state) + " tail!=null" );
+
                             m_socketChannelReader.stop();
                             break;
                         }
@@ -796,10 +800,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         break;
                 }
             }
-            catch (IOException ex)
+            catch (Exception ex)
             {
                 closeAndCleanupQueue( ex );
-                releaseSocket( "accelerate" );
+                releaseSocket( "accelerate()" );
                 return -1;
             }
         }
@@ -876,16 +880,36 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
         if (ex != null)
         {
-            if (s_logger.isLoggable(Level.WARNING))
+            /* SocketChannel.write() can throw following exceptions:
+             *   - NotYetConnectedException (subclass of Exception)
+             *   - ClosedChannelException (subclass of IOException)
+             *   - AsynchronousCloseException (subclass of ClosedChannelException, IOException)
+             *   - ClosedByInterruptException (subclass of ClosedChannelException, IOException)
+             *   - IOException
+             * Everything except the IOException we considering as a bug.
+             */
+            if (ex.getClass().equals(IOException.class))
             {
-                s_logger.warning(
-                        m_localSocketAddress + " -> " + m_remoteSocketAddress.toString() +
-                        ": " + ex.toString() );
+                if (s_logger.isLoggable(Level.FINER))
+                {
+                    s_logger.finer(
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress.toString() +
+                            ": " + ex.toString() );
+                }
+            }
+            else
+            {
+                if (s_logger.isLoggable(Level.WARNING))
+                {
+                    s_logger.warning(
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress.toString() +
+                            ": " + ex.toString() );
+                }
             }
         }
     }
 
-    private void releaseSocket( final String hint )
+    public final void releaseSocket( final String hint )
     {
         for (;;)
         {

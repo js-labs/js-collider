@@ -19,9 +19,9 @@
 
 package org.jsl.collider;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
@@ -42,7 +42,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
         }
     }
 
-    private static class Suspender extends ColliderImpl.SelectorThreadRunnable
+    private class Suspender extends ColliderImpl.SelectorThreadRunnable
     {
         public int runInSelectorThread()
         {
@@ -57,11 +57,26 @@ public class SocketChannelReader extends ThreadPool.Runnable
         public int runInSelectorThread()
         {
             final int interestOps = m_selectionKey.interestOps();
-
             if ((interestOps & SelectionKey.OP_READ) == 0)
             {
-                m_waits++;
-                m_collider.executeInSelectorThreadLater( this );
+                final int state = m_state.get();
+                if ((state & CLOSE) == 0)
+                {
+                    m_waits++;
+                    m_collider.executeInSelectorThreadLater( this );
+                }
+                else
+                {
+                    if (s_logger.isLoggable(Level.FINER))
+                    {
+                        s_logger.finer(
+                                m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                                ": " + stateToString(state) + " (" + m_waits + " waits)." );
+                    }
+                    m_selectionKey = null;
+                    m_socketChannel = null;
+                    m_session.handleReaderStoppedST();
+                }
             }
             else
             {
@@ -69,43 +84,29 @@ public class SocketChannelReader extends ThreadPool.Runnable
                 {
                     final int state = m_state.get();
                     assert( (state & STOP) != 0 );
+                    assert( (state & CLOSE) == 0 );
 
-                    if ((state & CLOSE) == 0)
+                    final int newState = (state | CLOSE);
+                    if (m_state.compareAndSet(state, newState))
                     {
-                        final int newState = (state | CLOSE);
-                        if (m_state.compareAndSet(state, newState))
-                        {
-                            if (s_logger.isLoggable(Level.FINER))
-                            {
-                                s_logger.finer(
-                                        m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                        ": " + stateToString(state) + " -> " + stateToString(newState) +
-                                        " (" + m_waits + " waits).");
-                            }
-                            if ((newState & LENGTH_MASK) == 0)
-                                m_collider.executeInThreadPool( new CloseNotifier() );
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        /* Socket reader already handled close event */
                         if (s_logger.isLoggable(Level.FINER))
                         {
                             s_logger.finer(
                                     m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                    ": " + stateToString(state) + " (" + m_waits + " waits).");
+                                    ": " + stateToString(state) + " -> " + stateToString(newState) +
+                                    " (" + m_waits + " waits).");
                         }
+
+                        if ((newState & LENGTH_MASK) == 0)
+                            m_collider.executeInThreadPool( new CloseNotifier() );
+
+                        m_selectionKey.interestOps( interestOps - SelectionKey.OP_READ );
+                        m_selectionKey = null;
+                        m_socketChannel = null;
+                        m_session.handleReaderStoppedST();
                         break;
                     }
                 }
-
-             
-                m_selectionKey.interestOps( interestOps - SelectionKey.OP_READ );
-                m_selectionKey = null;
-                m_socketChannel = null;
-
-                m_session.handleReaderStoppedST();
             }
             return 0;
         }
@@ -232,6 +233,9 @@ public class SocketChannelReader extends ThreadPool.Runnable
     private final ByteBuffer [] m_iov;
     private DataBlock m_tail;
 
+    private int m_statReads;
+    private int m_statHandleData;
+
     private void handleData( DataBlock dataBlock, int state )
     {
         boolean tailLock;
@@ -281,6 +285,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
             for (;;)
             {
+                assert( (state & LENGTH_MASK) >= bytesReady );
                 int newState = state;
                 newState -= bytesReady;
 
@@ -296,13 +301,18 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
                     if (m_state.compareAndSet(state, newState))
                     {
-                        if ((state & LENGTH_MASK) > m_forwardReadMaxSize)
+                        if ((newState & CLOSE) == 0)
                         {
-                            assert( (newState & LENGTH_MASK) <= m_forwardReadMaxSize );
-                            assert( (newState & CLOSE) == 0 );
-                            m_starter.readDone = 0;
-                            if ((newState & STOP) == 0)
+                            if ((state & LENGTH_MASK) >= m_forwardReadMaxSize)
+                            {
+                                m_starter.readDone = 0;
                                 m_collider.executeInSelectorThread( m_starter );
+                            }
+                        }
+                        else
+                        {
+                            m_closeListener.onConnectionClosed();
+                            printStats();
                         }
                         state = newState;
 
@@ -319,12 +329,12 @@ public class SocketChannelReader extends ThreadPool.Runnable
                 {
                     if (m_state.compareAndSet(state, newState))
                     {
-                        if (((state & LENGTH_MASK) > m_forwardReadMaxSize) &&
-                            ((newState & LENGTH_MASK) <= m_forwardReadMaxSize))
+                        if (((state & LENGTH_MASK) >= m_forwardReadMaxSize) &&
+                            ((newState & LENGTH_MASK) < m_forwardReadMaxSize) &&
+                            ((newState & CLOSE) == 0))
                         {
                             m_starter.readDone = 0;
-                            if ((newState & STOP) == 0)
-                                m_collider.executeInSelectorThread( m_starter );
+                            m_collider.executeInSelectorThread( m_starter );
                         }
                         state = newState;
                         break;
@@ -346,7 +356,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
         if (tailLock)
         {
             assert( dataBlock == m_tail );
-            DataBlock tail = m_tail;
+            final DataBlock tail = m_tail;
             m_tail = null;
 
             for (;;)
@@ -354,26 +364,14 @@ public class SocketChannelReader extends ThreadPool.Runnable
                 assert( (state & TAIL_LOCK) != 0 );
                 final int newState = (state - TAIL_LOCK);
                 if (m_state.compareAndSet(state, newState))
-                {
-                    state = newState;
                     break;
-                }
                 state = m_state.get();
             }
 
             assert( tail.next == null );
             m_dataBlockCache.put( tail.reset() );
         }
-
-        if ((state & CLOSE) != 0)
-        {
-            m_closeListener.onConnectionClosed();
-            printStats();
-        }
     }
-
-    private int m_statReads;
-    private int m_statHandleData;
 
     public SocketChannelReader(
             ColliderImpl colliderImpl,
@@ -420,27 +418,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
             {
                 for (;;)
                 {
-                    /* assert( (state & CLOSE) == 0 );
-                     * Actually can happen:
-                     *                 t@1                                             t@2
-                     * state += STOP
-                     *                                                           runInThreadPool() (state += CLOSE)
-                     *                                                           executeInSelectorThread( m_starter )
-                     *                                                           runInThreadPool()
-                     * m_collider.executeInSelectorThread( new Stopper() )
-                     */
-                    if ((state & CLOSE) != 0)
-                    {
-                        if (s_logger.isLoggable(Level.FINER))
-                        {
-                            s_logger.finer(
-                                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                    ": " + stateToString(state) + " (2CLOSE)" );
-                        }
-                        m_collider.executeInSelectorThread( m_starter );
-                        return;
-                    }
-
+                    assert( (state & CLOSE) == 0 );
                     final int newState = (state | CLOSE);
                     if (m_state.compareAndSet(state, newState))
                     {
@@ -457,7 +435,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
                             printStats();
                         }
 
-                        m_collider.executeInSelectorThread( m_starter );
+                        m_collider.executeInSelectorThreadNoWakeup( m_suspender );
                         return;
                     }
                     state = m_state.get();
@@ -541,8 +519,31 @@ public class SocketChannelReader extends ThreadPool.Runnable
             */
             m_statReads++;
         }
+        catch (ClosedChannelException ex)
+        {
+            /* Should not happen, considered as a bug. */
+            if (s_logger.isLoggable(Level.WARNING))
+            {
+                s_logger.warning(
+                        m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                        ": " + ex.toString() + "." );
+            }
+            bytesReceived = 0;
+        }
+        catch (IOException ex)
+        {
+            /* Not actually a problem. */
+            if (s_logger.isLoggable(Level.FINER))
+            {
+                s_logger.finer(
+                        m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                        ": " + ex.toString() + "." );
+            }
+            bytesReceived = 0;
+        }
         catch (Exception ex)
         {
+            /* Any other exception should not happen, considered as a bug. */
             if (s_logger.isLoggable(Level.WARNING))
             {
                 s_logger.warning(
@@ -613,16 +614,13 @@ public class SocketChannelReader extends ThreadPool.Runnable
             }
 
             final int length = (state & LENGTH_MASK);
-            if ((length > m_forwardReadMaxSize) && ((state & STOP) == 0))
-            {
-                /* Let's skip further reading for a while. */
-                m_collider.executeInSelectorThread( m_suspender );
-            }
-            else
+            if (length < m_forwardReadMaxSize)
             {
                 m_starter.readDone = 1;
                 m_collider.executeInSelectorThreadNoWakeup( m_starter );
             }
+            else
+                m_collider.executeInSelectorThreadNoWakeup( m_suspender );
 
             if (length == bytesReceived)
             {
@@ -664,20 +662,15 @@ public class SocketChannelReader extends ThreadPool.Runnable
                                 m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
                                 ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
                     }
-
-                    if ((newState & STOP) == 0)
-                    {
-                        m_collider.executeInSelectorThread( m_suspender );
-                        m_session.handleReaderStopped();
-                    }
-                    else
-                        m_collider.executeInSelectorThread( m_starter );
-
                     state = newState;
                     break;
                 }
                 state = m_state.get();
             }
+
+            m_collider.executeInSelectorThreadNoWakeup( m_suspender );
+            if ((state & STOP) == 0)
+                m_session.handleReaderStopped();
 
             /* assert( dataBlock0.next == null );
              * dataBlock1 will always be freed, dataBlock0 - sometimes.
@@ -809,13 +802,15 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
             if ((state & CLOSE) != 0)
             {
-                /* Reader is already being closed. */
+                /* Reader is already being closed,
+                 * handleReaderStopped() is already called or will be called soon.
+                 */
                 break;
             }
 
-            if ((state & LENGTH_MASK) > m_forwardReadMaxSize)
+            if ((state & LENGTH_MASK) >= m_forwardReadMaxSize)
             {
-                final int newState = (state | CLOSE | STOP);
+                final int newState = (state | CLOSE);
                 if (m_state.compareAndSet(state, newState))
                 {
                     if (s_logger.isLoggable(Level.FINER))
@@ -824,6 +819,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
                                 m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
                                 ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
                     }
+                    m_session.releaseSocket( "SocketChannelReader.stop()" );
                     break;
                 }
             }
