@@ -1,7 +1,7 @@
 /*
- * JS-Collider framework.
- * Copyright (C) 2013 Sergey Zubarev
- * info@js-labs.org
+ * Copyright (C) 2013 Sergey Zubarev, info@js-labs.org
+ *
+ * This file is a part of JS-Collider framework.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
