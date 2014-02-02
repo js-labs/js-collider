@@ -138,12 +138,15 @@ public class ConnectorImpl extends SessionEmitterImpl
             }
             catch (IOException ex)
             {
-                int pendingOps = releaseMonitor();
+                final int pendingOps = releaseMonitor();
                 if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( "internal error: pendingOps=" + pendingOps + "." );
+                {
+                    s_logger.warning(
+                            m_connector.getAddr() + ": internal error: pendingOps=" + pendingOps + "." );
+                }
 
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+                    s_logger.warning( m_connector.getAddr() + ": " + ex.toString() );
 
                 m_connector.onException( ex );
 
@@ -180,12 +183,11 @@ public class ConnectorImpl extends SessionEmitterImpl
                 (m_selectionKey.interestOps() == SelectionKey.OP_CONNECT))
             {
                 /* Socket is not connected yet. */
-                int pendingOps = releaseMonitor();
+                final int pendingOps = releaseMonitor();
                 if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
                 {
                     s_logger.warning(
-                            m_connector.getAddr().toString() +
-                            ": internal error: pendingOps=" + pendingOps + "." );
+                            m_connector.getAddr() + ": internal error: pendingOps=" + pendingOps + "." );
                 }
 
                 m_selectionKey.cancel();
@@ -198,7 +200,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                 catch (IOException ex)
                 {
                     if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+                        s_logger.warning( m_connector.getAddr() + ": " + ex.toString() );
                 }
                 m_socketChannel = null;
             }
@@ -227,7 +229,7 @@ public class ConnectorImpl extends SessionEmitterImpl
             catch (IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( m_connector.getAddr().toString() + ": " + ex.toString() );
+                    s_logger.warning( m_connector.getAddr() + ": " + ex.toString() );
             }
             return 0;
         }
@@ -250,8 +252,7 @@ public class ConnectorImpl extends SessionEmitterImpl
         if (s_logger.isLoggable(Level.FINE))
         {
             s_logger.fine(
-                    m_connector.getAddr().toString() +
-                    ": (" + (connected ? "connected" : "pending") + ")." );
+                    m_connector.getAddr() + ": (" + (connected ? "connected" : "pending") + ")." );
         }
 
         if (connected)
@@ -272,15 +273,20 @@ public class ConnectorImpl extends SessionEmitterImpl
          * but we need a possibility to stop the connector
          * while collider is not started yet.
          */
-        int state = m_state.get();
-        int newState;
         for (;;)
         {
+            final int state = m_state.get();
             if ((state & FL_STOP) == 0)
             {
-                newState = (state | FL_STOP);
+                final int newState = (state | FL_STOP);
                 if (m_state.compareAndSet(state, newState))
                 {
+                    if (s_logger.isLoggable(Level.FINE))
+                    {
+                        s_logger.fine(
+                                m_connector.getAddr() + ": state=(" + state + " -> " + newState + ")." );
+                    }
+
                     if ((newState & FL_STARTING) == 0)
                     {
                         m_collider.executeInSelectorThread( new Stopper1() );
@@ -288,14 +294,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                     }
                     else
                     {
-                        if (s_logger.isLoggable(Level.FINE))
-                        {
-                            s_logger.fine(
-                                    m_connector.getAddr().toString() +
-                                    ": state=(" + state + " -> " + newState + ")." );
-                        }
-
-                        int pendingOps = releaseMonitor();
+                        final int pendingOps = releaseMonitor();
                         if ((pendingOps != 1) && s_logger.isLoggable(Level.WARNING))
                         {
                             s_logger.warning(
@@ -308,28 +307,17 @@ public class ConnectorImpl extends SessionEmitterImpl
             }
             else
             {
+                if (s_logger.isLoggable(Level.FINE))
+                    s_logger.fine( m_connector.getAddr() + ": state=" + state );
+
                 if ((state & FL_STARTING) == 0)
                 {
-                    /* Connector is being stop, let's just wait. */
-                    newState = state;
+                    /* Connector is being stop, let's wait a bit. */
                     break;
                 }
                 else
-                {
-                    if (s_logger.isLoggable(Level.FINE))
-                        s_logger.fine( m_connector.getAddr().toString() + ": state=" + state );
                     return;
-                }
             }
-
-            state = m_state.get();
-        }
-
-        if (s_logger.isLoggable(Level.FINE))
-        {
-            s_logger.fine(
-                    m_connector.getAddr().toString() +
-                    ": state=(" + state + " -> " + newState + ")." );
         }
 
         waitMonitor();
