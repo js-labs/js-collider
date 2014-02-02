@@ -249,12 +249,13 @@ public class SocketChannelReader extends ThreadPool.Runnable
             int pos = rw.position();
             for (;;)
             {
-                int bb = (m_blockSize - pos);
+                final int bb = (m_blockSize - pos);
                 if (bytesRemaining <= bb)
                 {
-                    int limit = pos + bytesRemaining;
+                    final int limit = pos + bytesRemaining;
                     rw.limit( limit );
                     m_dataListener.onDataReceived( rw );
+                    rw.limit( limit ); /* limit can be changed by listener, let's set it again. */
                     rw.position( limit );
                     break;
                 }
