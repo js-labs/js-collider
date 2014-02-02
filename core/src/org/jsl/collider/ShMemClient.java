@@ -62,7 +62,12 @@ public class ShMemClient extends ShMem
         this( fileHint, blockSize, null );
     }
 
-    public int getDescriptorLength()
+    public ShMemClient( String fileHint ) throws IOException
+    {
+        this( fileHint, 64*1024 );
+    }
+
+    public final int getDescriptorLength()
     {
         /* Shared memory session descriptor structure:
          * short : descriptor version
@@ -78,7 +83,7 @@ public class ShMemClient extends ShMem
                 2 + m_s2cBB.remaining());
     }
 
-    public void getDescriptor( ByteBuffer buf ) throws BufferOverflowException
+    public final void getDescriptor( ByteBuffer buf ) throws BufferOverflowException
     {
         assert( buf.remaining() >= getDescriptorLength() );
         buf.putShort( (short) 1 );
@@ -89,17 +94,17 @@ public class ShMemClient extends ShMem
         buf.put( m_s2cBB );
     }
 
-    public ChannelIn getIn()
+    public final ChannelIn getIn()
     {
         return m_in;
     }
 
-    public ChannelOut getOut()
+    public final ChannelOut getOut()
     {
         return m_out;
     }
 
-    public void close()
+    public final void close()
     {
         m_in.close();
         m_out.close();
