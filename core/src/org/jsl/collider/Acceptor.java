@@ -33,5 +33,19 @@ public abstract class Acceptor extends SessionEmitter
         super( addr );
     }
 
-    public void onAcceptorStarted( Collider collider, int localPort ) {}
+    /**
+     * Creates <tt>Session.Listener</tt> instance to be linked with the session.
+     * Called by framework, derived class supposed to override the method.
+     * Method is not MT safe, can be called concurrently in a number of threads.
+     */
+    public abstract Session.Listener createSessionListener( Session session );
+
+    /**
+     * Called by framework right before it is ready to accept connections.
+     * It is still safe to remove the <tt>Acceptor</tt> instance from the collider
+     * within this method, no one connection will be accepted then.
+     */
+    public void onAcceptorStarted( Collider collider, int localPort )
+    {
+    }
 }
