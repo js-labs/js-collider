@@ -255,7 +255,10 @@ public class SocketChannelReader extends ThreadPool.Runnable
                     final int limit = pos + bytesRemaining;
                     rw.limit( limit );
                     m_dataListener.onDataReceived( rw );
-                    rw.limit( limit ); /* limit can be changed by listener, let's set it again. */
+                    /* limit can be changed by listener,
+                     * let's set it again to avoid exception.
+                     */
+                    rw.limit( limit );
                     rw.position( limit );
                     break;
                 }
