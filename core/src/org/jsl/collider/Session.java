@@ -22,7 +22,6 @@ package org.jsl.collider;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 
-
 public interface Session
 {
     public interface Listener
@@ -61,22 +60,20 @@ public interface Session
     public SocketAddress getRemoteAddress();
 
     /**
-     * Sends data to the underlying socket channel. In most cases data will be written
-     * asynchronously, but sometimes not. Retains the data buffer if it going to be sent
-     * asynchronously.
-     * @return  0 - data written to the socket channel, byte buffer can be reused
-     *         >0 - byte buffer is retained by the framework, will be send as soon as possible
-     *         -1 - the session is closed
+     * Schedules data to be sent to the underlying socket channel.
+     * Retains the data buffer
+     * @return >=0 - byte buffer is retained by the framework, will be sent as soon as possible
+     *          -1 - the session is closed
      */
     public int sendData( ByteBuffer data );
     public int sendData( CachedByteBuffer data );
 
     /**
-     * Method tries to write data to the session underlying socket channel
-     * if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
+     * Method makes an attempt to write data synchronously to the underlying socket channel.
+     * It can happen if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
      * Otherwise data will sent as <em>sendData</em> would be called.
      * @return  0 - data written to socket, byte buffer can be reused
-     *         >0 - byte buffer is retained by the framework, will be send as soon as possible
+     *         >0 - byte buffer is retained by the framework, will be sent as soon as possible
      *         -1 - the session is closed
      */
     public int sendDataSync( ByteBuffer data );
