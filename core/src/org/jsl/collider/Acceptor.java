@@ -35,8 +35,10 @@ public abstract class Acceptor extends SessionEmitter
 
     /**
      * Creates <tt>Session.Listener</tt> instance to be linked with the session.
-     * Called by framework, derived class supposed to override the method.
-     * Method is not MT safe, can be called concurrently in a number of threads.
+     * Called by framework, derived class supposed to override it.
+     * METHOD IS NOT [MT] SAFE, can be called concurrently in a number of threads.
+     * Connection will be closed if returns <tt>null</tt>, but any data
+     * scheduled with <tt>sendData</tt> call before return will be sent.
      */
     public abstract Session.Listener createSessionListener( Session session );
 
