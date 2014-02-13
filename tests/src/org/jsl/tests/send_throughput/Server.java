@@ -24,6 +24,7 @@ import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
 import org.jsl.tests.Util;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.Semaphore;
@@ -155,9 +156,16 @@ public class Server
 
     public void run()
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor() );
-        collider.run();
-        m_client.stopAndWait();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor() );
+            collider.run();
+            m_client.stopAndWait();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 }

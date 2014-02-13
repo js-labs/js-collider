@@ -20,10 +20,25 @@
 package org.jsl.collider;
 
 import java.io.IOException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
-/* Collider public API. */
+/* Collider public API. Typical usage example:
+ * <pre>{@code
+ * class ColliderApplication
+ * {
+ *     public static void main( String [] args )
+ *     {
+ *         try
+ *         {
+ *             final Collider collider = Collider.create();
+ *             collider.run();
+ *         }
+ *         catch (IOException ex)
+ *         {
+ *             ex.printStackTrace();
+ *         }
+ *     }
+ * }</pre>
+ */
 
 public abstract class Collider
 {
@@ -54,7 +69,6 @@ public abstract class Collider
         }
     }
 
-    private static final Logger s_logger = Logger.getLogger( Collider.class.getName() );
     private final Config m_config;
 
     protected Collider( Config config )
@@ -75,8 +89,8 @@ public abstract class Collider
 
     /**
      * Stops the running collider.
-     * The call is asynchronous, on return collider can still run some time.
-     * All currently registered acceptors and connectors will be removed.
+     * The call is asynchronous, collider can still run some time.
+     * All currently registered acceptors and connectors will be removed first.
      * After that all established sessions will be closed
      * (Session.Listener.onConnectionClose() will be called for each).
      * Only after that collider run loop stops and the thread running
@@ -84,28 +98,29 @@ public abstract class Collider
      */
     public abstract void stop();
 
-    public abstract void addAcceptor( Acceptor acceptor );
+    /**
+     * Adds an <tt>Acceptor</tt> to the collider.
+     * Additionally to the server socket exceptions
+     * throws an IOException in a case if collider already stopped.
+     */
+    public abstract void addAcceptor( Acceptor acceptor ) throws IOException;
+
+    /**
+     * Removes the <tt>Acceptor</tt> from the collider.
+     * On return guarantees that no one thread runs
+     * <tt>Acceptor.onAcceptorStarted</tt> or <tt>Acceptor.createSessionListener</tt>.
+     */
     public abstract void removeAcceptor( Acceptor acceptor ) throws InterruptedException;
 
-    public abstract void addConnector( Connector connector );
+    public abstract void addConnector( Connector connector ) throws IOException;
     public abstract void removeConnector( Connector connector ) throws InterruptedException;
 
-    public static Collider create( Config config )
+    public static Collider create( Config config ) throws IOException
     {
-        Collider collider = null;
-        try
-        {
-            collider = new ColliderImpl( config );
-        }
-        catch (IOException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( ex.toString() );
-        }
-        return collider;
+        return new ColliderImpl( config );
     }
 
-    public static Collider create()
+    public static Collider create() throws IOException
     {
         return create( new Config() );
     }

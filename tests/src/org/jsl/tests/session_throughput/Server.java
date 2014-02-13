@@ -20,6 +20,7 @@
 package org.jsl.tests.session_throughput;
 
 import org.jsl.collider.*;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
@@ -165,9 +166,16 @@ public class Server
 
     public void run()
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor() );
-        collider.run();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor() );
+            collider.run();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
 
         if (m_client != null)
             m_client.stopAndWait();

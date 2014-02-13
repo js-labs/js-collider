@@ -454,23 +454,14 @@ public class ColliderImpl extends Collider
         m_threadPool.execute( runnable );
     }
 
-    public void addAcceptor( Acceptor acceptor )
+    public void addAcceptor( Acceptor acceptor ) throws IOException
     {
-        ServerSocketChannel channel;
-        try
-        {
-            channel = ServerSocketChannel.open();
-            channel.configureBlocking( false );
+        final ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+        serverSocketChannel.configureBlocking( false );
 
-            final ServerSocket socket = channel.socket();
-            socket.setReuseAddress( acceptor.reuseAddr );
-            socket.bind( acceptor.getAddr() );
-        }
-        catch (IOException ex)
-        {
-            acceptor.onException(ex);
-            return;
-        }
+        final ServerSocket socket = serverSocketChannel.socket();
+        socket.setReuseAddress( acceptor.reuseAddr );
+        socket.bind( acceptor.getAddr() );
 
         DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( acceptor );
 
@@ -479,7 +470,7 @@ public class ColliderImpl extends Collider
                 inputQueueDataBlockCache,
                 acceptor,
                 m_selector,
-                channel );
+                serverSocketChannel );
 
         IOException ex = null;
 
@@ -502,10 +493,9 @@ public class ColliderImpl extends Collider
             acceptorImpl.start();
         else
         {
-            acceptor.onException(ex);
             try
             {
-                channel.close();
+                serverSocketChannel.close();
             }
             catch (IOException ex1)
             {
@@ -513,6 +503,7 @@ public class ColliderImpl extends Collider
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( ex1.toString() );
             }
+            throw ex;
         }
     }
 
@@ -521,25 +512,11 @@ public class ColliderImpl extends Collider
         removeEmitter( acceptor );
     }
 
-    public void addConnector( Connector connector )
+    public void addConnector( Connector connector ) throws IOException
     {
-        SocketChannel socketChannel;
-        boolean connected;
-
-        try
-        {
-            socketChannel = SocketChannel.open();
-            socketChannel.configureBlocking( false );
-            connected = socketChannel.connect( connector.getAddr() );
-        }
-        catch (IOException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( ex.toString() );
-
-            connector.onException( ex );
-            return;
-        }
+        final SocketChannel socketChannel = SocketChannel.open();
+        socketChannel.configureBlocking( false );
+        final boolean connected = socketChannel.connect( connector.getAddr() );
 
         DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( connector );
 
@@ -569,7 +546,7 @@ public class ColliderImpl extends Collider
         if (ex == null)
             connectorImpl.start( socketChannel, connected );
         else
-            connector.onException( ex );
+            throw ex;
     }
 
     public void removeConnector( Connector connector ) throws InterruptedException

@@ -4,6 +4,7 @@ import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -85,9 +86,16 @@ public class Server
 
     public void run()
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor() );
-        collider.run();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor() );
+            collider.run();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
 
         if (m_client != null)
             m_client.stopAndWait();

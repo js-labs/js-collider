@@ -58,12 +58,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private SocketChannelReader m_socketChannelReader;
     private ThreadPool.Runnable m_writer;
 
-    private static class DummyListener implements Listener
-    {
-        public void onDataReceived( ByteBuffer data ) { }
-        public void onConnectionClosed() { }
-    }
-
     private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
         public int runInSelectorThread()
@@ -527,24 +521,29 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             Listener listener )
     {
         if (listener == null)
-            listener = new DummyListener();
-
-        m_socketChannelReader = new SocketChannelReader(
-                m_collider,
-                this,
-                inputQueueMaxSize,
-                inputQueueDataBlockCache,
-                m_socketChannel,
-                m_selectionKey,
-                listener );
+            closeConnection();
+        else
+        {
+            /* m_socketChannelReader should be initialized before state change
+             * to the ST_RUNNING, closeConnection() method relies on it.
+             */
+            m_socketChannelReader = new SocketChannelReader(
+                    m_collider,
+                    this,
+                    inputQueueMaxSize,
+                    inputQueueDataBlockCache,
+                    m_socketChannel,
+                    m_selectionKey,
+                    listener );
+        }
 
         for (;;)
         {
             final int state = m_state.get();
             assert( (state & STATE_MASK) == ST_STARTING );
-            assert( (state & SOCK_RC_MASK) == SOCK_RC );
             if ((state & CLOSE) == 0)
             {
+                assert( (state & SOCK_RC_MASK) == SOCK_RC );
                 int newState = state;
                 newState &= ~STATE_MASK;
                 newState |= ST_RUNNING;
@@ -569,7 +568,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             m_localSocketAddress + " -> " + m_remoteSocketAddress +
                             ": " + stateToString(state) + "." );
                 }
-                listener.onConnectionClosed();
+                if (listener != null)
+                    listener.onConnectionClosed();
                 break;
             }
         }
@@ -693,12 +693,16 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         if ((state & STATE_MASK) == ST_STARTING)
                         {
                             assert( (state & SOCK_RC_MASK) == SOCK_RC );
-                            final int newState = (state | CLOSE - SOCK_RC);
+                            final int newState = ((state | CLOSE) - SOCK_RC);
                             if (m_state.compareAndSet(state, newState))
                             {
                                 s_logger.finer(
                                         m_localSocketAddress + " -> " + m_remoteSocketAddress +
                                         ": " + stateToString(state) + " -> " + stateToString(newState) + " tail==null" );
+                                /* It would seem worth to close socket channel in the SessionImpl.initialize()
+                                 * in this case, but leaving SOCK_RC here means there are some data is being
+                                 * writing to the socket channel, which is wrong.
+                                 */
                                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
                                 break;
                             }

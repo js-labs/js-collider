@@ -20,6 +20,7 @@
 package org.jsl.tests.shmem_throughput;
 
 import org.jsl.collider.Collider;
+import java.io.IOException;
 
 public class Main
 {
@@ -29,8 +30,15 @@ public class Main
         int messages = 100000;
         int messageLength = 500;
 
-        Collider collider = Collider.create();
-        collider.addAcceptor( new Server.Acceptor(sessions, messages, messageLength) );
-        collider.run();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new Server.Acceptor(sessions, messages, messageLength) );
+            collider.run();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 }

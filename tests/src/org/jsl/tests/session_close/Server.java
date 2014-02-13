@@ -24,6 +24,7 @@ import org.jsl.collider.Acceptor;
 import org.jsl.collider.Session;
 import org.jsl.collider.StreamDefragger;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -249,8 +250,15 @@ public class Server
 
     public void run( int socketBufferSize )
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor(socketBufferSize) );
-        collider.run();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor(socketBufferSize) );
+            collider.run();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 }

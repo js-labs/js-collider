@@ -19,19 +19,11 @@
 
 package org.jsl.collider;
 
-import java.io.IOException;
-import java.net.Socket;
-import java.net.SocketException;
 import java.net.InetSocketAddress;
-import java.nio.channels.SocketChannel;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 
 public abstract class SessionEmitter
 {
-    private static final Logger s_logger = Logger.getLogger( SessionImpl.class.getName() );
-
     private final InetSocketAddress m_addr;
 
     public boolean reuseAddr;
@@ -61,81 +53,10 @@ public abstract class SessionEmitter
         return m_addr;
     }
 
-    public void configureSocketChannel( Collider collider, SocketChannel socketChannel )
-    {
-        final Socket socket = socketChannel.socket();
-        try
-        {
-            socket.setTcpNoDelay( tcpNoDelay );
-        }
-        catch (SocketException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-            {
-                s_logger.log( Level.WARNING,
-                        socket.getRemoteSocketAddress().toString() +
-                        ": setTcpNoDelay(" + tcpNoDelay + ") failed: " + ex.toString() );
-            }
-        }
-
-        try
-        {
-            socket.setReuseAddress( reuseAddr );
-        }
-        catch (SocketException ex)
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-            {
-                s_logger.log( Level.WARNING,
-                        socket.getRemoteSocketAddress().toString() +
-                        ": setReuseAddress(" + reuseAddr + ") failed: " + ex.toString() );
-            }
-        }
-
-        int bufSize = socketRecvBufSize;
-        if (socketRecvBufSize == 0)
-            bufSize = collider.getConfig().socketRecvBufSize;
-
-        if (bufSize > 0)
-        {
-            try
-            {
-                socket.setReceiveBufferSize( bufSize );
-            }
-            catch (SocketException ex)
-            {
-                if (s_logger.isLoggable(Level.WARNING))
-                {
-                    s_logger.log( Level.WARNING,
-                            socket.getRemoteSocketAddress().toString() +
-                            ": setReceiveBufferSize(" + bufSize + ") failed: " + ex.toString() );
-                }
-            }
-        }
-
-        bufSize = socketSendBufSize;
-        if (socketSendBufSize == 0)
-            bufSize = collider.getConfig().socketSendBufSize;
-
-        if (bufSize > 0)
-        {
-            try
-            {
-                socket.setSendBufferSize( bufSize );
-            }
-            catch (SocketException ex)
-            {
-                if (s_logger.isLoggable(Level.WARNING))
-                {
-                    s_logger.log( Level.WARNING,
-                            socket.getRemoteSocketAddress().toString() +
-                            ": setSendBufferSize(" + bufSize + ") failed: " + ex.toString() );
-                }
-            }
-        }
-    }
-
-    public void onException( IOException exception ) {}
-
+    /**
+     * Called by framework to create session listener instance.
+     * See <tt>Acceptor.createSessionListener</tt> and
+     * <tt>Connector.createSessionListener</tt> for detailed description.
+     */
     public abstract Session.Listener createSessionListener( Session session );
 }

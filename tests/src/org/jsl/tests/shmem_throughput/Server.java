@@ -25,6 +25,7 @@ import org.jsl.collider.ShMemServer;
 import org.jsl.collider.StreamDefragger;
 import org.jsl.tests.Util;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,10 +54,19 @@ public class Server
 
         public void onAcceptorStarted( Collider collider, int portNumber )
         {
-            System.out.println( "Server started at port " + portNumber );
+            System.out.println( "ShMem throughput test server started at port " + portNumber );
             final InetSocketAddress addr = new InetSocketAddress( "localhost", portNumber );
             for (int idx=0; idx<m_sessions; idx++)
-                collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
+            {
+                try
+                {
+                    collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
+                }
+                catch (IOException ex)
+                {
+                    ex.printStackTrace();
+                }
+            }
         }
     }
 

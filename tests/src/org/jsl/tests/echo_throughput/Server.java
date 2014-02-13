@@ -22,6 +22,7 @@ package org.jsl.tests.echo_throughput;
 import org.jsl.collider.*;
 import org.jsl.tests.Util;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -149,11 +150,18 @@ public class Server
 
     public void run( int socketBufferSize )
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor(socketBufferSize) );
-        collider.run();
-        m_client.stopAndWait();
-        if (m_bufferCache != null)
-            System.out.println( m_bufferCache.clear() );
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor(socketBufferSize) );
+            collider.run();
+            m_client.stopAndWait();
+            if (m_bufferCache != null)
+                System.out.println( m_bufferCache.clear() );
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 }

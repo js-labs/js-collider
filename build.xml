@@ -121,6 +121,14 @@
         <run-test name="shmem_throughput"/>
     </target>
 
+    <target name="test.remove_acceptor" depends="compile_tests">
+        <run-test name="remove_acceptor"/>
+    </target>
+
+    <target name="test.remove_connector" depends="compile_tests">
+        <run-test name="remove_connector"/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.sched_latency,
@@ -132,6 +140,8 @@
                      test.session_latency,
                      test.session_throughput,
                      test.session_close,
-                     test.shmem_throughput"/>
+                     test.shmem_throughput,
+                     test.remove_acceptor,
+                     test.remove_connector"/>
 
 </project>

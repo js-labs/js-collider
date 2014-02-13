@@ -19,132 +19,16 @@
 
 package org.jsl.collider;
 
-import java.io.IOException;
-import java.nio.channels.SelectableChannel;
+import java.net.Socket;
+import java.net.SocketException;
 import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
-import java.util.HashSet;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 
 public abstract class SessionEmitterImpl
 {
-    private static final Logger s_logger = Logger.getLogger( SessionEmitterImpl.class.getName() );
-
     protected final ColliderImpl m_collider;
     protected final DataBlockCache m_inputQueueDataBlockCache;
-
     private final SessionEmitter m_sessionEmitter;
-    private final ReentrantLock m_lock;
-    private final Condition m_cond;
-    private final HashSet<Thread> m_callbackThreads;
-    private int m_pendingOps;
-
-    private class SessionStarter1 extends ColliderImpl.SelectorThreadRunnable
-    {
-        private final Selector m_selector;
-        private final SocketChannel m_socketChannel;
-
-        public SessionStarter1( Selector selector, SocketChannel socketChannel )
-        {
-            m_selector = selector;
-            m_socketChannel = socketChannel;
-        }
-
-        public int runInSelectorThread()
-        {
-            try
-            {
-                SelectionKey selectionKey = m_socketChannel.register( m_selector, 0, null );
-                m_collider.executeInThreadPool( new SessionStarter2(m_socketChannel, selectionKey) );
-            }
-            catch (IOException ex)
-            {
-                m_collider.executeInThreadPool( new ExceptionNotifier(ex, m_socketChannel) );
-            }
-            return 0;
-        }
-    }
-
-    private class SessionStarter2 extends ThreadPool.Runnable
-    {
-        private final SocketChannel m_socketChannel;
-        private final SelectionKey m_selectionKey;
-
-        public SessionStarter2( SocketChannel socketChannel, SelectionKey selectionKey )
-        {
-            m_socketChannel = socketChannel;
-            m_selectionKey = selectionKey;
-        }
-
-        public void runInThreadPool()
-        {
-            Thread currentThread = Thread.currentThread();
-            addThread( currentThread );
-            try
-            {
-                SessionImpl sessionImpl = new SessionImpl(
-                        m_collider,
-                        m_socketChannel,
-                        m_selectionKey );
-
-                Session.Listener sessionListener = m_sessionEmitter.createSessionListener( sessionImpl );
-                sessionImpl.initialize(
-                        m_sessionEmitter.forwardReadMaxSize,
-                        m_inputQueueDataBlockCache,
-                        sessionListener );
-            }
-            finally
-            {
-                removeThreadAndReleaseMonitor( currentThread );
-            }
-        }
-    }
-
-    protected class ExceptionNotifier extends ThreadPool.Runnable
-    {
-        private final IOException m_exception;
-        private final SelectableChannel m_channel;
-
-        public ExceptionNotifier( IOException exception, SelectableChannel channel )
-        {
-            m_exception = exception;
-            m_channel = channel;
-        }
-
-        public void runInThreadPool()
-        {
-            if (s_logger.isLoggable(Level.WARNING))
-                s_logger.warning( m_exception.toString() );
-
-            Thread currentThread = Thread.currentThread();
-            addThread( currentThread );
-
-            try
-            {
-                m_sessionEmitter.onException( m_exception );
-            }
-            finally
-            {
-                int pendingOps = removeThreadAndReleaseMonitor( currentThread );
-                assert( pendingOps == 1 );
-            }
-
-            try
-            {
-                m_channel.close();
-            }
-            catch (IOException ex)
-            {
-                if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex.toString() );
-            }
-        }
-    }
 
     protected SessionEmitterImpl(
             ColliderImpl collider,
@@ -153,136 +37,89 @@ public abstract class SessionEmitterImpl
     {
         m_collider = collider;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
+        m_sessionEmitter = sessionEmitter;
 
         if (sessionEmitter.forwardReadMaxSize == 0)
             sessionEmitter.forwardReadMaxSize = collider.getConfig().forwardReadMaxSize;
-        m_sessionEmitter = sessionEmitter;
-
-        m_lock = new ReentrantLock();
-        m_cond = m_lock.newCondition();
-        m_callbackThreads = new HashSet<Thread>();
-        m_pendingOps = 1;
     }
 
-    protected final void addThread( Thread thread )
+    protected final void startSession( SocketChannel socketChannel, SelectionKey selectionKey )
     {
-        m_lock.lock();
-        try
-        {
-            m_callbackThreads.add( thread );
-        }
-        finally
-        {
-            m_lock.unlock();
-        }
+        configureSocketChannel( socketChannel );
+
+        final Thread currentThread = Thread.currentThread();
+        final SessionImpl sessionImpl = new SessionImpl( m_collider, socketChannel, selectionKey );
+
+        addThread( currentThread );
+        final Session.Listener sessionListener = m_sessionEmitter.createSessionListener( sessionImpl );
+        removeThreadAndReleaseMonitor( currentThread );
+
+        /* Case when a sessionListener is null
+         * will be handled in the SessionImpl.initialize()
+         */
+        sessionImpl.initialize(
+                   m_sessionEmitter.forwardReadMaxSize,
+                   m_inputQueueDataBlockCache,
+                   sessionListener );
     }
 
-    protected final void removeThread( Thread thread )
+    private void configureSocketChannel( SocketChannel socketChannel )
     {
-        m_lock.lock();
+        final Socket socket = socketChannel.socket();
         try
         {
-            m_callbackThreads.remove( thread );
+            socket.setTcpNoDelay( m_sessionEmitter.tcpNoDelay );
         }
-        finally
+        catch (SocketException ex)
         {
-            m_lock.unlock();
+            logException( ex );
         }
-    }
 
-    protected final int removeThreadAndReleaseMonitor( Thread thread )
-    {
-        boolean done = false;
-        int pendingOps;
-
-        m_lock.lock();
         try
         {
-            pendingOps = m_pendingOps;
-            if (m_callbackThreads.remove(thread))
+            socket.setReuseAddress( m_sessionEmitter.reuseAddr );
+        }
+        catch (SocketException ex)
+        {
+            logException( ex );
+        }
+
+        int bufSize = m_sessionEmitter.socketRecvBufSize;
+        if (bufSize == 0)
+            bufSize = m_collider.getConfig().socketRecvBufSize;
+
+        if (bufSize > 0)
+        {
+            try
             {
-                if (--m_pendingOps == 0)
-                {
-                    m_cond.signalAll();
-                    done = true;
-                }
+                socket.setReceiveBufferSize( bufSize );
+            }
+            catch (SocketException ex)
+            {
+                logException( ex );
             }
         }
-        finally
+
+        bufSize = m_sessionEmitter.socketSendBufSize;
+        if (bufSize == 0)
+            bufSize = m_collider.getConfig().socketSendBufSize;
+
+        if (bufSize > 0)
         {
-            m_lock.unlock();
-        }
-
-        if (done)
-            m_collider.removeEmitterNoWait( m_sessionEmitter );
-
-        return pendingOps;
-    }
-
-    protected final int releaseMonitor()
-    {
-        boolean done = false;
-        int pendingOps;
-
-        m_lock.lock();
-        try
-        {
-            pendingOps = m_pendingOps;
-            if (--m_pendingOps == 0)
+            try
             {
-                m_cond.signalAll();
-                done = true;
+                socket.setSendBufferSize( bufSize );
+            }
+            catch (SocketException ex)
+            {
+                logException( ex );
             }
         }
-        finally
-        {
-            m_lock.unlock();
-        }
-
-        if (done)
-            m_collider.removeEmitterNoWait( m_sessionEmitter );
-
-        return pendingOps;
     }
 
-    protected final void waitMonitor() throws InterruptedException
-    {
-        Thread currentThread = Thread.currentThread();
-        m_lock.lock();
-        try
-        {
-            if (m_callbackThreads.remove(currentThread))
-            {
-                /* Called from the listener callback. */
-                m_pendingOps--;
-            }
-
-            while (m_pendingOps > 0)
-                m_cond.await();
-        }
-        finally
-        {
-            m_lock.unlock();
-        }
-    }
-
-    protected final void startSession( Selector selector, SocketChannel socketChannel )
-    {
-        m_sessionEmitter.configureSocketChannel( m_collider, socketChannel );
-        SessionStarter1 starter = new SessionStarter1( selector, socketChannel );
-
-        m_lock.lock();
-        try
-        {
-            m_pendingOps++;
-        }
-        finally
-        {
-            m_lock.unlock();
-        }
-
-        m_collider.executeInSelectorThread( starter );
-    }
+    protected abstract void addThread( Thread thread );
+    protected abstract void removeThreadAndReleaseMonitor( Thread thread );
+    protected abstract void logException( Exception ex );
 
     public abstract void stopAndWait() throws InterruptedException;
 }

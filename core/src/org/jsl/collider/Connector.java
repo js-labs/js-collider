@@ -19,6 +19,7 @@
 
 package org.jsl.collider;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 
 public abstract class Connector extends SessionEmitter
@@ -27,4 +28,18 @@ public abstract class Connector extends SessionEmitter
     {
         super( addr );
     }
+
+    /**
+     * Creates <tt>Session.Listener</tt> instance to be linked with the session.
+     * Called by framework, derived class supposed to override the method.
+     * Connection will be closed if returns <tt>null</tt>, but any data
+     * scheduled with <tt>sendData</tt> call before return will be sent.
+     */
+    public abstract Session.Listener createSessionListener( Session session );
+
+    /**
+     * Called by framework in a case if asynchronous operation
+     * with underlying socket channel throws some exception.
+     */
+    public abstract void onException( IOException ex );
 }

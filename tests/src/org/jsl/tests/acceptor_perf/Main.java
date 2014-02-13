@@ -23,6 +23,8 @@ import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
 import org.jsl.collider.Session;
 import org.jsl.tests.Util;
+
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -78,7 +80,7 @@ public class Main
             super( new InetSocketAddress(0) );
         }
 
-        public void onAcceptorStarted( int localPort )
+        public void onAcceptorStarted( Collider collider, int localPort )
         {
             System.out.println( "Acceptor started at port " + localPort );
             if (m_runClient)
@@ -102,9 +104,16 @@ public class Main
 
     private void run()
     {
-        Collider collider = Collider.create();
-        collider.addAcceptor( new TestAcceptor() );
-        collider.run();
+        try
+        {
+            final Collider collider = Collider.create();
+            collider.addAcceptor( new TestAcceptor() );
+            collider.run();
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
+        }
     }
 
     private static void print_usage()

@@ -62,6 +62,11 @@ public class Client
         {
             return new HandshakeListener( session, m_useShMem, m_messages, m_msg );
         }
+
+        public void onException( IOException ex )
+        {
+            assert( false );
+        }
     }
 
     private static class HandshakeListener implements Session.Listener
