@@ -61,7 +61,10 @@ public interface Session
 
     /**
      * Schedules data to be sent to the underlying socket channel.
-     * Retains the data buffer
+     * Retains the data buffer, but buffer remains unchanged
+     * (even it's attributes like a position, limit etc)
+     * so the buffer can be reused to send the same data
+     * to the different sessions.
      * @return >=0 - byte buffer is retained by the framework, will be sent as soon as possible
      *          -1 - the session is closed
      */
@@ -92,7 +95,13 @@ public interface Session
      */
     public int closeConnection();
 
-    public int accelerate( ShMem shMem, ByteBuffer message );
+    /**
+     * Replaces the current session listener with a new one.
+     * Supposed to be called only from the <tt>onDataReceived()</tt> callback.
+     * Calling it not from the <tt>onDataReceived</tt> callback will result
+     * in undefined behaviour.
+     */
+    public Listener replaceListener( Listener newListener );
 
-    public Listener replaceListener( Listener listener );
+    public int accelerate( ShMem shMem, ByteBuffer message );
 }
