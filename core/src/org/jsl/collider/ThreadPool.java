@@ -68,15 +68,13 @@ public class ThreadPool
 
     private class Worker extends Thread
     {
-        public Worker( String name )
-        {
-            super( name );
-        }
-
         public void run()
         {
+            final String name = m_name + "-" + getId();
+            setName( name );
+
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.fine( Thread.currentThread().getName() + ": started." );
+                s_logger.log( Level.FINE, name + ": started." );
 
             int idx = 0;
             while (m_run)
@@ -103,7 +101,7 @@ public class ThreadPool
             }
 
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.fine( Thread.currentThread().getName() + ": finished." );
+                s_logger.log( Level.FINE, name + ": finished." );
         }
     }
 
@@ -158,6 +156,7 @@ public class ThreadPool
     private static final Lock LOCK = new Lock();
     private static final int FS_PADDING = 16;
 
+    private final String m_name;
     private final int m_contentionFactor;
     private final Thread [] m_thread;
     private final Sync m_sync;
@@ -167,6 +166,8 @@ public class ThreadPool
 
     public ThreadPool( String name, int threads, int contentionFactor )
     {
+        m_name = name;
+
         assert( contentionFactor >= 1 );
         if (contentionFactor < 1)
             contentionFactor = 1;
@@ -175,10 +176,7 @@ public class ThreadPool
 
         m_thread = new Thread[threads];
         for (int idx=0; idx<threads; idx++)
-        {
-            String workerName = (name + "-" + idx);
-            m_thread[idx] = new Worker( workerName );
-        }
+            m_thread[idx] = new Worker();
 
         m_sync = new Sync( threads );
         m_hra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
