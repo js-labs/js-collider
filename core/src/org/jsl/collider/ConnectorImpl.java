@@ -152,8 +152,18 @@ public class ConnectorImpl extends SessionEmitterImpl
             catch (IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( m_connector.getAddr() + ": " + ex.toString() );
+                {
+                    s_logger.log( Level.WARNING, m_connector.getAddr() + ": " +
+                            ConnectorImpl.this.toString() + ": " + ex.toString() );
+                }
                 thrown = ex;
+            }
+
+            if (s_logger.isLoggable(Level.FINE))
+            {
+                s_logger.log( Level.FINE, m_connector.getAddr() + ": " +
+                        ConnectorImpl.this.toString() + ": " +
+                        " connected=" + connected + " thrown=" + thrown );
             }
 
             if ((thrown == null) && connected)
@@ -172,7 +182,10 @@ public class ConnectorImpl extends SessionEmitterImpl
                 catch (IOException ex1)
                 {
                     if (s_logger.isLoggable(Level.WARNING))
-                        s_logger.warning( m_connector.getAddr() + ": " + ex1.toString() );
+                    {
+                        s_logger.log( Level.WARNING, m_connector.getAddr() + ": " +
+                                ConnectorImpl.this.toString() + ": " + ex1.toString() );
+                    }
                 }
                 m_socketChannel = null;
 
@@ -213,26 +226,21 @@ public class ConnectorImpl extends SessionEmitterImpl
 
         public int runInSelectorThread()
         {
+            if (s_logger.isLoggable(Level.FINE))
+            {
+                s_logger.log( Level.FINE,
+                    m_connector.getAddr() + ": " + ConnectorImpl.this.toString() +
+                    " waits=" + m_waits );
+            }
+
             final int interestOps = m_selectionKey.interestOps();
             if ((interestOps & SelectionKey.OP_CONNECT) == 0)
             {
-                boolean stopped;
-                m_lock.lock();
-                try
-                {
-                    stopped = (m_state == STOPPED);
-                }
-                finally
-                {
-                    m_lock.unlock();
-                }
-
-                if (!stopped)
-                {
-                    m_waits++;
-                    m_collider.executeInSelectorThreadLater( this );
-                    return 0;
-                }
+                /* Connector is being establishing connection,
+                 * or already established.
+                 * Will change state to the STOPPED soon.
+                 */
+                return 0;
             }
 
             /* Unlike the Acceptor we can signal waiter before socket close. */
@@ -249,7 +257,11 @@ public class ConnectorImpl extends SessionEmitterImpl
             }
 
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.log( Level.FINE, m_connector.getAddr() + ": waits=" + m_waits + "." );
+            {
+                s_logger.log( Level.FINE,
+                        m_connector.getAddr() + ": " + ConnectorImpl.this.toString() +
+                        ": waits=" + m_waits + "." );
+            }
 
             m_selectionKey.cancel();
             m_selectionKey = null;
@@ -261,7 +273,10 @@ public class ConnectorImpl extends SessionEmitterImpl
             catch (IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.log( Level.WARNING, m_connector.getAddr() + ": " + ex.toString() + "." );
+                {
+                    s_logger.log( Level.WARNING, m_connector.getAddr() + ": " +
+                            ConnectorImpl.this.toString() + ": " + ex.toString() + "." );
+                }
             }
 
             m_socketChannel = null;
@@ -272,7 +287,7 @@ public class ConnectorImpl extends SessionEmitterImpl
     protected void addThread( Thread thread )
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.log( Level.FINE, m_connector.getAddr().toString() );
+            s_logger.log( Level.FINE, m_connector.getAddr() + ": " + this.toString() );
 
         m_lock.lock();
         try
@@ -289,13 +304,13 @@ public class ConnectorImpl extends SessionEmitterImpl
     protected void removeThreadAndReleaseMonitor( Thread thread )
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.log( Level.FINE, m_connector.getAddr().toString() );
+            s_logger.log( Level.FINE, m_connector.getAddr() + ": " + this.toString() );
 
         m_lock.lock();
         try
         {
             assert( m_callbackThread == thread );
-            assert( m_state == RUNNING );
+            assert( (m_state == STARTING_1) || (m_state == RUNNING) );
             m_callbackThread = null;
             m_state = STOPPED;
             m_socketChannel = null;
@@ -344,7 +359,8 @@ public class ConnectorImpl extends SessionEmitterImpl
         if (s_logger.isLoggable(Level.FINE))
         {
             s_logger.log( Level.FINE,
-                    m_connector.getAddr() + ": (" + (connected ? "connected" : "pending") + ")." );
+                    m_connector.getAddr() + ": (" + (connected ? "connected" : "pending") +
+                    ") " + this.toString() + "." );
         }
 
         m_socketChannel = socketChannel;
@@ -371,7 +387,7 @@ public class ConnectorImpl extends SessionEmitterImpl
             if (s_logger.isLoggable(Level.FINE))
             {
                 s_logger.log( Level.FINE, m_connector.getAddr() +
-                        ": state=" + m_state + " stop=" + m_stop );
+                        ": " + this.toString() + ": state=" + m_state + " stop=" + m_stop );
             }
 
             if (m_state == STARTING_0)
@@ -397,7 +413,7 @@ public class ConnectorImpl extends SessionEmitterImpl
                 if (m_stop)
                 {
                     while (m_state != STOPPED)
-                        m_cond.wait();
+                        m_cond.await();
                     return;
                 }
                 m_stop = true;
@@ -412,7 +428,7 @@ public class ConnectorImpl extends SessionEmitterImpl
         if (state == 0)
         {
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.log( Level.FINE, m_connector.getAddr().toString() );
+                s_logger.log( Level.FINE, m_connector.getAddr() + ": " + this.toString() );
 
             /* Socket channel is not registered in the selector yet,
              * and will not be registered, m_selectionKey should be null.
