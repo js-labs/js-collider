@@ -97,10 +97,9 @@ public class Main
         private final Collider m_collider;
         private final AtomicInteger m_testsRemaining;
 
-        public Test3Connector( Collider collider, AtomicInteger testsRemaining )
+        public Test3Connector( InetSocketAddress addr, Collider collider, AtomicInteger testsRemaining )
         {
-            /* Most probably no Doom server on localhost. */
-            super( new InetSocketAddress("localhost", 666) );
+            super( addr );
             m_collider = collider;
             m_testsRemaining = testsRemaining;
         }
@@ -131,14 +130,32 @@ public class Main
             try
             {
                 final Test2Connector test2Connector = new Test2Connector( addr, collider, testsRemaining );
-                final Test3Connector test3Connector = new Test3Connector( collider, testsRemaining );
                 collider.addConnector( test2Connector );
+                
+            }
+            catch (IOException ex)
+            {
+                /* Should not happen. */
+                ex.printStackTrace();
+                collider.stop();
+            }
+
+            try
+            {
+                /* Most probably no Doom server on localhost. */
+                final InetSocketAddress wrongAddr = new InetSocketAddress( "localhost", 666 );
+                final Test3Connector test3Connector = new Test3Connector( wrongAddr, collider, testsRemaining );
                 collider.addConnector( test3Connector );
             }
             catch (IOException ex)
             {
-                ex.printStackTrace();
-                collider.stop();
+                /* Some platforms like Solaris detects unreacheble address first go
+                 * and throws exception in this case. Better to handle it properly.
+                 */
+                System.out.println( "Test3 connector failed: " + ex.toString() );
+                final int tr = testsRemaining.decrementAndGet();
+                if (tr == 0)
+                    collider.stop();
             }
         }
 
@@ -164,16 +181,29 @@ public class Main
     {
         try
         {
-             /* Address does not really matter for test1,
-              * connector will be removed as soon as will be added.
-              */
-            final InetSocketAddress addr = new InetSocketAddress( "localhost", 12345 );
+            /* Address does not really matter for test1,
+             * connector will be removed as soon as will be added.
+             */
+            final InetSocketAddress addr = new InetSocketAddress( "localhost", 666 );
             final Collider collider = Collider.create();
             final TestAcceptor testAcceptor = new TestAcceptor();
 
             final Test1Connector test1Connector = new Test1Connector( addr );
             collider.addAcceptor( testAcceptor );
-            collider.addConnector( test1Connector );
+            
+            try
+            {
+                collider.addConnector( test1Connector );
+            }
+            catch (IOException ex)
+            {
+                /* Test1 connector connects to the unknown address,
+                 * can throw an exception, but not a problem actually,
+                 * test can continue.
+                 */
+                System.out.println( "Test1: " + ex.toString() );
+            }
+
             collider.removeConnector( test1Connector );
             System.out.println( "Test1 connector removed." );
             collider.run();
