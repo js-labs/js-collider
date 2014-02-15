@@ -133,6 +133,7 @@ public abstract class StreamDefragger
                 {
                     ByteBuffer buf = ByteBuffer.allocate( m_packetLen );
                     m_buf.position( 0 );
+                    m_buf.limit( m_headerSize );
                     buf.put( m_buf );
                     m_buf = buf;
                 }
