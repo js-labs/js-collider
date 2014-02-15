@@ -90,7 +90,7 @@ public class Main
             m_testsRemaining = testsRemaining;
 
             final Random random = new Random( System.nanoTime() );
-            m_sessionsRemaining = new AtomicInteger( 41/*random.nextInt(50)*/ );
+            m_sessionsRemaining = new AtomicInteger( random.nextInt(50) );
         }
 
         public void onAcceptorStarted( Collider collider, int localPort )
@@ -154,7 +154,7 @@ public class Main
         public void onAcceptorStarted( Collider collider, int localPort )
         {
             final Random random = new Random( System.nanoTime() );
-            final int timeout = 2000 /*500*random.nextInt(20)*/;
+            final int timeout = 500*random.nextInt(20);
             System.out.println( "Test4: port " + localPort + " (waiting " + timeout/1000 + " sec)" );
             final InetSocketAddress addr = new InetSocketAddress( "localhost", localPort );
             new TestClient( addr, "Test4" ).start();
