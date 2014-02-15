@@ -55,12 +55,12 @@ public class ShMemServer extends ShMem
         return m_in;
     }
 
-    public ChannelOut getOut()
+    public final ChannelOut getOut()
     {
         return m_out;
     }
 
-    public void close()
+    public final void close()
     {
         m_in.close();
         m_out.close();
