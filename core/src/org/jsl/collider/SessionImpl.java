@@ -234,7 +234,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             }
             else
             {
-                /* At last write the socket buffer overflowed, makes no sense to rush. */
                 msgs = Integer.MAX_VALUE;
 
                 if (node.buf == null)
@@ -340,46 +339,48 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     return;
                 }
 
-                if ((m_buf.remaining() > 0) || breakLoop)
+                if (m_buf.remaining() > 0)
+                {
+                    /* Socket send buffer overflowed. */
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.finer( m_remoteSocketAddress + ": m_buf.remaining()=" + m_buf.remaining() + "." );
+
+                    ByteBuffer dup = m_buf.duplicate();
+                    m_buf.clear();
+                    m_buf.put( dup );
+
+                   /* Now we have to wait while socket become writable,
+                    * it is important do not remove the latest node
+                    * to avoid scheduling the session for writing again.
+                    */
+                    final Node next = node.next;
+                    if (next == null)
+                        m_head = node;
+                    else
+                    {
+                        node.next = null;
+                        m_head = next;
+                    }
+
+                    m_collider.executeInSelectorThread( m_starter );
+                    return;
+                }
+
+                m_buf.clear();
+
+                if (breakLoop)
                     break;
 
                 final Node next = node.next;
+                if ((next == null) || (next == CLOSE_MARKER))
+                    break;
+
                 node.next = null;
                 node = next;
-
-                m_buf.clear();
                 msgs *= 2;
             }
 
-            if (m_buf.remaining() > 0)
-            {
-                /* Socket send buffer overflowed. */
-                if (s_logger.isLoggable(Level.FINER))
-                    s_logger.finer( m_remoteSocketAddress + ": m_buf.remaining()=" + m_buf.remaining() + "." );
-
-                ByteBuffer dup = m_buf.duplicate();
-                m_buf.clear();
-                m_buf.put( dup );
-
-                /* Important: we can not remove the latest node
-                 * to avoid scheduling the session for writing again.
-                 */
-                final Node next = node.next;
-                if (next == null)
-                    m_head = node;
-                else
-                {
-                    node.next = null;
-                    m_head = next;
-                }
-
-                m_collider.executeInSelectorThread( m_starter );
-            }
-            else
-            {
-                m_buf.clear();
-                removeNode( node );
-            }
+            removeNode( node );
         }
     }
 
@@ -699,9 +700,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                                 s_logger.finer(
                                         m_localSocketAddress + " -> " + m_remoteSocketAddress +
                                         ": " + stateToString(state) + " -> " + stateToString(newState) + " tail==null" );
-                                /* It would seem worth to close socket channel in the SessionImpl.initialize()
-                                 * in this case, but leaving SOCK_RC here means there are some data is being
-                                 * writing to the socket channel, which is wrong.
+                                /* It would seem worth in this case to close socket channel
+                                 * in the SessionImpl.initialize(), but leaving SOCK_RC here
+                                 * means there are some data is being writing to the socket,
+                                 * what is wrong.
                                  */
                                 m_collider.executeInSelectorThread( new SelectorDeregistrator() );
                                 break;
