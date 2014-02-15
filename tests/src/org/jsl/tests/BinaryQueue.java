@@ -17,7 +17,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.collider;
+package org.jsl.tests;
+
+import org.jsl.collider.DataBlock;
+import org.jsl.collider.DataBlockCache;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;

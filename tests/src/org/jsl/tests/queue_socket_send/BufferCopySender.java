@@ -20,10 +20,10 @@
 package org.jsl.tests.queue_socket_send;
 
 import org.jsl.collider.ThreadPool;
-import org.jsl.collider.BinaryQueue;
 import org.jsl.collider.DataBlockCache;
 import org.jsl.collider.PerfCounter;
 import org.jsl.collider.StatCounter;
+import org.jsl.tests.BinaryQueue;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;

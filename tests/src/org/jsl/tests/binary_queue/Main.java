@@ -17,9 +17,9 @@
 
 package org.jsl.tests.binary_queue;
 
-import org.jsl.collider.BinaryQueue;
 import org.jsl.collider.DataBlockCache;
 import org.jsl.collider.StreamDefragger;
+import org.jsl.tests.BinaryQueue;
 import org.jsl.tests.Util;
 
 import java.nio.ByteBuffer;
