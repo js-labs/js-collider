@@ -30,8 +30,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Server
 {
     private final Client m_client;
+    private final PooledByteBuffer.Pool m_byteBufferPool;
     private final AtomicInteger m_sessionsDone;
-    private CachedByteBuffer.Cache m_bufferCache;
 
     private class ServerListener implements Session.Listener
     {
@@ -65,7 +65,7 @@ public class Server
             ByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
-                final int pos = msg.position();
+                final int position = msg.position();
                 final int bytesReady = msg.remaining();
                 final int messageLength = msg.getInt();
                 assert( messageLength == bytesReady );
@@ -74,7 +74,6 @@ public class Server
                 final int messagesExpected = msg.getInt();
                 if (m_messagesExpected == 0)
                 {
-                    m_bufferCache = new CachedByteBuffer.Cache( true, messageLength );
                     m_startTime = System.nanoTime();
                     m_sessionsExpected = sessionsExpected;
                     m_messagesExpected = messagesExpected;
@@ -86,12 +85,13 @@ public class Server
                 }
                 m_messagesReceived++;
 
-                msg.position( pos );
-                final CachedByteBuffer bb = m_bufferCache.get();
-                bb.put( msg );
-                bb.position( 0 );
-                m_session.sendData( bb );
-                bb.release();
+                final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+
+                msg.position( position );
+                buf.put( msg );
+                buf.flip();
+                m_session.sendData( buf );
+                buf.release();
 
                 msg = m_stream.getNext();
             }
@@ -145,6 +145,7 @@ public class Server
     public Server( Client client )
     {
         m_client = client;
+        m_byteBufferPool = new PooledByteBuffer.Pool();
         m_sessionsDone = new AtomicInteger(0);
     }
 
@@ -156,8 +157,7 @@ public class Server
             collider.addAcceptor( new TestAcceptor(socketBufferSize) );
             collider.run();
             m_client.stopAndWait();
-            if (m_bufferCache != null)
-                System.out.println( m_bufferCache.clear() );
+            System.out.println( m_byteBufferPool.clear() );
         }
         catch (IOException ex)
         {

@@ -35,6 +35,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
     private static final Node CLOSE_MARKER = new Node();
 
+    private static final RetainableByteBufferFriend s_retainableByteBufferFriend = new RetainableByteBufferFriend();
+
     private static final int STATE_MASK   = 0x0003;
     private static final int ST_STARTING  = 0x0000;
     private static final int ST_RUNNING   = 0x0001;
@@ -57,6 +59,11 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     private SocketChannelReader m_socketChannelReader;
     private ThreadPool.Runnable m_writer;
+
+    public static class RetainableByteBufferFriend
+    {
+        private RetainableByteBufferFriend() {}
+    }
 
     private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
@@ -97,24 +104,21 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     {
         public volatile Node next;
         public ByteBuffer buf;
-        public CachedByteBuffer cachedBuf;
+        public RetainableByteBuffer retainableBuf;
 
         public Node()
         {
-            this.buf = null;
-            this.cachedBuf = null;
         }
 
         public Node( ByteBuffer buf )
         {
             this.buf = buf;
-            this.cachedBuf = null;
         }
 
-        public Node( ByteBuffer buf, CachedByteBuffer cachedBuf )
+        public Node( RetainableByteBuffer retainableByteBuffer )
         {
-            this.buf = buf;
-            this.cachedBuf = cachedBuf;
+            this.buf = retainableByteBuffer.getByteBuffer( s_retainableByteBufferFriend );
+            this.retainableBuf = retainableByteBuffer;
         }
     }
 
@@ -183,10 +187,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 }
 
                 node.buf = null;
-                if (node.cachedBuf != null)
+                if (node.retainableBuf != null)
                 {
-                    node.cachedBuf.release();
-                    node.cachedBuf = null;
+                    node.retainableBuf.release();
+                    node.retainableBuf = null;
                 }
 
                 m_iov[idx] = null;
@@ -296,10 +300,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     }
 
                     node.buf = null;
-                    if (node.cachedBuf != null)
+                    if (node.retainableBuf != null)
                     {
-                        node.cachedBuf.release();
-                        node.cachedBuf = null;
+                        node.retainableBuf.release();
+                        node.retainableBuf = null;
                     }
 
                     bytesReady += length;
@@ -604,10 +608,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         }
     }
 
-    public int sendData( CachedByteBuffer data )
+    public int sendData( RetainableByteBuffer data )
     {
         assert( data.remaining() > 0 );
-        final Node node = new Node( data.getByteBuffer(), data );
+        final Node node = new Node( data );
         for (;;)
         {
             final Node tail = m_tail.get();
@@ -877,8 +881,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         while (node != CLOSE_MARKER)
         {
             Node next = node.next;
-            if (node.cachedBuf != null)
-                node.cachedBuf.release();
+            if (node.retainableBuf != null)
+                node.retainableBuf.release();
             node.next = null;
             node = next;
         }

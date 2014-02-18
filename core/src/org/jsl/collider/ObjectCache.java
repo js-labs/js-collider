@@ -25,17 +25,20 @@ import java.util.logging.Logger;
 
 public abstract class ObjectCache<TYPE>
 {
+    private final String m_name;
     private final ReentrantLock m_lock;
     private final TYPE [] m_cache;
     private int m_size;
+    private int m_gets;
+    private int m_puts;
 
     protected abstract TYPE allocateObject();
 
-    public ObjectCache( TYPE [] cache )
+    public ObjectCache( String name, TYPE [] cache )
     {
+        m_name = name;
         m_lock = new ReentrantLock();
         m_cache = cache;
-        m_size = 0;
     }
 
     public final boolean put( TYPE obj )
@@ -43,6 +46,7 @@ public abstract class ObjectCache<TYPE>
         m_lock.lock();
         try
         {
+            m_puts++;
             if (m_size < m_cache.length)
             {
                 final int idx = m_size++;
@@ -61,9 +65,10 @@ public abstract class ObjectCache<TYPE>
     public final TYPE get()
     {
         m_lock.lock();
-        if (m_size > 0)
+        try
         {
-            try
+            m_gets++;
+            if (m_size > 0)
             {
                 final int idx = --m_size;
                 assert( m_cache[idx] != null );
@@ -71,19 +76,46 @@ public abstract class ObjectCache<TYPE>
                 m_cache[idx] = null;
                 return ret;
             }
-            finally
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+        return allocateObject();
+    }
+
+    public final void clear( Logger logger, int initialSize )
+    {
+        for (int idx=0; idx<m_size; idx++)
+        {
+            assert( m_cache[idx] != null );
+            m_cache[idx] = null;
+        }
+
+        if (m_size < initialSize)
+        {
+            if (logger.isLoggable(Level.WARNING))
             {
-                m_lock.unlock();
+                logger.log( Level.WARNING,
+                        m_name + ": resource leak detected: current size " +
+                        m_size + " less than initial size " + initialSize +
+                        " (" + m_puts + ", " + m_gets + ")." );
             }
         }
         else
         {
-            m_lock.unlock();
-            return allocateObject();
+            if (logger.isLoggable(Level.FINE))
+            {
+                logger.log(
+                        Level.FINE, m_name + ": size=" + m_size +
+                        " (" + m_puts + ", " + m_gets + ")" );
+            }
         }
+
+        m_size = 0;
     }
 
-    protected final String clear( int initialSize )
+    public final String clear( int initialSize )
     {
         for (int idx=0; idx<m_size; idx++)
         {
@@ -96,12 +128,13 @@ public abstract class ObjectCache<TYPE>
 
         if (size < initialSize)
         {
-            return "resource leak detected: current size " +
-                    size + " less than initial size (" + initialSize + ").";
+            return m_name + ": WARNING: resource leak detected: current size " +
+                   size + " less than initial size " + initialSize +
+                   " (" + m_puts + ", " + m_gets + ").";
         }
         else
         {
-            return "size=" + size;
+            return m_name + ": size=" + size + " (" + m_puts + ", " + m_gets + ").";
         }
     }
 }

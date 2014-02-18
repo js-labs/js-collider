@@ -30,7 +30,7 @@ public class Server
 {
     private final Client m_client;
     private final int m_socketBufferSize;
-    private final CachedByteBuffer.Cache m_byteBufferCache;
+    private final PooledByteBuffer.Pool m_byteBufferPool;
 
     private final ReentrantLock m_lock;
     private final HashSet<Session> m_clients;
@@ -59,10 +59,16 @@ public class Server
             ByteBuffer msg = m_streamDefragger.getNext( data );
             while (msg != null)
             {
+                final int position = msg.position();
+                final int bytesReady = msg.remaining();
+                final int messageLength = msg.getInt();
+                assert( bytesReady == messageLength );
+
                 if (++m_messagesReceived == 1)
                 {
                     final HashSet<Session> clients = Server.this.m_clients;
-                    final int sessions = msg.getInt(4);
+                    final int sessions = msg.getInt();
+
                     m_lock.lock();
                     try
                     {
@@ -78,7 +84,9 @@ public class Server
                     if (m_clients != null)
                     {
                         System.out.println( "All clients connected, starting test." );
-                        CachedByteBuffer buf = m_byteBufferCache.get();
+                        final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+
+                        msg.position( position );
                         buf.put( msg );
                         buf.flip();
 
@@ -102,7 +110,9 @@ public class Server
                         }
                     }
 
-                    CachedByteBuffer buf = m_byteBufferCache.get();
+                    final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+
+                    msg.position( position );
                     buf.put( msg );
                     buf.flip();
 
@@ -159,7 +169,7 @@ public class Server
     {
         m_client = client;
         m_socketBufferSize = socketBufferSize;
-        m_byteBufferCache = new CachedByteBuffer.Cache( true, client.getMessageLength() );
+        m_byteBufferPool = new PooledByteBuffer.Pool();
         m_lock = new ReentrantLock();
         m_clients = new HashSet<Session>();
     }
@@ -179,5 +189,7 @@ public class Server
 
         if (m_client != null)
             m_client.stopAndWait();
+
+        System.out.println( m_byteBufferPool.clear() );
     }
 }

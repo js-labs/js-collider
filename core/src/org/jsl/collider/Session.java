@@ -69,7 +69,7 @@ public interface Session
      *          -1 - the session is closed
      */
     public int sendData( ByteBuffer data );
-    public int sendData( CachedByteBuffer data );
+    public int sendData( RetainableByteBuffer data );
 
     /**
      * Method makes an attempt to write data synchronously to the underlying socket channel.
