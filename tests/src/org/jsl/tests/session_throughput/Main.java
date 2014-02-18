@@ -23,7 +23,7 @@ public class Main
 {
     public static void main( String args[] )
     {
-        int sessions = 2;
+        int sessions = 1;
         int messages = 100000;
         int messageLength = 500;
         int socketBufferSize = (64 * 1024);
