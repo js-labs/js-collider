@@ -57,6 +57,7 @@ public class Client
         {
             try
             {
+                /* Send one message at the beginning */
                 ByteBuffer batch = m_batch.duplicate();
                 batch.limit( m_messageLength );
                 m_socketChannel.write( batch );
@@ -64,6 +65,7 @@ public class Client
                 batch.position( 0 );
                 batch.limit( batch.capacity() );
 
+                /* Wait while all clients connected to the server. */
                 m_semStart.acquire();
 
                 int messagesRemaining = m_messages;
