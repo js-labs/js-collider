@@ -131,7 +131,7 @@ public class Server
             socketSendBufSize = m_socketBufferSize;
         }
 
-        public void onAcceptorStarted( int localPort )
+        public void onAcceptorStarted( Collider collider, int localPort )
         {
             System.out.println( "Server started at port " + localPort );
             if (m_client != null)
