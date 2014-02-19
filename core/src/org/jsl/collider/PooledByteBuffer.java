@@ -25,22 +25,27 @@ import java.util.logging.Logger;
 
 public class PooledByteBuffer extends RetainableByteBuffer
 {
+    private final static AtomicIntegerFieldUpdater<PooledByteBuffer> s_retainCountUpdater =
+            AtomicIntegerFieldUpdater.newUpdater( PooledByteBuffer.class, "m_retainCount" );
+
     private final Chunk m_chunk;
+    private final int m_reservedSize;
+    private volatile int m_retainCount;
 
     private static class Chunk
     {
-        private final static AtomicIntegerFieldUpdater<Chunk> s_retainCountUpdater =
-                AtomicIntegerFieldUpdater.newUpdater( Chunk.class, "m_retainCount" );
+        private final static AtomicIntegerFieldUpdater<Chunk> s_rcUpdater =
+                AtomicIntegerFieldUpdater.newUpdater( Chunk.class, "m_rc" );
 
         private final ChunkCache m_cache;
         private final ByteBuffer m_buf;
-        private volatile int m_retainCount;
+        private volatile int m_rc;
 
         public Chunk( ChunkCache cache, ByteBuffer buf )
         {
             m_cache = cache;
             m_buf = buf;
-            m_retainCount = 1;
+            m_rc = (buf.capacity() + 1);
         }
 
         public final ByteBuffer getByteBuffer()
@@ -48,28 +53,17 @@ public class PooledByteBuffer extends RetainableByteBuffer
             return m_buf;
         }
 
-        public final void retain()
+        public final void release( int bytes )
         {
             for (;;)
             {
-                final int retainCount = m_retainCount;
-                assert( retainCount > 0 );
-                if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount+1))
-                    break;
-            }
-        }
-
-        public final void release()
-        {
-            for (;;)
-            {
-                final int retainCount = m_retainCount;
-                assert( retainCount > 0 );
-                if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount-1))
+                final int rc = m_rc;
+                assert( rc >= bytes );
+                if (s_rcUpdater.compareAndSet(this, rc, rc-bytes))
                 {
-                    if (retainCount == 1)
+                    if (rc == bytes)
                     {
-                        m_retainCount = retainCount;
+                        m_rc = (m_buf.capacity() + 1);
                         if (m_cache != null)
                             m_cache.put( this );
                     }
@@ -123,24 +117,19 @@ public class PooledByteBuffer extends RetainableByteBuffer
         private final static AtomicIntegerFieldUpdater<Pool> s_stateUpdater =
                 AtomicIntegerFieldUpdater.newUpdater( Pool.class, "m_state" );
 
-        private static final int OFFS_MASK    = 0x00FFFFFF;
-        private static final int WRITERS_MASK = 0x7F000000;
-        private static final int WRITER       = 0x01000000;
-
         private final boolean m_useDirectBuffers;
         private final ChunkCache m_cache;
         private final int m_chunkSize;
         private volatile int m_state;
-        private Chunk m_chunk;
+        private volatile Chunk m_chunk;
 
         public Pool()
         {
-            this( 128*1024 );
+            this( 64*1024 );
         }
 
         public Pool( int chunkSize )
         {
-            chunkSize &= OFFS_MASK;
             m_useDirectBuffers = true;
             m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128, 2 );
             m_chunkSize = chunkSize;
@@ -155,70 +144,67 @@ public class PooledByteBuffer extends RetainableByteBuffer
                 if (state == -1)
                     continue;
 
-                final int offs = (state & OFFS_MASK);
+                final int offs = (state % m_chunkSize);
                 int space = (m_chunkSize - offs);
 
                 if (size <= space)
                 {
-                    if ((state & WRITERS_MASK) == WRITERS_MASK)
-                        continue;
+                    int newState = (state + size);
+                    int reservedSize = size;
+                    if (newState <= 0)
+                        newState = (offs + size);
 
-                    int newState = (state + WRITER + size);
                     if ((size % 4) > 0)
                     {
                         final int cc = (4 - (size % 4));
-                        if (((newState & OFFS_MASK) + cc) <= m_chunkSize)
+                        if ((offs + size + cc) <= m_chunkSize)
+                        {
                             newState += cc;
+                            reservedSize += cc;
+                        }
                     }
 
+                    final Chunk chunk = m_chunk;
                     if (!s_stateUpdater.compareAndSet(this, state, newState))
                         continue;
 
-                    final Chunk chunk = m_chunk;
-                    chunk.retain();
-
-                    state = newState;
-                    for (;;)
-                    {
-                        assert( (state & WRITERS_MASK) > 0 );
-                        newState = (state - WRITER);
-                        if (s_stateUpdater.compareAndSet(this, state, newState))
-                            break;
-                        state = m_state;
-                    }
-
-                    return new PooledByteBuffer( chunk, offs, size );
+                    return new PooledByteBuffer( chunk, offs, size, reservedSize );
                 }
                 else if (size <= m_chunkSize)
                 {
-                    if ((state & WRITERS_MASK) != 0)
-                        continue;
-
                     if (!s_stateUpdater.compareAndSet(this, state, -1))
                         continue;
 
-                    m_chunk.release();
+                    m_chunk.release( space + 1 );
                     m_chunk = m_cache.get();
                     final Chunk chunk = m_chunk;
-                    chunk.retain();
 
-                    int newState = size;
+                    int newState = (state + space + size);
+                    int reservedSize = size;
+                    if (newState <= 0)
+                        newState = size;
+
                     if ((size % 4) > 0)
                     {
                         final int cc = (4 - (size % 4));
-                        if (((newState & OFFS_MASK) + cc) <= m_chunkSize)
+                        if ((size + cc) <= m_chunkSize)
+                        {
                             newState += cc;
+                            reservedSize += cc;
+                        }
                     }
                     m_state = newState;
 
-                    return new PooledByteBuffer( chunk, 0, size );
+                    return new PooledByteBuffer( chunk, 0, size, reservedSize );
                 }
                 else
                 {
                     final ByteBuffer buf =
                             m_useDirectBuffers ? ByteBuffer.allocateDirect(size) : ByteBuffer.allocate(size);
                     final Chunk chunk = new Chunk( null, buf );
-                    return new PooledByteBuffer( chunk, 0, size );
+                    PooledByteBuffer ret = new PooledByteBuffer( chunk, 0, size, size );
+                    chunk.release(1);
+                    return ret;
                 }
             }
         }
@@ -234,19 +220,38 @@ public class PooledByteBuffer extends RetainableByteBuffer
         }
     }
 
-    private PooledByteBuffer( Chunk chunk, int offs, int size )
+    private PooledByteBuffer( Chunk chunk, int offs, int size, int reservedSize )
     {
         super( chunk.getByteBuffer().duplicate(), offs, size );
         m_chunk = chunk;
+        m_reservedSize = reservedSize;
+        m_retainCount = 1;
     }
 
     public void retain()
     {
-        m_chunk.retain();
+        for (;;)
+        {
+            final int retainCount = m_retainCount;
+            assert( retainCount > 0 );
+            if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount+1))
+                break;
+        }
     }
 
     public void release()
     {
-        m_chunk.release();
+        for (;;)
+        {
+            final int retainCount = m_retainCount;
+            assert( retainCount > 0 );
+            final int newValue = (retainCount - 1);
+            if (s_retainCountUpdater.compareAndSet(this, retainCount, newValue))
+            {
+                if (newValue == 0)
+                    m_chunk.release( m_reservedSize );
+                break;
+            }
+        }
     }
 }
