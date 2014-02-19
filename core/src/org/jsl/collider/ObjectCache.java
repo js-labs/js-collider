@@ -30,6 +30,7 @@ public abstract class ObjectCache<TYPE>
     private final TYPE [] m_cache;
     private int m_size;
     private int m_gets;
+    private int m_miss;
     private int m_puts;
 
     protected abstract TYPE allocateObject();
@@ -76,6 +77,7 @@ public abstract class ObjectCache<TYPE>
                 m_cache[idx] = null;
                 return ret;
             }
+            m_miss++;
         }
         finally
         {
@@ -99,7 +101,7 @@ public abstract class ObjectCache<TYPE>
                 logger.log( Level.WARNING,
                         m_name + ": resource leak detected: current size " +
                         m_size + " less than initial size " + initialSize +
-                        " (" + m_puts + ", " + m_gets + ")." );
+                        " (" + m_gets + ", " + m_miss + ", " + m_puts + ")." );
             }
         }
         else
@@ -108,7 +110,7 @@ public abstract class ObjectCache<TYPE>
             {
                 logger.log(
                         Level.FINE, m_name + ": size=" + m_size +
-                        " (" + m_puts + ", " + m_gets + ")" );
+                        " (" + m_gets + ", " + m_miss + ", " + m_puts + ")." );
             }
         }
 
@@ -130,11 +132,11 @@ public abstract class ObjectCache<TYPE>
         {
             return m_name + ": WARNING: resource leak detected: current size " +
                    size + " less than initial size " + initialSize +
-                   " (" + m_puts + ", " + m_gets + ").";
+                    " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
         }
         else
         {
-            return m_name + ": size=" + size + " (" + m_puts + ", " + m_gets + ").";
+            return m_name + ": size=" + size + " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
         }
     }
 }
