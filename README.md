@@ -50,6 +50,6 @@ You will require JDK 1.6 and appache ant.
 
     ant tests
     
-## Contacts
+### Contacts
 
 Need more features or support? Contact info@js-labs.org
