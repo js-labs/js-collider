@@ -1,28 +1,28 @@
-                   JS-Collider
-                   ===========
+                     JS-Collider
+                     ===========
 
-                     +-----+
-               /-----|     |-----\        +---+ 
-              /      |     |      <=======|A/C| Session emitters
-             /   /---|     |---\   \      +---+ (acceptor/connector)
-            /   /    +-----+    \   \
-            |   |     <----     |   |
-  TCP/IP ---+-S |               |   |
-  session  +-----+             +-----+
-           |     |             |     |
-           |     |             |     |
-           |     |             |     |
-           +-----+             +-----+
-            |   |               |   |
-            |   |     ---->     |   |
-            \   \    +-----+    /   /
-             \   \---|     |---/   /
-              \      |     |  S   /
-               \-----|     |--+--/
-                     +-----+  |
-                              |
-                            TCP/IP
-                            session
+                       +-----+
+                 /-----|     |-----\        +---+ 
+                /      |     |      <=======|A/C| Session emitters
+               /   /---|     |---\   \      +---+ (acceptor/connector)
+              /   /    +-----+    \   \
+              |   |     <----     |   |
+    TCP/IP ---+-S |               |   |
+    session  +-----+             +-----+
+             |     |             |     |
+             |     |             |     |
+             |     |             |     |
+             +-----+             +-----+
+              |   |               |   |
+              |   |     ---->     |   |
+              \   \    +-----+    /   /
+               \   \---|     |---/   /
+                \      |     |  S   /
+                 \-----|     |--+--/
+                       +-----+  |
+                                |
+                              TCP/IP
+                              session
 
 
 JS-Collider is Java network (NIO) application framework designed
@@ -30,7 +30,7 @@ to provide maximum performance and scalability for applications
 having not too many connections but significant amount of network
 traffic (both incoming and outgoing).
 
-## Main features:
+### Main features:
 
 * performance and scalability
 * simple and flexible API
@@ -40,13 +40,13 @@ traffic (both incoming and outgoing).
 Refer the [Wiki](https://github.com/js-labs/js-collider/wiki)
 for API documentation and performance tests results.
 
-## Building
+### Building
 
 You will require JDK 1.6 and appache ant.
 
     ant dist
 
-## Running tests
+### Running tests
 
     ant tests
     
