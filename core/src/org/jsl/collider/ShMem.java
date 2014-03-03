@@ -114,7 +114,7 @@ public abstract class ShMem
             m_idx = 0;
         }
 
-        public int handleData( int size, Session.Listener listener )
+        public final int handleData( int size, Session.Listener listener )
         {
             for (;;)
             {
@@ -187,7 +187,7 @@ public abstract class ShMem
             m_idx = 0;
         }
 
-        public int addData( ByteBuffer data )
+        public final int addData( ByteBuffer data )
         {
             final int dataPosition = data.position();
             final int dataLimit = data.limit();
