@@ -39,7 +39,7 @@ public class ShMemServer extends ShMem
         final CharsetDecoder decoder = Charset.defaultCharset().newDecoder();
         final int blockSize = buf.getInt();
 
-        int length = buf.getShort();
+        final int length = buf.getShort();
         buf.limit( buf.position() + length );
         final File fileC2S = new File( decoder.decode(buf).toString() );
         m_in = new ChannelIn( fileC2S, blockSize, false );
@@ -55,12 +55,12 @@ public class ShMemServer extends ShMem
         return m_in;
     }
 
-    public final ChannelOut getOut()
+    public ChannelOut getOut()
     {
         return m_out;
     }
 
-    public final void close()
+    public void close()
     {
         m_in.close();
         m_out.close();

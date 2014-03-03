@@ -101,9 +101,22 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
+    public final RetainableByteBuffer put( RetainableByteBuffer src )
+    {
+        m_buf.put( src.m_buf );
+        return this;
+    }
+
     public final RetainableByteBuffer putInt( int index, int value )
     {
         m_buf.putInt( index+m_offs, value );
         return this;
+    }
+
+    public String toString()
+    {
+        String ret = super.toString();
+        ret += " [" + m_offs + ", " + m_size + "]";
+        return ret;
     }
 }

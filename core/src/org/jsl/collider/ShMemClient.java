@@ -94,17 +94,17 @@ public class ShMemClient extends ShMem
         buf.put( m_s2cBB );
     }
 
-    public final ChannelIn getIn()
+    public ChannelIn getIn()
     {
         return m_in;
     }
 
-    public final ChannelOut getOut()
+    public ChannelOut getOut()
     {
         return m_out;
     }
 
-    public final void close()
+    public void close()
     {
         m_in.close();
         m_out.close();
