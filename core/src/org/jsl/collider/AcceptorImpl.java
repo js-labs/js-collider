@@ -471,10 +471,12 @@ public class AcceptorImpl extends SessionEmitterImpl
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
             Acceptor acceptor,
+            int joinMessageMaxSize,
+            PooledByteBuffer.Pool joinPool,
             Selector selector,
             ServerSocketChannel serverChannel )
     {
-        super( collider, inputQueueDataBlockCache, acceptor );
+        super( collider, inputQueueDataBlockCache, acceptor, joinMessageMaxSize, joinPool );
 
         m_acceptor = acceptor;
         m_selector = selector;

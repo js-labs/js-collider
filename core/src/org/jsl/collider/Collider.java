@@ -53,6 +53,7 @@ public abstract class Collider
         public int inputQueueBlockSize;
         public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
+        public int joinMessageMaxSize;
 
         public Config()
         {
@@ -66,6 +67,7 @@ public abstract class Collider
             inputQueueBlockSize         = (32 * 1024);
             inputQueueCacheInitialSize  = 64;
             inputQueueCacheMaxSize      = 128;
+            joinMessageMaxSize = 1024;
         }
     }
 

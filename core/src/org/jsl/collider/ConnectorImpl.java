@@ -341,9 +341,11 @@ public class ConnectorImpl extends SessionEmitterImpl
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
             Connector connector,
+            int joinMessageMaxSize,
+            PooledByteBuffer.Pool joinPool,
             Selector selector )
     {
-        super( collider, inputQueueDataBlockCache, connector );
+        super( collider, inputQueueDataBlockCache, connector, joinMessageMaxSize, joinPool );
         m_connector = connector;
         m_selector = selector;
 

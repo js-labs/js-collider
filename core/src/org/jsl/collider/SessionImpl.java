@@ -59,6 +59,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     private SocketChannelReader m_socketChannelReader;
     private ThreadPool.Runnable m_writer;
+    private long m_bytesSent;
 
     public static class RetainableByteBufferFriend
     {
@@ -104,7 +105,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     {
         public volatile Node next;
         public ByteBuffer buf;
-        public RetainableByteBuffer retainableBuf;
+        public RetainableByteBuffer rbuf;
 
         public Node()
         {
@@ -118,26 +119,30 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         public Node( RetainableByteBuffer retainableByteBuffer )
         {
             this.buf = retainableByteBuffer.getByteBuffer( s_retainableByteBufferFriend );
-            this.retainableBuf = retainableByteBuffer;
+            this.rbuf = retainableByteBuffer;
         }
     }
 
     private class SocketWriter extends ThreadPool.Runnable
     {
+        private final int m_socketSendBufferSize;
+        private final int m_joinMessageMaxSize;
+        private final PooledByteBuffer.Pool m_pool;
         private final ByteBuffer [] m_iov;
         private int m_iovc;
+        private boolean m_notJoin;
 
-        public SocketWriter()
+        private void joinMessages()
         {
-            m_iov = new ByteBuffer[32];
-        }
-
-        public void runInThreadPool()
-        {
+            int bytesPrepared = 0;
             Node node = m_head;
-            int idx = 0;
-            for (; idx<m_iovc; idx++)
+            Node prev = null;
+            for (int idx=0; idx<m_iovc; idx++)
+            {
+                bytesPrepared += m_iov[idx].remaining();
+                prev = node;
                 node = node.next;
+            }
 
             for (;;)
             {
@@ -146,10 +151,122 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if ((node == null) || (node == CLOSE_MARKER))
                     break;
                 assert( m_iov[m_iovc] == null );
-                m_iov[m_iovc] = node.buf.duplicate();
-                m_iovc++;
+
+                int joinBytes = 0;
+                int msgs = 0;
+                for (Node nn=node;;)
+                {
+                    final int nodeBytes = nn.buf.remaining();
+                    if (nodeBytes >= m_joinMessageMaxSize)
+                        break;
+                    joinBytes += nodeBytes;
+                    msgs++;
+                    if ((bytesPrepared + joinBytes) > m_socketSendBufferSize)
+                        break;
+                    nn = nn.next;
+                    if ((nn == null) || (nn == CLOSE_MARKER))
+                        break;
+                }
+
+                if (msgs > 1)
+                {
+                    final RetainableByteBuffer buf = m_pool.alloc( joinBytes, m_joinMessageMaxSize*2 );
+                    int spaceRemaining = buf.remaining();
+                    int nodeBytes = node.buf.remaining();
+                    for (;;)
+                    {
+                        assert( spaceRemaining >= nodeBytes );
+
+                        buf.put( node.buf.duplicate() );
+                        node.buf = null;
+
+                        if (node.rbuf != null)
+                        {
+                            node.rbuf.release();
+                            node.rbuf = null;
+                        }
+
+                        if (--msgs == 0)
+                            break;
+
+                        final Node next = node.next;
+                        assert( (next != null) && (next != CLOSE_MARKER) );
+
+                        spaceRemaining -= nodeBytes;
+                        nodeBytes = next.buf.remaining();
+                        if (spaceRemaining < nodeBytes)
+                            break;
+
+                        node.next = null;
+                        node = next;
+                    }
+
+                    assert( node.buf == null );
+                    assert( node.rbuf == null );
+
+                    buf.flip();
+                    node.buf = buf.getByteBuffer( s_retainableByteBufferFriend );
+                    node.rbuf = buf;
+
+                    if (prev == null)
+                        m_head = node;
+                    else
+                        prev.next = node;
+
+                    m_iov[m_iovc] = node.buf;
+                    m_iovc++;
+                }
+                else
+                {
+                    m_iov[m_iovc] = node.buf.duplicate();
+                    m_iovc++;
+                }
+
+                bytesPrepared += node.buf.remaining();
+                if (bytesPrepared > m_socketSendBufferSize)
+                    break;
+
+                prev = node;
                 node = node.next;
             }
+        }
+
+        public SocketWriter(
+                int socketSendBufferSize, int joinMessageMaxSize, PooledByteBuffer.Pool pool )
+        {
+            /* Makes no sense to write at once
+             * significantly more than socket send buffer size.
+             */
+            m_socketSendBufferSize = socketSendBufferSize;
+            m_joinMessageMaxSize = joinMessageMaxSize;
+            m_pool = pool;
+            m_iov = new ByteBuffer[32];
+            m_iovc = 0;
+            m_notJoin = true;
+        }
+
+        public void runInThreadPool()
+        {
+            if (m_notJoin)
+            {
+                Node node = m_head;
+                for (int idx=0; idx<m_iovc; idx++)
+                    node = node.next;
+
+                for (;;)
+                {
+                    if (m_iovc == m_iov.length)
+                        break;
+                    if ((node == null) || (node == CLOSE_MARKER))
+                        break;
+                    assert( m_iov[m_iovc] == null );
+                    m_iov[m_iovc] = node.buf.duplicate();
+                    m_iovc++;
+                    node = node.next;
+                }
+            }
+            else
+                joinMessages();
 
             try
             {
@@ -167,43 +284,72 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 return;
             }
 
-            idx = 0;
-            node = m_head;
-            for (;;)
+            Node node = m_head;
+            for (int idx=0;;)
             {
                 if (m_iov[idx].remaining() > 0)
                 {
                     final int cc = (m_iovc - idx);
-                    int jj = 0;
-                    for (; jj<cc; jj++)
+                    for (int jj=0; jj<cc; jj++)
                     {
                         m_iov[jj] = m_iov[jj+idx];
                         m_iov[jj+idx] = null;
                     }
                     m_iovc = cc;
                     m_head = node;
-                    m_collider.executeInThreadPool( m_writer );
+                    m_notJoin = (m_joinMessageMaxSize == 0);
+                    m_collider.executeInThreadPool( this );
                     return;
                 }
 
                 node.buf = null;
-                if (node.retainableBuf != null)
+                if (node.rbuf != null)
                 {
-                    node.retainableBuf.release();
-                    node.retainableBuf = null;
+                    node.rbuf.release();
+                    node.rbuf = null;
                 }
 
                 m_iov[idx] = null;
                 if  (++idx == m_iovc)
                     break;
 
-                Node next = node.next;
+                final Node next = node.next;
                 node.next = null;
                 node = next;
             }
 
             m_iovc = 0;
-            removeNode( node );
+            m_notJoin = true;
+            final Node next = node.next;
+            if (next == null)
+            {
+                m_head = null;
+                if (!m_tail.compareAndSet(node, null))
+                {
+                    while (node.next == null);
+                    m_head = node.next;
+                    node.next = null;
+                    if (m_head == CLOSE_MARKER)
+                        releaseSocket( "SocketWriter.runInThreadPool()" );
+                    else
+                    {
+                        m_notJoin = (m_joinMessageMaxSize == 0);
+                        m_collider.executeInThreadPool( m_writer );
+                    }
+                }
+            }
+            else
+            {
+                node.next = null;
+                m_head = next;
+                if (m_head == CLOSE_MARKER)
+                    releaseSocket( "SocketWriter.runInThreadPool()" );
+                else
+                {
+                    m_notJoin = (m_joinMessageMaxSize == 0);
+                    m_collider.executeInThreadPool( m_writer );
+                }
+            }
         }
     }
 
@@ -300,10 +446,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     }
 
                     node.buf = null;
-                    if (node.retainableBuf != null)
+                    if (node.rbuf != null)
                     {
-                        node.retainableBuf.release();
-                        node.retainableBuf = null;
+                        node.rbuf.release();
+                        node.rbuf = null;
                     }
 
                     bytesReady += length;
@@ -503,7 +649,10 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     public SessionImpl(
                 ColliderImpl collider,
                 SocketChannel socketChannel,
-                SelectionKey selectionKey )
+                SelectionKey selectionKey,
+                int socketSendBufferSize,
+                int joinMessageMaxSize,
+                PooledByteBuffer.Pool joinPool )
     {
         m_collider = collider;
         m_socketChannel = socketChannel;
@@ -515,15 +664,15 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         m_state = new AtomicInteger( ST_STARTING + SOCK_RC );
         m_head = null;
         m_tail = new AtomicReference<Node>();
-        m_writer = new SocketWriter();
+        m_writer = new SocketWriter( socketSendBufferSize, joinMessageMaxSize, joinPool );
 
         m_selectionKey.attach( this );
     }
 
     public final void initialize(
-            int inputQueueMaxSize,
-            DataBlockCache inputQueueDataBlockCache,
-            Listener listener )
+                int inputQueueMaxSize,
+                DataBlockCache inputQueueDataBlockCache,
+                Listener listener )
     {
         if (listener == null)
             closeConnection();
@@ -880,9 +1029,9 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         Node node = m_head;
         while (node != CLOSE_MARKER)
         {
-            Node next = node.next;
-            if (node.retainableBuf != null)
-                node.retainableBuf.release();
+            final Node next = node.next;
+            if (node.rbuf != null)
+                node.rbuf.release();
             node.next = null;
             node = next;
         }

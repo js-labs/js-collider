@@ -152,7 +152,26 @@ public class ColliderImpl extends Collider
         }
     }
 
-    private DataBlockCache getInputQueueDataBlockCache( final SessionEmitter sessionEmitter )
+    private static class SessionSharedData
+    {
+        private final DataBlockCache m_inputQueueDataBlockCache;
+        private final int m_joinMessageMaxSize;
+        private final PooledByteBuffer.Pool m_joinPool;
+
+        SessionSharedData(
+                DataBlockCache inputQueueDataBlockCache, int joinMessageMaxSize, PooledByteBuffer.Pool joinPool )
+        {
+            m_inputQueueDataBlockCache = inputQueueDataBlockCache;
+            m_joinMessageMaxSize = joinMessageMaxSize;
+            m_joinPool = joinPool;
+        }
+
+        DataBlockCache getInputQueueDataBlockCache() { return m_inputQueueDataBlockCache; }
+        int getJoinMessageMaxSize() { return m_joinMessageMaxSize; }
+        PooledByteBuffer.Pool getJoinPool() { return m_joinPool; }
+    }
+
+    private SessionSharedData getSessionSharedData( final SessionEmitter sessionEmitter )
     {
         final Config config = getConfig();
 
@@ -163,13 +182,18 @@ public class ColliderImpl extends Collider
             assert( inputQueueBlockSize > 0 );
         }
 
-        DataBlockCache cache = null;
+        int joinMessageMaxSize = sessionEmitter.joinMessageMaxSize;
+        if (joinMessageMaxSize < 0)
+        {
+            joinMessageMaxSize = config.joinMessageMaxSize;
+            if (joinMessageMaxSize < 0)
+                joinMessageMaxSize = 0;
+        }
 
         m_lock.lock();
         try
         {
-            cache = m_dataBlockCache.get( inputQueueBlockSize );
-            cache = m_dataBlockCache.get( inputQueueBlockSize );
+            DataBlockCache cache = m_dataBlockCache.get( inputQueueBlockSize );
             if (cache == null)
             {
                 cache = new DataBlockCache(
@@ -179,13 +203,37 @@ public class ColliderImpl extends Collider
                             config.inputQueueCacheMaxSize );
                 m_dataBlockCache.put( inputQueueBlockSize, cache );
             }
+
+            PooledByteBuffer.Pool joinPool;
+            if (joinMessageMaxSize > 0)
+            {
+                if (m_joinPool == null)
+                {
+                    /* Join pool chunk size should be related to the socket
+                     * send buffer size, the question is how...
+                     */
+                    int socketSendBufferSize = sessionEmitter.socketSendBufSize;
+                    if (socketSendBufferSize == 0)
+                    {
+                        socketSendBufferSize = config.socketSendBufSize;
+                        if (socketSendBufferSize == 0)
+                            socketSendBufferSize = (64 * 1024);
+                    }
+
+                    final int joinPoolChunkSize = 12345; //(socketSendBufferSize * 2);
+                    m_joinPool = new PooledByteBuffer.Pool( joinPoolChunkSize );
+                }
+                joinPool = m_joinPool;
+            }
+            else
+                joinPool = null;
+
+            return new SessionSharedData( cache, joinMessageMaxSize, joinPool );
         }
         finally
         {
             m_lock.unlock();
         }
-
-        return cache;
     }
 
     private void removeEmitter( SessionEmitter sessionEmitter ) throws InterruptedException
@@ -236,6 +284,7 @@ public class ColliderImpl extends Collider
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<Integer, DataBlockCache> m_dataBlockCache;
+    private PooledByteBuffer.Pool m_joinPool;
     private boolean m_stop;
 
     private final AtomicReferenceArray<SelectorThreadRunnable> m_strList;
@@ -463,12 +512,14 @@ public class ColliderImpl extends Collider
         socket.setReuseAddress( acceptor.reuseAddr );
         socket.bind( acceptor.getAddr() );
 
-        DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( acceptor );
+        SessionSharedData sessionSharedData = getSessionSharedData( acceptor );
 
         AcceptorImpl acceptorImpl = new AcceptorImpl(
                 this,
-                inputQueueDataBlockCache,
+                sessionSharedData.getInputQueueDataBlockCache(),
                 acceptor,
+                sessionSharedData.getJoinMessageMaxSize(),
+                sessionSharedData.getJoinPool(),
                 m_selector,
                 serverSocketChannel );
 
@@ -518,12 +569,14 @@ public class ColliderImpl extends Collider
         socketChannel.configureBlocking( false );
         final boolean connected = socketChannel.connect( connector.getAddr() );
 
-        DataBlockCache inputQueueDataBlockCache = getInputQueueDataBlockCache( connector );
+        SessionSharedData sessionSharedData = getSessionSharedData( connector );
 
         ConnectorImpl connectorImpl = new ConnectorImpl(
                 this,
-                inputQueueDataBlockCache,
+                sessionSharedData.getInputQueueDataBlockCache(),
                 connector,
+                sessionSharedData.getJoinMessageMaxSize(),
+                sessionSharedData.getJoinPool(),
                 m_selector );
 
         IOException ex = null;

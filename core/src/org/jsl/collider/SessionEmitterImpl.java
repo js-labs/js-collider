@@ -29,41 +29,49 @@ public abstract class SessionEmitterImpl
     protected final ColliderImpl m_collider;
     protected final DataBlockCache m_inputQueueDataBlockCache;
     private final SessionEmitter m_sessionEmitter;
+    private final int m_joinMessageMaxSize;
+    private final PooledByteBuffer.Pool m_joinPool;
+    private final int m_forwardReadMaxSize;
 
     protected SessionEmitterImpl(
             ColliderImpl collider,
             DataBlockCache inputQueueDataBlockCache,
-            SessionEmitter sessionEmitter )
+            SessionEmitter sessionEmitter,
+            int joinMessageMaxSize,
+            PooledByteBuffer.Pool joinPool )
     {
         m_collider = collider;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
         m_sessionEmitter = sessionEmitter;
+        m_joinMessageMaxSize = joinMessageMaxSize;
+        m_joinPool = joinPool;
 
-        if (sessionEmitter.forwardReadMaxSize == 0)
-            sessionEmitter.forwardReadMaxSize = collider.getConfig().forwardReadMaxSize;
+        m_forwardReadMaxSize =
+                ((sessionEmitter.forwardReadMaxSize == 0)
+                        ? collider.getConfig().forwardReadMaxSize
+                        : sessionEmitter.forwardReadMaxSize);
     }
 
     protected final void startSession( SocketChannel socketChannel, SelectionKey selectionKey )
     {
-        configureSocketChannel( socketChannel );
+        final int socketSendBufferSize = configureSocketChannel( socketChannel );
+
+        final SessionImpl sessionImpl = new SessionImpl(
+                m_collider, socketChannel, selectionKey, socketSendBufferSize, m_joinMessageMaxSize, m_joinPool );
 
         final Thread currentThread = Thread.currentThread();
-        final SessionImpl sessionImpl = new SessionImpl( m_collider, socketChannel, selectionKey );
-
         addThread( currentThread );
         final Session.Listener sessionListener = m_sessionEmitter.createSessionListener( sessionImpl );
         removeThreadAndReleaseMonitor( currentThread );
 
         /* Case when a sessionListener is null
-         * will be handled in the SessionImpl.initialize()
+         * will be handled inside the SessionImpl.initialize()
          */
         sessionImpl.initialize(
-                   m_sessionEmitter.forwardReadMaxSize,
-                   m_inputQueueDataBlockCache,
-                   sessionListener );
+                   m_forwardReadMaxSize, m_inputQueueDataBlockCache, sessionListener );
     }
 
-    private void configureSocketChannel( SocketChannel socketChannel )
+    private int configureSocketChannel( SocketChannel socketChannel )
     {
         final Socket socket = socketChannel.socket();
         try
@@ -84,15 +92,15 @@ public abstract class SessionEmitterImpl
             logException( ex );
         }
 
-        int bufSize = m_sessionEmitter.socketRecvBufSize;
-        if (bufSize == 0)
-            bufSize = m_collider.getConfig().socketRecvBufSize;
+        int recvBufferSize = m_sessionEmitter.socketRecvBufSize;
+        if (recvBufferSize == 0)
+            recvBufferSize = m_collider.getConfig().socketRecvBufSize;
 
-        if (bufSize > 0)
+        if (recvBufferSize > 0)
         {
             try
             {
-                socket.setReceiveBufferSize( bufSize );
+                socket.setReceiveBufferSize( recvBufferSize );
             }
             catch (SocketException ex)
             {
@@ -100,21 +108,25 @@ public abstract class SessionEmitterImpl
             }
         }
 
-        bufSize = m_sessionEmitter.socketSendBufSize;
-        if (bufSize == 0)
-            bufSize = m_collider.getConfig().socketSendBufSize;
+        int sendBufferSize = m_sessionEmitter.socketSendBufSize;
+        if (sendBufferSize == 0)
+            sendBufferSize = m_collider.getConfig().socketSendBufSize;
 
-        if (bufSize > 0)
+        if (sendBufferSize > 0)
         {
             try
             {
-                socket.setSendBufferSize( bufSize );
+                socket.setSendBufferSize( sendBufferSize );
             }
             catch (SocketException ex)
             {
                 logException( ex );
             }
         }
+        else
+            sendBufferSize = (64 * 1024);
+
+        return sendBufferSize;
     }
 
     protected abstract void addThread( Thread thread );

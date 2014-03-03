@@ -34,6 +34,8 @@ public abstract class SessionEmitter
     public int forwardReadMaxSize;
     public int inputQueueBlockSize;
 
+    public int joinMessageMaxSize;
+
     public SessionEmitter( InetSocketAddress addr )
     {
         m_addr = addr;
@@ -46,6 +48,11 @@ public abstract class SessionEmitter
         socketSendBufSize = 0;
         forwardReadMaxSize = 0;
         inputQueueBlockSize = 0;
+
+        /* -1 - use collider global value,
+         *  0 - disable message join,
+         */
+        joinMessageMaxSize = -1;
     }
 
     public InetSocketAddress getAddr()
