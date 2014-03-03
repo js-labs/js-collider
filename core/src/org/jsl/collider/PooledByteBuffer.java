@@ -123,6 +123,31 @@ public class PooledByteBuffer extends RetainableByteBuffer
         private volatile int m_state;
         private volatile Chunk m_chunk;
 
+        private PooledByteBuffer allocNewLocked( int state, int space, int size )
+        {
+            m_chunk.release( space + 1 );
+            m_chunk = m_cache.get();
+            final Chunk chunk = m_chunk;
+
+            int newState = (state + space + size);
+            int reservedSize = size;
+            if (newState <= 0)
+                newState = size;
+
+            if ((size % 4) > 0)
+            {
+                final int cc = (4 - (size % 4));
+                if ((size + cc) <= m_chunkSize)
+                {
+                    newState += cc;
+                    reservedSize += cc;
+                }
+            }
+            m_state = newState;
+
+            return new PooledByteBuffer( chunk, 0, size, reservedSize );
+        }
+
         public Pool()
         {
             this( 64*1024 );
@@ -136,7 +161,7 @@ public class PooledByteBuffer extends RetainableByteBuffer
             m_chunk = m_cache.get();
         }
 
-        public final PooledByteBuffer alloc( int size )
+        public final PooledByteBuffer alloc( int size, int minSize )
         {
             for (;;)
             {
@@ -147,7 +172,7 @@ public class PooledByteBuffer extends RetainableByteBuffer
                 final int offs = (state % m_chunkSize);
                 int space = (m_chunkSize - offs);
 
-                if (size <= space)
+                if (size < space)
                 {
                     int newState = (state + size);
                     int reservedSize = size;
@@ -170,43 +195,59 @@ public class PooledByteBuffer extends RetainableByteBuffer
 
                     return new PooledByteBuffer( chunk, offs, size, reservedSize );
                 }
-                else if (size <= m_chunkSize)
+                else if ((size == space) || (minSize <= space))
                 {
                     if (!s_stateUpdater.compareAndSet(this, state, -1))
                         continue;
 
-                    m_chunk.release( space + 1 );
-                    m_chunk = m_cache.get();
+                    m_chunk.release( 1 );
                     final Chunk chunk = m_chunk;
+                    m_chunk = m_cache.get();
 
-                    int newState = (state + space + size);
-                    int reservedSize = size;
+                    int newState = (state + space);
                     if (newState <= 0)
-                        newState = size;
+                        newState = (offs + space);
 
-                    if ((size % 4) > 0)
-                    {
-                        final int cc = (4 - (size % 4));
-                        if ((size + cc) <= m_chunkSize)
-                        {
-                            newState += cc;
-                            reservedSize += cc;
-                        }
-                    }
                     m_state = newState;
 
-                    return new PooledByteBuffer( chunk, 0, size, reservedSize );
+                    return new PooledByteBuffer( chunk, offs, space, space );
+                }
+                else if (size < m_chunkSize)
+                {
+                    /* size > space */
+                    if (!s_stateUpdater.compareAndSet(this, state, -1))
+                        continue;
+                    return allocNewLocked( state, space, size );
+                }
+                else if (size == m_chunkSize)
+                {
+                    /* space < size, let's just take a new chunk. */
+                    final Chunk chunk = m_cache.get();
+                    return new PooledByteBuffer( chunk, 0, size, size );
+                }
+                else if (minSize <= m_chunkSize)
+                {
+                    /* minSize > space */
+                    if (!s_stateUpdater.compareAndSet(this, state, -1))
+                        continue;
+                    return allocNewLocked( state, space, minSize );
                 }
                 else
                 {
+                    /* size > m_chunkSize */
                     final ByteBuffer buf =
-                            m_useDirectBuffers ? ByteBuffer.allocateDirect(size) : ByteBuffer.allocate(size);
+                            m_useDirectBuffers ? ByteBuffer.allocateDirect(size) : ByteBuffer.allocate( size );
                     final Chunk chunk = new Chunk( null, buf );
                     PooledByteBuffer ret = new PooledByteBuffer( chunk, 0, size, size );
                     chunk.release(1);
                     return ret;
                 }
             }
+        }
+
+        public final PooledByteBuffer alloc( int size )
+        {
+            return alloc( size, size );
         }
 
         public final void clear( Logger logger )
@@ -253,5 +294,12 @@ public class PooledByteBuffer extends RetainableByteBuffer
                 break;
             }
         }
+    }
+
+    public String toString()
+    {
+        String ret = super.toString();
+        ret += " reserved=" + m_reservedSize;
+        return ret;
     }
 }
