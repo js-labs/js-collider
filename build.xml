@@ -19,6 +19,7 @@
 
 <project name="JS-Collider">
 
+    <property name="VERSION" value="0.9"/>
     <property name="OUT_DIR" location="out/production"/>
 
     <macrodef name="run-test">
@@ -46,11 +47,19 @@
     </target>
 
     <target name="dist" depends="compile">
-        <jar jarfile="out/${ant.project.name}.jar" basedir="${OUT_DIR}/core">
+        <jar jarfile="out/${ant.project.name}-${VERSION}.jar" basedir="${OUT_DIR}/core">
             <manifest>
                 <attribute name="Implementation-Title" value="${ant.project.name}"/>
                 <attribute name="Implementation-Vendor" value="org.jsl"/>
-                <attribute name="Implementation-Version" value="0.9"/>
+                <attribute name="Implementation-Version" value="${VERSION}"/>
+                <attribute name="Sealed" value="true"/>
+            </manifest>
+        </jar>
+        <jar jarfile="out/${ant.project.name}-${VERSION}-src.jar" basedir="core/src">
+            <manifest>
+                <attribute name="Implementation-Title" value="${ant.project.name}"/>
+                <attribute name="Implementation-Vendor" value="org.jsl"/>
+                <attribute name="Implementation-Version" value="${VERSION}"/>
                 <attribute name="Sealed" value="true"/>
             </manifest>
         </jar>
