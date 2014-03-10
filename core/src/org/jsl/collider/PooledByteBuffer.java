@@ -25,12 +25,8 @@ import java.util.logging.Logger;
 
 public class PooledByteBuffer extends RetainableByteBuffer
 {
-    private final static AtomicIntegerFieldUpdater<PooledByteBuffer> s_retainCountUpdater =
-            AtomicIntegerFieldUpdater.newUpdater( PooledByteBuffer.class, "m_retainCount" );
-
     private final Chunk m_chunk;
     private final int m_reservedSize;
-    private volatile int m_retainCount;
 
     private static class Chunk
     {
@@ -266,34 +262,11 @@ public class PooledByteBuffer extends RetainableByteBuffer
         super( chunk.getByteBuffer().duplicate(), offs, size );
         m_chunk = chunk;
         m_reservedSize = reservedSize;
-        m_retainCount = 1;
     }
 
-    public void retain()
+    protected void finalRelease()
     {
-        for (;;)
-        {
-            final int retainCount = m_retainCount;
-            assert( retainCount > 0 );
-            if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount+1))
-                break;
-        }
-    }
-
-    public void release()
-    {
-        for (;;)
-        {
-            final int retainCount = m_retainCount;
-            assert( retainCount > 0 );
-            final int newValue = (retainCount - 1);
-            if (s_retainCountUpdater.compareAndSet(this, retainCount, newValue))
-            {
-                if (newValue == 0)
-                    m_chunk.release( m_reservedSize );
-                break;
-            }
-        }
+        m_chunk.release( m_reservedSize );
     }
 
     public String toString()
