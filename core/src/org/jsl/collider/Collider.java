@@ -63,11 +63,11 @@ public abstract class Collider
             socketSendBufSize = 0; /* Use system default settings by default */
             socketRecvBufSize = 0; /* Use system default settings by default */
 
-            forwardReadMaxSize          = (256 * 1024);
-            inputQueueBlockSize         = (32 * 1024);
-            inputQueueCacheInitialSize  = 64;
-            inputQueueCacheMaxSize      = 128;
-            joinMessageMaxSize = 1024;
+            forwardReadMaxSize         = (256 * 1024);
+            inputQueueBlockSize        = (32 * 1024);
+            inputQueueCacheInitialSize = 64;
+            inputQueueCacheMaxSize     = 128;
+            joinMessageMaxSize         = 0;
         }
     }
 
