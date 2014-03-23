@@ -1001,6 +1001,11 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         if ((readyOps & SelectionKey.OP_WRITE) != 0)
             threadPool.execute( m_writer );
 
+        /* It is safe to reset interest ops after threadPool.execute(),
+         * because this code is executed in the selector thread,
+         * and further interest ops updates will be definitely executed
+         * later after return from this function.
+         */
         m_selectionKey.interestOps( m_selectionKey.interestOps() & ~readyOps );
         return ret;
     }
