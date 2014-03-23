@@ -33,8 +33,8 @@ traffic (both incoming and outgoing).
 ### Main features:
 
 * performance and scalability ([learn more](https://github.com/js-labs/js-collider/wiki/Performance))
-* simple and flexible API
-* shared memory IPC out-of-the-box
+* simple and flexible API ([learn more](https://github.com/js-labs/js-collider/wiki/API))
+* shared memory IPC out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared Memory IPC))
 * plain Java 1.6 (no any unsafe cheating)
 
 Refer the [Wiki](https://github.com/js-labs/js-collider/wiki)
