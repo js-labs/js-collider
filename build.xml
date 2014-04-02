@@ -138,6 +138,10 @@
         <run-test name="remove_connector"/>
     </target>
 
+    <target name="test.dgram_listener" depends="compile_tests">
+        <run-test name="dgram_listener"/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.sched_latency,
@@ -151,6 +155,7 @@
                      test.session_close,
                      test.shmem_throughput,
                      test.remove_acceptor,
-                     test.remove_connector"/>
+                     test.remove_connector,
+                     test.dgram_listener"/>
 
 </project>
