@@ -34,15 +34,16 @@ traffic (both incoming and outgoing).
 
 * performance and scalability ([learn more](https://github.com/js-labs/js-collider/wiki/Performance))
 * simple and flexible API ([learn more](https://github.com/js-labs/js-collider/wiki/API))
-* shared memory IPC out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared Memory IPC))
-* plain Java 1.6 (no any unsafe cheating)
+* UDP (with multicast) support
+* shared memory IPC support out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared Memory IPC))
+* plain Java 1.7 (no any unsafe cheating)
 
 Refer the [Wiki](https://github.com/js-labs/js-collider/wiki)
 for API documentation and performance tests results.
 
 ### Building
 
-You will require JDK 1.6 and appache ant.
+You will require JDK 1.7 and appache ant.
 
     ant dist
 
