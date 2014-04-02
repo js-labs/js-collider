@@ -43,7 +43,7 @@ public abstract class Acceptor extends SessionEmitter
     public abstract Session.Listener createSessionListener( Session session );
 
     /**
-     * Called by framework right before it is ready to accept connections.
+     * Called by framework right before the acceptor is ready to accept connections.
      * It is still safe to remove the <tt>Acceptor</tt> instance from the collider
      * within this method, no one connection will be accepted then.
      */
