@@ -21,10 +21,17 @@ package org.jsl.collider;
 
 import java.io.IOException;
 import java.net.ServerSocket;
-import java.nio.channels.SelectionKey;
+import java.net.NetworkInterface;
+import java.net.InetSocketAddress;
+import java.net.DatagramSocket;
+import java.net.StandardSocketOptions;
+import java.net.StandardProtocolFamily;
 import java.nio.channels.Selector;
+import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.MembershipKey;
 import java.util.Set;
 import java.util.Map;
 import java.util.HashMap;
@@ -54,6 +61,8 @@ public class ColliderImpl extends Collider
         public void runInThreadPool()
         {
             SessionEmitter [] emitters = null;
+            DatagramListener [] datagramListeners = null;
+
             m_lock.lock();
             try
             {
@@ -65,16 +74,25 @@ public class ColliderImpl extends Collider
                     for (int idx=0; idx<size; idx++)
                         emitters[idx] = it.next();
                 }
+
+                size = m_datagramListeners.size();
+                if (size > 0)
+                {
+                    datagramListeners = new DatagramListener[size];
+                    Iterator<DatagramListener> it = m_datagramListeners.keySet().iterator();
+                    for (int idx=0; idx<size; idx++)
+                        datagramListeners[idx] = it.next();
+                }
             }
             finally
             {
                 m_lock.unlock();
             }
 
-            if (emitters != null)
+            boolean interrupted = false;
+            try
             {
-                boolean interrupted = false;
-                try
+                if (emitters != null)
                 {
                     for (SessionEmitter emitter : emitters)
                     {
@@ -90,13 +108,31 @@ public class ColliderImpl extends Collider
                         }
                     }
                 }
-                finally
+
+                if (datagramListeners != null)
                 {
-                    if (interrupted)
-                        Thread.currentThread().interrupt();
+                    for (DatagramListener datagramListener : datagramListeners)
+                    {
+                        try
+                        {
+                            removeDatagramListener( datagramListener );
+                        }
+                        catch (InterruptedException ex)
+                        {
+                            if (s_logger.isLoggable(Level.WARNING))
+                                s_logger.warning( ex.toString() );
+                            interrupted = true;
+                        }
+                    }
                 }
             }
+            finally
+            {
+                if (interrupted)
+                    Thread.currentThread().interrupt();
+            }
 
+            /* No new session can appear now, can close all current. */
             executeInSelectorThread( new Stopper2() );
         }
     }
@@ -199,7 +235,7 @@ public class ColliderImpl extends Collider
                 cache = new DataBlockCache(
                             config.useDirectBuffers,
                             inputQueueBlockSize,
-                            config.inputQueueCacheInitialSize,
+                            8 /* initial size */,
                             config.inputQueueCacheMaxSize );
                 m_dataBlockCache.put( inputQueueBlockSize, cache );
             }
@@ -220,7 +256,7 @@ public class ColliderImpl extends Collider
                             socketSendBufferSize = (64 * 1024);
                     }
 
-                    final int joinPoolChunkSize = 12345; //(socketSendBufferSize * 2);
+                    final int joinPoolChunkSize = socketSendBufferSize * 2;
                     m_joinPool = new PooledByteBuffer.Pool( joinPoolChunkSize );
                 }
                 joinPool = m_joinPool;
@@ -258,13 +294,27 @@ public class ColliderImpl extends Collider
         emitterImpl.stopAndWait();
     }
 
-    public void removeEmitterNoWait( SessionEmitter sessionEmitter )
+    public void removeEmitterNoWait( final SessionEmitter sessionEmitter )
     {
-        /* Supposed to be called by emitter itself. */
+        /* Supposed to be called by SessionEmitterImpl itself. */
         m_lock.lock();
         try
         {
             m_emitters.remove( sessionEmitter );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+    }
+
+    public void removeDatagramListenerNoWait( final DatagramListener datagramListener )
+    {
+        /* Supposed to be called by DatagramListenerImpl */
+        m_lock.lock();
+        try
+        {
+            m_datagramListeners.remove( datagramListener );
         }
         finally
         {
@@ -283,6 +333,7 @@ public class ColliderImpl extends Collider
 
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
+    private final Map<DatagramListener, DatagramListenerImpl> m_datagramListeners;
     private final Map<Integer, DataBlockCache> m_dataBlockCache;
     private PooledByteBuffer.Pool m_joinPool;
     private boolean m_stop;
@@ -311,6 +362,7 @@ public class ColliderImpl extends Collider
 
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
+        m_datagramListeners = new HashMap<DatagramListener, DatagramListenerImpl>();
         m_dataBlockCache = new HashMap<Integer, DataBlockCache>();
         m_stop = false;
 
@@ -599,11 +651,138 @@ public class ColliderImpl extends Collider
         if (ex == null)
             connectorImpl.start( socketChannel, connected );
         else
+        {
+            try
+            {
+                socketChannel.close();
+            }
+            catch (IOException ex1)
+            {
+                /* Should never happen */
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex1.toString() );
+            }
             throw ex;
+        }
     }
 
     public void removeConnector( Connector connector ) throws InterruptedException
     {
         removeEmitter( connector );
+    }
+
+    public void addDatagramListener( DatagramListener datagramListener ) throws IOException
+    {
+        final InetSocketAddress addr = datagramListener.getAddr();
+        final DatagramChannel datagramChannel = DatagramChannel.open( StandardProtocolFamily.INET );
+        final DatagramSocket socket = datagramChannel.socket();
+        final Config config = getConfig();
+
+        datagramChannel.configureBlocking( false );
+        socket.setReuseAddress( true );
+
+        datagramChannel.bind( addr );
+        datagramChannel.connect( addr );
+
+        int socketRecvBufSize = datagramListener.socketRecvBufSize;
+        if (socketRecvBufSize == 0)
+            socketRecvBufSize = config.socketRecvBufSize;
+        if (socketRecvBufSize > 0)
+            socket.setReceiveBufferSize( socketRecvBufSize );
+
+        MembershipKey membershipKey = null;
+
+        if (addr.getAddress().isMulticastAddress())
+        {
+            final String interfaceName = datagramListener.getInterfaceName();
+            NetworkInterface networkInterface;
+            if ((interfaceName == null) || interfaceName.isEmpty())
+                networkInterface = NetworkInterface.getByIndex(0);
+            else
+                networkInterface = NetworkInterface.getByName( interfaceName );
+            datagramChannel.setOption( StandardSocketOptions.IP_MULTICAST_IF, networkInterface );
+            membershipKey = datagramChannel.join( addr.getAddress(), networkInterface );
+        }
+
+        int inputQueueBlockSize = datagramListener.inputQueueBlockSize;
+        if (inputQueueBlockSize == 0)
+            inputQueueBlockSize = config.inputQueueBlockSize;
+
+        if (inputQueueBlockSize < 2*1024)
+            inputQueueBlockSize = (2 * 1024);
+
+        DataBlockCache dataBlockCache;
+        m_lock.lock();
+        try
+        {
+            dataBlockCache = m_dataBlockCache.get( inputQueueBlockSize );
+            if (dataBlockCache == null)
+            {
+                dataBlockCache = new DataBlockCache(
+                        config.useDirectBuffers,
+                        inputQueueBlockSize,
+                        8 /* initial size */,
+                        config.inputQueueCacheMaxSize );
+                m_dataBlockCache.put( inputQueueBlockSize, dataBlockCache );
+            }
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        DatagramListenerImpl datagramListenerImpl = new DatagramListenerImpl(
+                this, m_selector, dataBlockCache, datagramListener, datagramChannel, membershipKey );
+
+        IOException ex = null;
+
+        m_lock.lock();
+        try
+        {
+            if (m_stop)
+                ex = new IOException( "Collider stopped" );
+            else if (m_datagramListeners.containsKey(datagramListener))
+                ex = new IOException( "DatagramListener already registered." );
+            else
+                m_datagramListeners.put( datagramListener, datagramListenerImpl );
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        if (ex == null)
+            datagramListenerImpl.start();
+        else
+        {
+            try
+            {
+                datagramChannel.close();
+            }
+            catch (IOException ex1)
+            {
+                /* Should never happen */
+                if (s_logger.isLoggable(Level.WARNING))
+                    s_logger.warning( ex1.toString() );
+            }
+            throw ex;
+        }
+    }
+
+    public void removeDatagramListener( DatagramListener datagramListener) throws InterruptedException
+    {
+        DatagramListenerImpl datagramListenerImpl;
+        m_lock.lock();
+        try
+        {
+            datagramListenerImpl = m_datagramListeners.get( datagramListener );
+            if (datagramListenerImpl == null)
+                return;
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+        datagramListenerImpl.stopAndWait();
     }
 }

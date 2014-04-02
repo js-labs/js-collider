@@ -27,13 +27,11 @@ import java.io.IOException;
  * {
  *     public static void main( String [] args )
  *     {
- *         try
- *         {
+ *         try {
  *             final Collider collider = Collider.create();
  *             collider.run();
  *         }
- *         catch (IOException ex)
- *         {
+ *         catch (IOException ex) {
  *             ex.printStackTrace();
  *         }
  *     }
@@ -51,9 +49,9 @@ public abstract class Collider
         public int socketRecvBufSize;
         public int forwardReadMaxSize;
         public int inputQueueBlockSize;
-        public int inputQueueCacheInitialSize;
         public int inputQueueCacheMaxSize;
         public int joinMessageMaxSize;
+        public int datagramReadMinSize;
 
         public Config()
         {
@@ -63,11 +61,11 @@ public abstract class Collider
             socketSendBufSize = 0; /* Use system default settings by default */
             socketRecvBufSize = 0; /* Use system default settings by default */
 
-            forwardReadMaxSize         = (256 * 1024);
-            inputQueueBlockSize        = (32 * 1024);
-            inputQueueCacheInitialSize = 64;
-            inputQueueCacheMaxSize     = 128;
-            joinMessageMaxSize         = 0;
+            forwardReadMaxSize     = (256 * 1024);
+            inputQueueBlockSize    = (32 * 1024);
+            inputQueueCacheMaxSize = 128;
+            joinMessageMaxSize     = 0;
+            datagramReadMinSize    = (2 * 1024);
         }
     }
 
@@ -92,7 +90,7 @@ public abstract class Collider
     /**
      * Stops the running collider.
      * The call is asynchronous, collider can still run some time.
-     * All currently registered acceptors and connectors will be removed first.
+     * At first all currently running acceptors and connectors will be removed.
      * After that all established sessions will be closed
      * (Session.Listener.onConnectionClose() will be called for each).
      * Only after that collider run loop stops and the thread running
@@ -116,6 +114,9 @@ public abstract class Collider
 
     public abstract void addConnector( Connector connector ) throws IOException;
     public abstract void removeConnector( Connector connector ) throws InterruptedException;
+
+    public abstract void addDatagramListener( DatagramListener datagramListener ) throws IOException;
+    public abstract void removeDatagramListener( DatagramListener datagramListener ) throws InterruptedException;
 
     public static Collider create( Config config ) throws IOException
     {

@@ -39,4 +39,13 @@ public class DataBlock
         rw.clear();
         return this;
     }
+
+    public final DataBlock getNextAndReset()
+    {
+        final DataBlock ret = next;
+        next = null;
+        ww.clear();
+        rw.clear();
+        return ret;
+    }
 }
