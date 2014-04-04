@@ -20,6 +20,7 @@
 package org.jsl.collider;
 
 import java.io.IOException;
+import java.net.NetworkInterface;
 
 /* Collider public API. Typical usage example:
  * <pre>{@code
@@ -115,16 +116,26 @@ public abstract class Collider
     public abstract void addConnector( Connector connector ) throws IOException;
     public abstract void removeConnector( Connector connector ) throws InterruptedException;
 
-    public abstract void addDatagramListener( DatagramListener datagramListener ) throws IOException;
-    public abstract void removeDatagramListener( DatagramListener datagramListener ) throws InterruptedException;
+    public abstract void addDatagramListener(
+            DatagramListener datagramListener ) throws IOException;
+
+    public abstract void addDatagramListener(
+            DatagramListener datagramListener,
+            NetworkInterface networkInterface ) throws IOException;
+
+    public abstract void removeDatagramListener(
+            DatagramListener datagramListener ) throws InterruptedException;
+
+    /**
+     * Create a Collider instance with default configuration.
+     */
+    public static Collider create() throws IOException
+    {
+        return create( new Config() );
+    }
 
     public static Collider create( Config config ) throws IOException
     {
         return new ColliderImpl( config );
-    }
-
-    public static Collider create() throws IOException
-    {
-        return create( new Config() );
     }
 }

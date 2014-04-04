@@ -26,7 +26,6 @@ import java.nio.ByteBuffer;
 public abstract class DatagramListener
 {
     private final InetSocketAddress m_addr;
-    private final String m_interfaceName;
 
     public int socketRecvBufSize;
     public int inputQueueBlockSize;
@@ -35,13 +34,7 @@ public abstract class DatagramListener
 
     public DatagramListener( InetSocketAddress addr )
     {
-        this( addr, null );
-    }
-
-    public DatagramListener( InetSocketAddress addr, String interfaceName )
-    {
         m_addr = addr;
-        m_interfaceName = interfaceName;
 
         /* use collider global default values */
         socketRecvBufSize = 0;
@@ -53,11 +46,6 @@ public abstract class DatagramListener
     public InetSocketAddress getAddr()
     {
         return m_addr;
-    }
-
-    public String getInterfaceName()
-    {
-        return m_interfaceName;
     }
 
     public abstract void onDataReceived( ByteBuffer data, SocketAddress sourceAddr );

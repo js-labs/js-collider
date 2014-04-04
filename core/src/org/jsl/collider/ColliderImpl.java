@@ -673,6 +673,12 @@ public class ColliderImpl extends Collider
 
     public void addDatagramListener( DatagramListener datagramListener ) throws IOException
     {
+        addDatagramListener( datagramListener, null );
+    }
+
+    public void addDatagramListener(
+            DatagramListener datagramListener, NetworkInterface networkInterface ) throws IOException
+    {
         final InetSocketAddress addr = datagramListener.getAddr();
         final DatagramChannel datagramChannel = DatagramChannel.open( StandardProtocolFamily.INET );
         final DatagramSocket socket = datagramChannel.socket();
@@ -680,9 +686,6 @@ public class ColliderImpl extends Collider
 
         datagramChannel.configureBlocking( false );
         socket.setReuseAddress( true );
-
-        datagramChannel.bind( addr );
-        datagramChannel.connect( addr );
 
         int socketRecvBufSize = datagramListener.socketRecvBufSize;
         if (socketRecvBufSize == 0)
@@ -692,14 +695,21 @@ public class ColliderImpl extends Collider
 
         MembershipKey membershipKey = null;
 
-        if (addr.getAddress().isMulticastAddress())
+        if (networkInterface == null)
         {
-            final String interfaceName = datagramListener.getInterfaceName();
-            NetworkInterface networkInterface;
-            if ((interfaceName == null) || interfaceName.isEmpty())
-                networkInterface = NetworkInterface.getByIndex(0);
-            else
-                networkInterface = NetworkInterface.getByName( interfaceName );
+            if (addr.getAddress().isMulticastAddress())
+            {
+                datagramChannel.close();
+                throw new IOException( "addDatagramListener(" + addr + "): " +
+                                       "addDatagramListener(DatagramListener, NetworkInterface) " +
+                                       "should be used for multicast addresses." );
+            }
+            datagramChannel.bind( addr );
+            datagramChannel.connect( addr );
+        }
+        else
+        {
+            datagramChannel.bind( new InetSocketAddress( addr.getPort() ) );
             datagramChannel.setOption( StandardSocketOptions.IP_MULTICAST_IF, networkInterface );
             membershipKey = datagramChannel.join( addr.getAddress(), networkInterface );
         }
@@ -721,7 +731,7 @@ public class ColliderImpl extends Collider
                 dataBlockCache = new DataBlockCache(
                         config.useDirectBuffers,
                         inputQueueBlockSize,
-                        8 /* initial size */,
+                        4 /* initial size */,
                         config.inputQueueCacheMaxSize );
                 m_dataBlockCache.put( inputQueueBlockSize, dataBlockCache );
             }
@@ -755,6 +765,9 @@ public class ColliderImpl extends Collider
             datagramListenerImpl.start();
         else
         {
+            if (membershipKey != null)
+                membershipKey.drop();
+
             try
             {
                 datagramChannel.close();
