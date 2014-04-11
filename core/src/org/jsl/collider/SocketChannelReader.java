@@ -29,16 +29,25 @@ import java.util.logging.Logger;
 
 public class SocketChannelReader extends ThreadPool.Runnable
 {
-    private class Starter extends ColliderImpl.SelectorThreadRunnable
+    private class Starter0 extends ColliderImpl.SelectorThreadRunnable
     {
-        public int readDone;
-
         public int runInSelectorThread()
         {
             final int interestOps = m_selectionKey.interestOps();
             assert( (interestOps & SelectionKey.OP_READ) == 0 );
             m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
-            return readDone;
+            return 0;
+        }
+    }
+
+    private class Starter1 extends ColliderImpl.SelectorThreadRunnable
+    {
+        public int runInSelectorThread()
+        {
+            final int interestOps = m_selectionKey.interestOps();
+            assert( (interestOps & SelectionKey.OP_READ) == 0 );
+            m_selectionKey.interestOps( interestOps | SelectionKey.OP_READ );
+            return 1;
         }
     }
 
@@ -227,7 +236,8 @@ public class SocketChannelReader extends ThreadPool.Runnable
     private Session.Listener m_closeListener;
     private ShMemListener m_shMemListener;
 
-    private final Starter m_starter;
+    private final Starter0 m_starter0;
+    private final Starter1 m_starter1;
     private final Suspender m_suspender;
     private final AtomicInteger m_state;
     private final ByteBuffer [] m_iov;
@@ -308,10 +318,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
                         if ((newState & CLOSE) == 0)
                         {
                             if ((state & LENGTH_MASK) >= m_forwardReadMaxSize)
-                            {
-                                m_starter.readDone = 0;
-                                m_collider.executeInSelectorThread( m_starter );
-                            }
+                                m_collider.executeInSelectorThread( m_starter0 );
                         }
                         else
                         {
@@ -337,8 +344,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
                             ((newState & LENGTH_MASK) < m_forwardReadMaxSize) &&
                             ((newState & CLOSE) == 0))
                         {
-                            m_starter.readDone = 0;
-                            m_collider.executeInSelectorThread( m_starter );
+                            m_collider.executeInSelectorThread( m_starter0 );
                         }
                         state = newState;
                         break;
@@ -395,7 +401,8 @@ public class SocketChannelReader extends ThreadPool.Runnable
         m_selectionKey = selectionKey;
         m_dataListener = sessionListener;
         m_closeListener = sessionListener;
-        m_starter = new Starter();
+        m_starter0 = new Starter0();
+        m_starter1 = new Starter1();
         m_suspender = new Suspender();
         m_state = new AtomicInteger();
         m_iov = new ByteBuffer[2];
@@ -565,10 +572,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
             if (tailLock > 0)
             {
                 if (prev != null)
-                {
-                    assert( pos0 == 0 );
                     prev.next = dataBlock0;
-                }
             }
             else
             {
@@ -619,10 +623,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
             final int length = (state & LENGTH_MASK);
             if (length < m_forwardReadMaxSize)
-            {
-                m_starter.readDone = 1;
-                m_collider.executeInSelectorThreadNoWakeup( m_starter );
-            }
+                m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
             else
                 m_collider.executeInSelectorThreadNoWakeup( m_suspender );
 
@@ -790,7 +791,7 @@ public class SocketChannelReader extends ThreadPool.Runnable
 
     public final void start()
     {
-        m_collider.executeInSelectorThread( m_starter );
+        m_collider.executeInSelectorThread( m_starter0 );
     }
 
     public final void stop()
