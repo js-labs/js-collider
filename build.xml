@@ -19,7 +19,7 @@
 
 <project name="JS-Collider">
 
-    <property name="VERSION" value="0.9"/>
+    <property name="VERSION" value="0.91"/>
     <property name="OUT_DIR" location="out/production"/>
 
     <macrodef name="run-test">
@@ -142,6 +142,10 @@
         <run-test name="dgram_listener"/>
     </target>
 
+    <target name="test.pubsub" depends="compile_tests">
+        <run-test name="pubsub"/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.sched_latency,
@@ -156,6 +160,7 @@
                      test.shmem_throughput,
                      test.remove_acceptor,
                      test.remove_connector,
-                     test.dgram_listener"/>
+                     test.dgram_listener,
+                     test.pubsub"/>
 
 </project>
