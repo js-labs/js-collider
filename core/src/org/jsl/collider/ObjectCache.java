@@ -101,7 +101,7 @@ public abstract class ObjectCache<TYPE>
                 logger.log( Level.WARNING,
                         m_name + ": resource leak detected: current size " +
                         m_size + " less than initial size " + initialSize +
-                        " (" + m_gets + ", " + m_miss + ", " + m_puts + ")." );
+                        " (get=" + m_gets + ", miss=" + m_miss + ", put=" + m_puts + ")." );
             }
         }
         else
@@ -110,7 +110,7 @@ public abstract class ObjectCache<TYPE>
             {
                 logger.log(
                         Level.FINE, m_name + ": size=" + m_size +
-                        " (" + m_gets + ", " + m_miss + ", " + m_puts + ")." );
+                        " (get=" + m_gets + ", miss=" + m_miss + ", put" + m_puts + ")." );
             }
         }
 
@@ -136,7 +136,8 @@ public abstract class ObjectCache<TYPE>
         }
         else
         {
-            return m_name + ": size=" + size + " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
+            return m_name + ": size=" + size + " (get=" + m_gets +
+                   ", miss=" + m_miss + ", put=" + m_puts + ").";
         }
     }
 }
