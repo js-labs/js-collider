@@ -24,6 +24,7 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
+import java.nio.channels.NotYetConnectedException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
@@ -276,11 +277,18 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     m_collider.executeInSelectorThread( m_starter );
                     return;
                 }
+                m_bytesSent += bytesSent;
             }
-            catch (Exception ex)
+            catch (IOException ex)
             {
                 closeAndCleanupQueue( ex );
                 releaseSocket( "SocketWriter");
+                return;
+            }
+            catch (NotYetConnectedException ex)
+            {
+                closeAndCleanupQueue( ex );
+                releaseSocket( "SocketWriter" );
                 return;
             }
 
@@ -289,13 +297,13 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             {
                 if (m_iov[idx].remaining() > 0)
                 {
-                    final int cc = (m_iovc - idx);
-                    for (int jj=0; jj<cc; jj++)
-                    {
-                        m_iov[jj] = m_iov[jj+idx];
-                        m_iov[jj+idx] = null;
-                    }
-                    m_iovc = cc;
+                    final int iovc = (m_iovc - idx);
+                    int cc = 0;
+                    for (; idx<m_iovc; idx++, cc++)
+                        m_iov[cc] = m_iov[idx];
+                    for (; cc<m_iovc; cc++)
+                        m_iov[cc] = null;
+                    m_iovc = iovc;
                     m_head = node;
                     m_notJoin = (m_joinMessageMaxSize == 0);
                     m_collider.executeInThreadPool( this );
