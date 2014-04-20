@@ -110,7 +110,7 @@ public class ThreadPool
         idx = (idx * FS_PADDING) + FS_PADDING - 1;
         for (;;)
         {
-            Runnable runnable = m_hra.get( idx );
+            final Runnable runnable = m_hra.get( idx );
 
             if (runnable == null)
                 return null;
@@ -215,7 +215,7 @@ public class ThreadPool
         int idx = (int) Thread.currentThread().getId();
         idx = (idx % m_contentionFactor) * FS_PADDING + FS_PADDING - 1;
 
-        Runnable tail = m_tra.getAndSet( idx, runnable );
+        final Runnable tail = m_tra.getAndSet( idx, runnable );
         if (tail == null)
             m_hra.set( idx, runnable );
         else
