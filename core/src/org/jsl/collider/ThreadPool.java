@@ -20,6 +20,7 @@
 package org.jsl.collider;
 
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -132,13 +133,13 @@ public class ThreadPool
                     {
                         while (runnable.nextThreadPoolRunnable == null);
                         m_hra.set( idx, runnable.nextThreadPoolRunnable );
-                        runnable.nextThreadPoolRunnable = null;
+                        s_nextUpdater.lazySet( runnable, null );
                     }
                 }
                 else
                 {
                     m_hra.set( idx, runnable.nextThreadPoolRunnable );
-                    runnable.nextThreadPoolRunnable = null;
+                    s_nextUpdater.lazySet( runnable, null );
                 }
                 return runnable;
             }
@@ -151,6 +152,9 @@ public class ThreadPool
         {
         }
     }
+
+    private static final AtomicReferenceFieldUpdater<Runnable, Runnable> s_nextUpdater
+            = AtomicReferenceFieldUpdater.newUpdater( Runnable.class, Runnable.class, "nextThreadPoolRunnable" );
 
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
     private static final Lock LOCK = new Lock();
