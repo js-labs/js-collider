@@ -1,168 +1,228 @@
 /*
- * JS-Collider framework.
+ * JS-Collider framework tests.
  * Copyright (C) 2013 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * it under the terms of the GNU Affero General Public License as
+ * published by the Free Software Foundation, either version 3 of the
+ * License, or (at your option) any later version.
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * See the GNU General Public License for more details.
- * You should have received a copy of the GNU General Public License
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 package org.jsl.tests.binary_queue;
 
+import org.jsl.collider.BinaryQueue;
 import org.jsl.collider.DataBlockCache;
-import org.jsl.collider.StreamDefragger;
-import org.jsl.tests.BinaryQueue;
-import org.jsl.tests.Util;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Main
 {
-    private static final int MESSAGE_MAGIC = 0x1A2B3C4D;
-    private static final Logger s_logger = Logger.getLogger( Main.class.getName() );
+    private static final int OPS = 1000000;
 
-    private final Semaphore m_sema;
-    private final AtomicLong m_state;
-    private final DataBlockCache m_dataBlockCache;
-    private final BinaryQueue m_outputQueue;
-    private final Stream m_stream;
-    private int m_waitMessages;
-    private int m_messages;
-
-    private class Stream extends StreamDefragger
+    private class Producer1 extends Thread
     {
-        public Stream()
+        private final int m_id;
+        private final BinaryQueue m_queue;
+
+        public Producer1( int id, BinaryQueue queue )
         {
-            super( 4 );
+            m_id = id;
+            m_queue = queue;
         }
 
-        protected int validateHeader( ByteBuffer header )
+        public void run()
         {
-            return header.getInt();
+            System.out.println( m_id + ": started" );
+
+            int ops = 0;
+            final ByteBuffer byteBuffer = ByteBuffer.allocateDirect( 4*8 );
+            byteBuffer.putInt( 0x11111111 );
+            byteBuffer.putInt( 0x22222222 );
+            byteBuffer.putInt( 0x33333333 );
+            byteBuffer.putInt( 0x44444444 );
+
+            for (int idx=0; idx<OPS; idx++)
+            {
+                byteBuffer.position(0);
+                final ByteBuffer bb = m_queue.putData( byteBuffer );
+                if (bb != null)
+                {
+                    m_lock.lock();
+                    try
+                    {
+                        m_bb = bb;
+                        m_cond.signal();
+                    }
+                    finally
+                    {
+                        m_lock.unlock();
+                    }
+                    ops++;
+                }
+            }
+
+            System.out.println( m_id + ": done (" + ops + ")" );
         }
     }
+
+    private class Producer2 extends Thread
+    {
+        private final int m_id;
+        private final BinaryQueue m_queue;
+
+        public Producer2( int id, BinaryQueue queue )
+        {
+            m_id = id;
+            m_queue = queue;
+        }
+
+        public void run()
+        {
+            System.out.println( m_id + ": started" );
+
+            int ops = 0;
+            final ByteBuffer byteBuffer = ByteBuffer.allocateDirect( 4*8 );
+            byteBuffer.putInt( 0x11111111 );
+            byteBuffer.putInt( 0x22222222 );
+            byteBuffer.putInt( 0x33333333 );
+            byteBuffer.putInt( 0x44444444 );
+
+            for (int idx=0; idx<OPS; idx++)
+            {
+                byteBuffer.position(0);
+                ByteBuffer bb = m_queue.putDataNoCopy( byteBuffer );
+                if (bb != null)
+                {
+                    do
+                    {
+                        int valid = 0x11111111;
+                        for (int j=0; j<4; j++)
+                        {
+                            int v = bb.getInt();
+                            if (v != valid)
+                                throw new RuntimeException( "Unexpected value " + v + ", should be " + valid );
+                            valid += 0x11111111;
+                        }
+                        ops++;
+                        m_ops++;
+                        bb = m_queue.getNext();
+                    }
+                    while (bb != null);
+                }
+            }
+
+            m_lock.lock();
+            try
+            {
+                m_cond.signal();
+            }
+            finally
+            {
+                m_lock.unlock();
+            }
+
+            System.out.println( m_id + ": done (" + ops + ")" );
+        }
+    }
+
+    private final ReentrantLock m_lock;
+    private final Condition m_cond;
+    private ByteBuffer m_bb;
+    private int m_ops;
 
     private Main()
     {
-        m_sema = new Semaphore(0);
-        m_state = new AtomicLong(0);
-        m_dataBlockCache = new DataBlockCache( false, 1000, 20, 100 );
-        m_outputQueue = new BinaryQueue( m_dataBlockCache );
-        m_stream = new Stream();
-        m_waitMessages = 0;
-        m_messages = 0;
-    }
-
-    private void startGenerator( int messages, int messageSize )
-    {
-        new Generator(this, messages, messageSize, MESSAGE_MAGIC).start();
-        m_waitMessages += messages;
+        m_lock = new ReentrantLock();
+        m_cond = m_lock.newCondition();
     }
 
     private void run()
     {
-        final int MESSAGES = 10000;
+        final DataBlockCache dataBlockCache = new DataBlockCache( true, 4*1024, 4, 64 );
+        final BinaryQueue queue =  new BinaryQueue( dataBlockCache );
+        final Thread [] threads = new Thread[4];
 
-        this.startGenerator( MESSAGES, 5000 );
-        this.startGenerator( MESSAGES, 3280 );
-        this.startGenerator( MESSAGES, 126 );
-        this.startGenerator( MESSAGES, 1000 );
-        this.startGenerator( MESSAGES, 300 );
-        this.startGenerator( MESSAGES, 510 );
-        this.startGenerator( MESSAGES, 4576 );
-        this.startGenerator( MESSAGES, 777 );
-        this.startGenerator( MESSAGES, 4 );
-
-        ByteBuffer [] iov = new ByteBuffer[4];
-        long bytesProcessed = 0;
-        int waits = 0;
-
-        /*
-        try { Thread.sleep(4000); }
-        catch (InterruptedException ignored) {}
-        */
-
-        long startTime = System.nanoTime();
-        while (m_messages < m_waitMessages)
+        for (int idx=0; idx<threads.length; idx++)
         {
-            try { m_sema.acquire(); }
-            catch (InterruptedException ex)
-            { System.out.println(ex.toString()); }
+            if ((idx & 1) == 0)
+                threads[idx] = new Producer1( idx, queue );
+            else
+                threads[idx] = new Producer2( idx, queue );
+            threads[idx].start();
+        }
 
-            long state = m_state.get();
-            assert( state > 0 );
-            while (state > 0)
+        try
+        {
+            ByteBuffer bb = null;
+            int waits = 0;
+
+            loop: for (;;)
             {
-                long bytesReady = m_outputQueue.getData( iov, state );
-                int pos0 = iov[0].position();
-                for (int idx=0; idx<iov.length && iov[idx]!=null; idx++)
+                if (bb == null)
                 {
-                    ByteBuffer msg = m_stream.getNext( iov[idx] );
-                    while (msg != null)
+                    waits++;
+                    m_lock.lock();
+                    try
                     {
-                        final int messageLength = msg.getInt();
-                        if (messageLength > 4)
+                        for (;;)
                         {
-                            final int magic = msg.getInt();
-                            assert( magic == MESSAGE_MAGIC );
+                            if (m_bb != null)
+                            {
+                                bb = m_bb;
+                                m_bb = null;
+                                break;
+                            }
+
+                            if (m_ops == threads.length * OPS)
+                                break loop;
+
+                            m_cond.await();
                         }
-                        m_messages++;
-                        msg = m_stream.getNext();
+                    }
+                    finally
+                    {
+                        m_lock.unlock();
                     }
                 }
-                for (int idx=0; idx<iov.length; idx++)
-                    iov[idx] = null;
-                m_outputQueue.removeData( pos0, bytesReady );
-                bytesProcessed += bytesReady;
-                state = m_state.addAndGet( -bytesReady );
+
+                int valid = 0x11111111;
+                for (int idx = 0; idx < 4; idx++)
+                {
+                    int v = bb.getInt();
+                    if (v != valid)
+                        throw new RuntimeException( "Unexpected value " + v + ", should be " + valid );
+                    valid += 0x11111111;
+                }
+
+                if (++m_ops == threads.length * OPS)
+                    break;
+
+                bb = queue.getNext();
             }
-            waits++;
+
+            for (Thread t : threads)
+                t.join();
+
+            System.out.println( m_ops + " events processed (" + waits + " waits)." );
         }
-        long endTime = System.nanoTime();
-        System.out.println( m_messages + " messages processed (" + bytesProcessed
-                            + " bytes) processed at " + Util.formatDelay(startTime, endTime)
-                            + ", " + waits + " waits." );
-
-        s_logger.setLevel( Level.FINE );
-        m_dataBlockCache.clear( s_logger );
-    }
-
-    public void putData( ByteBuffer data )
-    {
-        long bytesReady = m_outputQueue.putData( data );
-        if (bytesReady > 0)
+        catch (InterruptedException ex)
         {
-            long state = m_state.addAndGet( bytesReady );
-            if (state == bytesReady)
-                m_sema.release();
+            ex.printStackTrace();
         }
     }
 
-    public void putInt( int value )
-    {
-        int bytesReady = m_outputQueue.putInt( value );
-        if (bytesReady > 0)
-        {
-            long state = m_state.addAndGet( bytesReady );
-            if (state == bytesReady)
-                m_sema.release();
-        }
-    }
-
-    public static void main(String[] args)
+    public static void main( String [] args )
     {
         new Main().run();
     }

@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.binary_queue;
+package org.jsl.tests.binary_queue_test;
 
 import org.jsl.tests.Util;
 import java.nio.ByteBuffer;
