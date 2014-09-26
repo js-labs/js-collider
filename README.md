@@ -32,7 +32,7 @@ traffic (both incoming and outgoing).
 
 ### Main features:
 
-* performance and scalability ([learn more](https://github.com/js-labs/js-collider/wiki/Performance))
+* performance and scalability ([learn more](https://github.com/js-labs/js-collider/wiki/Performance benchmarks))
 * simple and flexible API ([learn more](https://github.com/js-labs/js-collider/wiki/API))
 * UDP (with multicast) support
 * shared memory IPC support out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared Memory IPC))
