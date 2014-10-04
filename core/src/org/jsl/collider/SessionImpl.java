@@ -27,6 +27,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.channels.NotYetConnectedException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,6 +36,9 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
     private static final Node CLOSE_MARKER = new Node();
+
+    private static final AtomicReferenceFieldUpdater<Node, Node> s_nodeNextUpdater =
+            AtomicReferenceFieldUpdater.newUpdater( Node.class, Node.class, "next" );
 
     private static final RetainableByteBufferFriend s_retainableByteBufferFriend = new RetainableByteBufferFriend();
 
@@ -198,7 +202,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         if (spaceRemaining < nodeBytes)
                             break;
 
-                        node.next = null;
+                        s_nodeNextUpdater.lazySet( node, null );
                         node = next;
                     }
 
@@ -322,7 +326,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     break;
 
                 final Node next = node.next;
-                node.next = null;
+                s_nodeNextUpdater.lazySet( node, null );
                 node = next;
             }
 
@@ -336,7 +340,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 {
                     while (node.next == null);
                     m_head = node.next;
-                    node.next = null;
+                    s_nodeNextUpdater.lazySet( node, null );
                     if (m_head == CLOSE_MARKER)
                         releaseSocket( "SocketWriter.runInThreadPool()" );
                     else
@@ -348,7 +352,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             }
             else
             {
-                node.next = null;
+                s_nodeNextUpdater.lazySet( node, null );
                 m_head = next;
                 if (m_head == CLOSE_MARKER)
                     releaseSocket( "SocketWriter.runInThreadPool()" );
@@ -418,7 +422,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         {
                             if (next == CLOSE_MARKER)
                             {
-                                node.next = null;
+                                s_nodeNextUpdater.lazySet( node, null );
                                 m_head = next;
                                 releaseSocket( "ShMemWriter3" );
                             }
@@ -426,7 +430,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         return;
                     }
 
-                    node.next = null;
+                    s_nodeNextUpdater.lazySet( node, null );
                     node = next;
                 }
             }
@@ -479,7 +483,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         break;
                     }
 
-                    node.next = null;
+                    s_nodeNextUpdater.lazySet( node, null );
                     node = next;
                 }
 
@@ -516,7 +520,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         m_head = node;
                     else
                     {
-                        node.next = null;
+                        s_nodeNextUpdater.lazySet( node, null );
                         m_head = next;
                     }
 
@@ -533,7 +537,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if ((next == null) || (next == CLOSE_MARKER))
                     break;
 
-                node.next = null;
+                s_nodeNextUpdater.lazySet( node, null );
                 node = next;
                 msgs *= 2;
             }
@@ -1045,7 +1049,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             final Node next = node.next;
             if (node.rbuf != null)
                 node.rbuf.release();
-            node.next = null;
+            s_nodeNextUpdater.lazySet( node, null );
             node = next;
         }
         m_head = node;
@@ -1113,7 +1117,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             {
                 while (node.next == null);
                 m_head = node.next;
-                node.next = null;
+                s_nodeNextUpdater.lazySet( node, null );
                 if (m_head == CLOSE_MARKER)
                     releaseSocket( "removeNode(CAS failed)" );
                 else
@@ -1122,7 +1126,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         }
         else
         {
-            node.next = null;
+            s_nodeNextUpdater.lazySet( node, null );
             m_head = next;
             if (m_head == CLOSE_MARKER)
                 releaseSocket( "removeNode()" );
