@@ -94,6 +94,10 @@
         <run-test name="thread_pool_throughput"/>
     </target>
 
+    <target name="test.timer_queue" depends="compile_tests">
+        <run-test name="timer_queue"/>
+    </target>
+
     <target name="test.recv_throughput" depends="compile_tests">
         <run-test name="recv_throughput"/>
     </target>
@@ -151,6 +155,7 @@
                      test.sched_latency,
                      test.thread_pool,
                      test.thread_pool_throughput,
+                     test.timer_queue,
                      test.recv_throughput,
                      test.echo_latency,
                      test.echo_throughput,
