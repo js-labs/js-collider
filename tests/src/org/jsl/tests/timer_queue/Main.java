@@ -132,14 +132,14 @@ public class Main
             if (cnt > 0)
             {
                 final double cc = ((double)(currentTime-m_lastTime)) / m_period;
-                System.out.println( "Timer3: " + (currentTime-m_lastTime) + ", " + cc );
-                final double diff = Math.abs( cc - (double)(long)cc );
-                if ((cnt > 1) && (diff > 0.1d))
+                final double diff = Math.abs( cc - Math.rint(cc) );
+                System.out.println( "Timer3: " + (currentTime-m_lastTime) + ", " + cc + ", " + diff );
+                if ((cnt > 1) && (diff > 0.5d))
                     throw new RuntimeException( "Missed too much!" );
             }
             m_lastTime = currentTime;
 
-            if (cnt == 5)
+            if (cnt == 7)
             {
                 final int done = m_done.decrementAndGet();
                 if (done == 0)
