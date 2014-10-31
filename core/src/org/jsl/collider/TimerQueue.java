@@ -279,7 +279,8 @@ public class TimerQueue
      *    delay  |                 | period |
      *
      * +---------+-timer-work-time-+--------+------------------
-     *                                      \ next fire time
+     *                                       \
+     *                                        next fire time
      */
     public final int scheduleAtFixedRate( Runnable task, long delay, long period, TimeUnit timeUnit )
     {
@@ -295,7 +296,8 @@ public class TimerQueue
      *    delay  |  period  |  period  |
      *
      * +---------+-timer-work-time-+---+------------------
-     *                                 \ next fire time
+     *                                  \
+     *                                   next fire time
      * So timer will be executed exactly at a (delay + period*n) time,
      * skipping time if timer handler execution took too much time.
      */
