@@ -74,8 +74,8 @@
         </javac>
     </target>
 
-    <target name="test.binary_queue" depends="compile_tests">
-        <run-test name="binary_queue"/>
+    <target name="test.message_queue" depends="compile_tests">
+        <run-test name="message_queue"/>
     </target>
 
     <target name="test.buffer_overlap_copy" depends="compile_tests">
@@ -152,6 +152,7 @@
 
     <target name="tests"
             depends="test.buffer_overlap_copy,
+                     test.message_queue,
                      test.sched_latency,
                      test.thread_pool,
                      test.thread_pool_throughput,
