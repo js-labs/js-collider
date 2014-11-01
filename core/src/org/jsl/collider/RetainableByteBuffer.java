@@ -167,8 +167,23 @@ public abstract class RetainableByteBuffer
     {
         if (CHECK_RC_ON_MODIFY)
             assert( m_retainCount == 1 );
-
         m_buf.putInt( index+m_offs, value );
+        return this;
+    }
+
+    public final RetainableByteBuffer putShort( int index, short value )
+    {
+        if (CHECK_RC_ON_MODIFY)
+            assert( m_retainCount == 1 );
+        m_buf.putShort( index+m_offs, value );
+        return this;
+    }
+
+    public final RetainableByteBuffer putShort( short value )
+    {
+        if (CHECK_RC_ON_MODIFY)
+            assert( m_retainCount == 1 );
+        m_buf.putShort( value );
         return this;
     }
 

@@ -151,7 +151,12 @@ public class PooledByteBuffer extends RetainableByteBuffer
 
         public Pool( int chunkSize )
         {
-            m_useDirectBuffers = true;
+            this( chunkSize, true );
+        }
+
+        public Pool( int chunkSize, boolean useDirectBuffers )
+        {
+            m_useDirectBuffers = useDirectBuffers;
             m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128, 2 );
             m_chunkSize = chunkSize;
             m_chunk = m_cache.get();
