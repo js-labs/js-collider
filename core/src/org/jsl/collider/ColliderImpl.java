@@ -38,6 +38,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -327,8 +328,12 @@ public class ColliderImpl extends Collider
 
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
+    private static final AtomicReferenceFieldUpdater<ColliderImpl, TimerQueue>
+            s_timerQueueUpdater = AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, TimerQueue.class, "m_timerQueue" );
+
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
+    private volatile TimerQueue m_timerQueue;
     private int m_state;
 
     private final ReentrantLock m_lock;
@@ -373,7 +378,7 @@ public class ColliderImpl extends Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "start" );
+            s_logger.fine( "run" );
 
         m_threadPool.start();
 
@@ -797,5 +802,15 @@ public class ColliderImpl extends Collider
             m_lock.unlock();
         }
         datagramListenerImpl.stopAndWait();
+    }
+
+    public TimerQueue getTimerQueue()
+    {
+        if (m_timerQueue == null)
+        {
+            final TimerQueue timerQueue = new TimerQueue( m_threadPool );
+            s_timerQueueUpdater.compareAndSet( this, null, timerQueue );
+        }
+        return m_timerQueue;
     }
 }
