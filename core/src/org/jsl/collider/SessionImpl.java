@@ -132,7 +132,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     {
         private final int m_socketSendBufferSize;
         private final int m_joinMessageMaxSize;
-        private final PooledByteBuffer.Pool m_pool;
+        private final ByteBufferPool m_pool;
         private final ByteBuffer [] m_iov;
         private int m_iovc;
         private boolean m_notJoin;
@@ -237,7 +237,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         }
 
         public SocketWriter(
-                int socketSendBufferSize, int joinMessageMaxSize, PooledByteBuffer.Pool pool )
+                int socketSendBufferSize, int joinMessageMaxSize, ByteBufferPool pool )
         {
             /* Makes no sense to write at once
              * significantly more than socket send buffer size.
@@ -664,7 +664,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 SelectionKey selectionKey,
                 int socketSendBufferSize,
                 int joinMessageMaxSize,
-                PooledByteBuffer.Pool joinPool )
+                ByteBufferPool joinPool )
     {
         m_collider = collider;
         m_socketChannel = socketChannel;

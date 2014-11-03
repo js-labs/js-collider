@@ -30,7 +30,7 @@ public abstract class SessionEmitterImpl
     protected final DataBlockCache m_inputQueueDataBlockCache;
     private final SessionEmitter m_sessionEmitter;
     private final int m_joinMessageMaxSize;
-    private final PooledByteBuffer.Pool m_joinPool;
+    private final ByteBufferPool m_joinPool;
     private final int m_forwardReadMaxSize;
 
     protected SessionEmitterImpl(
@@ -38,7 +38,7 @@ public abstract class SessionEmitterImpl
             DataBlockCache inputQueueDataBlockCache,
             SessionEmitter sessionEmitter,
             int joinMessageMaxSize,
-            PooledByteBuffer.Pool joinPool )
+            ByteBufferPool joinPool )
     {
         m_collider = collider;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;

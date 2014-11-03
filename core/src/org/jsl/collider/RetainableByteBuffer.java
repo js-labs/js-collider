@@ -27,8 +27,6 @@ public abstract class RetainableByteBuffer
     private final static AtomicIntegerFieldUpdater<RetainableByteBuffer> s_retainCountUpdater =
             AtomicIntegerFieldUpdater.newUpdater( RetainableByteBuffer.class, "m_retainCount" );
 
-    private static final boolean CHECK_RC_ON_MODIFY = true;
-
     private final ByteBuffer m_buf;
     private final int m_offs;
     private final int m_size;
@@ -89,9 +87,7 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer clear()
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         m_buf.position( m_offs );
         m_buf.limit( m_offs + m_size );
         return this;
@@ -99,9 +95,7 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer flip()
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         final int position = m_buf.position();
         m_buf.position( m_offs );
         m_buf.limit( position );
@@ -115,9 +109,7 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer limit( int limit )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         if ((limit < 0) || (limit > m_size))
             throw new IllegalArgumentException();
         m_buf.limit( m_offs + limit );
@@ -131,9 +123,7 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer position( int position )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         if ((position < 0) || (position > limit()))
             throw new IllegalArgumentException();
         m_buf.position( m_offs + position );
@@ -147,43 +137,53 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer put( ByteBuffer src )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         m_buf.put( src );
         return this;
     }
 
     public final RetainableByteBuffer put( RetainableByteBuffer src )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-
+        assert( m_retainCount == 1 );
         m_buf.put( src.m_buf );
+        return this;
+    }
+
+    public final RetainableByteBuffer putInt( int value )
+    {
+        assert( m_retainCount == 1 );
+        m_buf.putInt( value );
         return this;
     }
 
     public final RetainableByteBuffer putInt( int index, int value )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
+        assert( m_retainCount == 1 );
         m_buf.putInt( index+m_offs, value );
+        return this;
+    }
+
+    public final int getInt()
+    {
+        return m_buf.getInt();
+    }
+
+    public final int getInt( int index )
+    {
+        return m_buf.getInt( m_offs+index );
+    }
+
+    public final RetainableByteBuffer putShort( short value )
+    {
+        assert( m_retainCount == 1 );
+        m_buf.putShort( value );
         return this;
     }
 
     public final RetainableByteBuffer putShort( int index, short value )
     {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
+        assert( m_retainCount == 1 );
         m_buf.putShort( index+m_offs, value );
-        return this;
-    }
-
-    public final RetainableByteBuffer putShort( short value )
-    {
-        if (CHECK_RC_ON_MODIFY)
-            assert( m_retainCount == 1 );
-        m_buf.putShort( value );
         return this;
     }
 

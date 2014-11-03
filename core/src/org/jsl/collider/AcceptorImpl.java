@@ -472,7 +472,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             DataBlockCache inputQueueDataBlockCache,
             Acceptor acceptor,
             int joinMessageMaxSize,
-            PooledByteBuffer.Pool joinPool,
+            ByteBufferPool joinPool,
             Selector selector,
             ServerSocketChannel serverChannel )
     {

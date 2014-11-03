@@ -30,7 +30,7 @@ public class Server
 {
     private final Client m_client;
     private final int m_socketBufferSize;
-    private final PooledByteBuffer.Pool m_byteBufferPool;
+    private final ByteBufferPool m_byteBufferPool;
 
     private final ReentrantLock m_lock;
     private final HashSet<Session> m_clients;
@@ -84,7 +84,7 @@ public class Server
                     if (m_clients != null)
                     {
                         System.out.println( "All clients connected, starting test." );
-                        final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+                        final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
 
                         msg.position( position );
                         buf.put( msg );
@@ -110,7 +110,7 @@ public class Server
                         }
                     }
 
-                    final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+                    final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
 
                     msg.position( position );
                     buf.put( msg );
@@ -169,7 +169,7 @@ public class Server
     {
         m_client = client;
         m_socketBufferSize = socketBufferSize;
-        m_byteBufferPool = new PooledByteBuffer.Pool();
+        m_byteBufferPool = new ByteBufferPool();
         m_lock = new ReentrantLock();
         m_clients = new HashSet<Session>();
     }

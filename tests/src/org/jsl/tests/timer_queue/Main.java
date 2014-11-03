@@ -85,7 +85,7 @@ public class Main
                 final long diff = (currentTime - m_firstFireTime) - (cnt * m_period);
                 System.out.println(
                         "Timer2: " + (currentTime - m_firstFireTime) + " diff=" + diff );
-                if (diff > 10)
+                if (diff > 100)
                     throw new RuntimeException( "Missed too much: " + diff );
             }
 

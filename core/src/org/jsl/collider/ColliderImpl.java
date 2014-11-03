@@ -193,10 +193,10 @@ public class ColliderImpl extends Collider
     {
         private final DataBlockCache m_inputQueueDataBlockCache;
         private final int m_joinMessageMaxSize;
-        private final PooledByteBuffer.Pool m_joinPool;
+        private final ByteBufferPool m_joinPool;
 
         SessionSharedData(
-                DataBlockCache inputQueueDataBlockCache, int joinMessageMaxSize, PooledByteBuffer.Pool joinPool )
+                DataBlockCache inputQueueDataBlockCache, int joinMessageMaxSize, ByteBufferPool joinPool )
         {
             m_inputQueueDataBlockCache = inputQueueDataBlockCache;
             m_joinMessageMaxSize = joinMessageMaxSize;
@@ -205,7 +205,7 @@ public class ColliderImpl extends Collider
 
         DataBlockCache getInputQueueDataBlockCache() { return m_inputQueueDataBlockCache; }
         int getJoinMessageMaxSize() { return m_joinMessageMaxSize; }
-        PooledByteBuffer.Pool getJoinPool() { return m_joinPool; }
+        ByteBufferPool getJoinPool() { return m_joinPool; }
     }
 
     private SessionSharedData getSessionSharedData( final SessionEmitter sessionEmitter )
@@ -241,7 +241,7 @@ public class ColliderImpl extends Collider
                 m_dataBlockCache.put( inputQueueBlockSize, cache );
             }
 
-            PooledByteBuffer.Pool joinPool;
+            ByteBufferPool joinPool;
             if (joinMessageMaxSize > 0)
             {
                 if (m_joinPool == null)
@@ -258,7 +258,7 @@ public class ColliderImpl extends Collider
                     }
 
                     final int joinPoolChunkSize = socketSendBufferSize * 2;
-                    m_joinPool = new PooledByteBuffer.Pool( joinPoolChunkSize );
+                    m_joinPool = new ByteBufferPool( joinPoolChunkSize );
                 }
                 joinPool = m_joinPool;
             }
@@ -340,7 +340,7 @@ public class ColliderImpl extends Collider
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<DatagramListener, DatagramListenerImpl> m_datagramListeners;
     private final Map<Integer, DataBlockCache> m_dataBlockCache;
-    private PooledByteBuffer.Pool m_joinPool;
+    private ByteBufferPool m_joinPool;
     private boolean m_stop;
 
     private final AtomicReferenceArray<SelectorThreadRunnable> m_strList;

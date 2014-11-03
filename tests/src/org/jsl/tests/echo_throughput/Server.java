@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Server
 {
     private final Client m_client;
-    private final PooledByteBuffer.Pool m_byteBufferPool;
+    private final ByteBufferPool m_byteBufferPool;
     private final AtomicInteger m_sessionsDone;
 
     private class ServerListener implements Session.Listener
@@ -85,7 +85,7 @@ public class Server
                 }
                 m_messagesReceived++;
 
-                final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+                final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
 
                 msg.position( position );
                 buf.put( msg );
@@ -145,7 +145,7 @@ public class Server
     public Server( Client client )
     {
         m_client = client;
-        m_byteBufferPool = new PooledByteBuffer.Pool();
+        m_byteBufferPool = new ByteBufferPool();
         m_sessionsDone = new AtomicInteger(0);
     }
 

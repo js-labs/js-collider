@@ -35,7 +35,7 @@ public class Main
     private final int m_messageLength;
     private final int m_socketBufferSize;
 
-    private final PooledByteBuffer.Pool m_byteBufferPool;
+    private final ByteBufferPool m_byteBufferPool;
 
     private final AtomicInteger m_subscribersDone;
     private Collider m_collider;
@@ -134,7 +134,7 @@ public class Main
                 final int position = msg.position();
                 final int messageLength = msg.getInt();
 
-                final PooledByteBuffer buf = m_byteBufferPool.alloc( messageLength );
+                final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
                 msg.position( position );
                 buf.put( msg );
                 buf.position( 0 );
@@ -188,7 +188,7 @@ public class Main
         m_messages = messages;
         m_messageLength = messageLength;
         m_socketBufferSize = socketBufferSize;
-        m_byteBufferPool = new PooledByteBuffer.Pool();
+        m_byteBufferPool = new ByteBufferPool();
         m_subscribersDone = new AtomicInteger(0);
 
         m_lock = new ReentrantLock();
