@@ -85,6 +85,8 @@ public class Server
         public void onDataReceived( ByteBuffer data )
         {
             final int bytesReceived = data.remaining();
+            assert( bytesReceived > 0 );
+
             final int messageLength = data.getInt();
             if (bytesReceived != messageLength)
             {

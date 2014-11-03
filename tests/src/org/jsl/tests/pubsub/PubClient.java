@@ -58,6 +58,7 @@ public class PubClient extends Thread
         public void onDataReceived( ByteBuffer data )
         {
             /* All subscribers are connected to the server now, let's start. */
+            assert( data.remaining() > 0 );
             m_thread = new Thread( this );
             m_thread.start();
         }

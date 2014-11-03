@@ -31,9 +31,13 @@ public class Server
 
         public void onDataReceived( ByteBuffer data )
         {
-            /* Client will not send a new message while this message will not be sent,
+            /* Client will not send a new message while
+             * this message will not be sent back,
              * so we can use always the same buffer.
              */
+            if (data.remaining() == 0)
+                throw new RuntimeException( "zero ByteBuffer" );
+
             final int pos = data.position();
             final int messageLength = data.getInt( pos );
             if (m_msg == null)

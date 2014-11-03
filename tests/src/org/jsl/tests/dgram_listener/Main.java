@@ -63,6 +63,9 @@ public class Main
 
         public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
         {
+            if (data.remaining() == 0)
+                throw new RuntimeException( "zero ByteBuffer" );
+
             //System.out.println( Util.hexDump(data) );
             final int bytesReceived = data.remaining();
             final int messageLength = data.getInt();
@@ -118,6 +121,9 @@ public class Main
 
         public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
         {
+            if (data.remaining() == 0)
+                throw new RuntimeException( "zero ByteBuffer" );
+
             //System.out.println( Util.hexDump(data) );
             final int bytesReceived = data.remaining();
             final int messageLength = data.getInt();

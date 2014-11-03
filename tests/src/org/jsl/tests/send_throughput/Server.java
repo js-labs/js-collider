@@ -57,6 +57,9 @@ public class Server
             /* We expect only one small message from the client,
              * does not make a sense to handle possible fragmentation.
              */
+            if (data.remaining() == 0)
+                throw new RuntimeException( "zero ByteBuffer" );
+
             data.getInt(); // skip packet length
             final int sessionsExpected = data.getInt();
             int sessions = m_sessionsConnected.getAndIncrement();

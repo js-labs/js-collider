@@ -47,7 +47,10 @@ public class Main
 
         public void onDataReceived( ByteBuffer data )
         {
-            int requests = m_requests.incrementAndGet();
+            if (data.remaining() == 0)
+                throw new RuntimeException( "zero ByteBuffer" );
+
+            final int requests = m_requests.incrementAndGet();
             if (requests == 1)
             {
                 m_startTime = System.nanoTime();

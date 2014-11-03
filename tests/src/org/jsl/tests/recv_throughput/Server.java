@@ -62,6 +62,8 @@ public class Server
 
         public void onDataReceived( ByteBuffer data )
         {
+            assert( data.remaining() > 0 );
+
             m_bytesTotal += data.remaining();
             m_callbacks++;
             ByteBuffer msg = m_stream.getNext( data );

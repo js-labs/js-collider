@@ -56,6 +56,8 @@ public class Server
 
         public void onDataReceived( ByteBuffer data )
         {
+            assert( data.remaining() > 0 );
+
             ByteBuffer msg = m_streamDefragger.getNext( data );
             while (msg != null)
             {
