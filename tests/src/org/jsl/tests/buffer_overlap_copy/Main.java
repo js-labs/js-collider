@@ -1,5 +1,5 @@
 /*
- * JS-Collider framework.
+ * JS-Collider framework test.
  * Copyright (C) 2013 Sergey Zubarev
  * info@js-labs.org
  *
