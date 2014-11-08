@@ -328,12 +328,8 @@ public class ColliderImpl extends Collider
 
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
-    private static final AtomicReferenceFieldUpdater<ColliderImpl, TimerQueue>
-            s_timerQueueUpdater = AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, TimerQueue.class, "m_timerQueue" );
-
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
-    private volatile TimerQueue m_timerQueue;
     private int m_state;
 
     private final ReentrantLock m_lock;
@@ -804,13 +800,8 @@ public class ColliderImpl extends Collider
         datagramListenerImpl.stopAndWait();
     }
 
-    public TimerQueue getTimerQueue()
+    public ThreadPool getThreadPool()
     {
-        if (m_timerQueue == null)
-        {
-            final TimerQueue timerQueue = new TimerQueue( m_threadPool );
-            s_timerQueueUpdater.compareAndSet( this, null, timerQueue );
-        }
-        return m_timerQueue;
+        return m_threadPool;
     }
 }

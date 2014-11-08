@@ -126,7 +126,7 @@ public abstract class Collider
     public abstract void removeDatagramListener(
             DatagramListener datagramListener ) throws InterruptedException;
 
-    public abstract TimerQueue getTimerQueue();
+    public abstract ThreadPool getThreadPool();
 
     /**
      * Create a Collider instance with default configuration.
