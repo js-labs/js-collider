@@ -186,21 +186,21 @@ public class Main
         final TimerQueue timerQueue = new TimerQueue( threadPool );
 
         final Timer1 timer1 = new Timer1( timerQueue );
-        timerQueue.schedule( timer1, 100, TimeUnit.MICROSECONDS );
+        timerQueue.schedule( timer1, 100, TimeUnit.MILLISECONDS );
 
         final long test2Period = 500;
         final Timer2 timer2 = new Timer2( timerQueue, test2Period );
-        timerQueue.scheduleAtFixedRate( timer2, 100, test2Period, TimeUnit.MICROSECONDS );
+        timerQueue.scheduleAtFixedRate( timer2, 100, test2Period, TimeUnit.MILLISECONDS );
 
         /* 110 220 330 440 550 660 770 880 990
          *          +           +           +
          */
         final long test3Period = 110;
         final Timer3 timer3 = new Timer3( timerQueue, test3Period, /*sleep time*/ 300 );
-        timerQueue.scheduleAtDynamicRate( timer3, 0, test3Period, TimeUnit.MICROSECONDS );
+        timerQueue.scheduleAtDynamicRate( timer3, 0, test3Period, TimeUnit.MILLISECONDS );
 
         final Timer4 timer4 = new Timer4();
-        timerQueue.schedule( timer4, 300, TimeUnit.MICROSECONDS );
+        timerQueue.schedule( timer4, 10, TimeUnit.SECONDS );
 
         try
         {

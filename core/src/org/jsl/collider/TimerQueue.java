@@ -17,6 +17,16 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * TimerQueue implementation use one thread from ThreadPool for timers wait,
+ * and all timers are executed in the ThreadPool as well.
+ * Another implementation specific is that cancel() call is synchronous,
+ * i.e. TimerQueue guaranties that there is no thread executing timer task
+ * on return from cancel() method.
+ *
+ * Time resolution is milliseconds, will be enough for most cases.
+ */
+
 package org.jsl.collider;
 
 import java.util.Map;
@@ -155,7 +165,7 @@ public class TimerQueue
                     final long sleepTime = (firstEntry.getKey() - currentTime);
                     try
                     {
-                        m_cond.awaitNanos( TimeUnit.MICROSECONDS.toNanos(sleepTime*1000) );
+                        m_cond.awaitNanos( TimeUnit.MILLISECONDS.toNanos(sleepTime) );
                     }
                     catch (InterruptedException ex)
                     {
@@ -267,7 +277,7 @@ public class TimerQueue
      */
     public final int schedule( Runnable task, long delay, TimeUnit unit )
     {
-        return schedule_i( task, unit.toMicros(delay), 0, /*dynamic rate*/ false );
+        return schedule_i( task, unit.toMillis(delay), 0, /*dynamic rate*/ false );
     }
 
     /**
@@ -284,7 +294,7 @@ public class TimerQueue
      */
     public final int scheduleAtFixedRate( Runnable task, long delay, long period, TimeUnit timeUnit )
     {
-        return schedule_i( task, timeUnit.toMicros(delay), timeUnit.toMicros(period), /*dynamic rate*/ false );
+        return schedule_i( task, timeUnit.toMillis(delay), timeUnit.toMillis(period), /*dynamic rate*/ false );
     }
 
     /**
@@ -303,7 +313,7 @@ public class TimerQueue
      */
     public final int scheduleAtDynamicRate( Runnable task, long delay, long period, TimeUnit timeUnit )
     {
-        return schedule_i( task, timeUnit.toMicros(delay), timeUnit.toMicros(period), /*dynamic rate*/ true );
+        return schedule_i( task, timeUnit.toMillis(delay), timeUnit.toMillis(period), /*dynamic rate*/ true );
     }
 
     /**
