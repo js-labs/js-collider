@@ -139,7 +139,7 @@ public class TimerQueue
                 assert( firstEntry != null );
 
                 final long currentTime = System.currentTimeMillis();
-                if (firstEntry.getKey() <= currentTime )
+                if (firstEntry.getKey() <= currentTime)
                 {
                     TimerInfo timerInfo = firstEntry.getValue();
                     assert( timerInfo != null );
