@@ -74,9 +74,13 @@ public abstract class RetainableByteBuffer
         }
     }
 
-    public final ByteBuffer getByteBuffer( SessionImpl.RetainableByteBufferFriend friend )
+    public final ByteBuffer getByteBuffer( final SessionImpl.RetainableByteBufferFriend friend )
     {
-        /* Supposed to be called only by JS-Collider framework. */
+        return m_buf;
+    }
+
+    public final ByteBuffer getByteBuffer( final Util.RetainableByteBufferFriend friend )
+    {
         return m_buf;
     }
 
