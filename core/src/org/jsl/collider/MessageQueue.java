@@ -77,6 +77,7 @@ public class MessageQueue
 
     private int put_i( ByteBuffer msg )
     {
+        assert( msg.remaining() > 0 );
         final int blockSize = (MSG_SIZE_SIZE + msg.remaining());
         assert( blockSize <= m_dataBlockSize );
 
