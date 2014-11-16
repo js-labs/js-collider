@@ -187,6 +187,20 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
+    public final RetainableByteBuffer putDouble( double value )
+    {
+        assert( m_retainCount == 1 );
+        m_buf.putDouble( value );
+        return this;
+    }
+
+    public final RetainableByteBuffer putDouble( int index, double value )
+    {
+        assert( m_retainCount == 1 );
+        m_buf.putDouble( index+m_offs, value );
+        return this;
+    }
+
     public String toString()
     {
         String ret = super.toString();
