@@ -61,7 +61,7 @@ public class Main
                 byteBuffer.position( 0 );
                 byteBuffer.limit( byteBuffer.capacity() );
 
-                final ByteBuffer msg = m_queue.put( byteBuffer );
+                final ByteBuffer msg = m_queue.putAndGet( byteBuffer );
                 if (msg != null)
                 {
                     messagesProcessed += processMessage( msg, m_queue );

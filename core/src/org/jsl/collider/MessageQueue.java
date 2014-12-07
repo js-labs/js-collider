@@ -221,9 +221,11 @@ public class MessageQueue
      * @return ByteBuffer instance to be processed (queue was empty),
      * or <null> if queue was not empty.
      */
-    public final ByteBuffer put( ByteBuffer msg )
+    public final ByteBuffer putAndGet( ByteBuffer msg )
     {
         final int msgSize = msg.remaining();
+        assert( msgSize > 0 );
+
         long state = m_state.get( BYTES_READY );
         if (state == 0)
         {
