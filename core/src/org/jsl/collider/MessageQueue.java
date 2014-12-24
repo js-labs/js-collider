@@ -250,6 +250,7 @@ public class MessageQueue
                 {
                     if ((state <= 0) && (newState > 0))
                     {
+                        /* data supposed to be handled by caller */
                         m_bytesReady = newState;
                         m_bytesProcessed = 0;
                         return getRW();
