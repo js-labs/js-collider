@@ -27,6 +27,13 @@ public abstract class RetainableByteBuffer
     private final static AtomicIntegerFieldUpdater<RetainableByteBuffer> s_retainCountUpdater =
             AtomicIntegerFieldUpdater.newUpdater( RetainableByteBuffer.class, "m_retainCount" );
 
+    /* It looks like a good idea having a possibility
+     * to link RetainableByteBuffers to each other
+     * (adding something like a 'next' member),
+     * but it is not, at least because we can enqueue same
+     * retainable byte buffer to the multiple sessions.
+     */
+
     private final ByteBuffer m_buf;
     private final int m_offs;
     private final int m_size;
@@ -65,10 +72,7 @@ public abstract class RetainableByteBuffer
             if (s_retainCountUpdater.compareAndSet(this, retainCount, newValue))
             {
                 if (newValue == 0)
-                {
-                    m_retainCount = 1;
                     finalRelease();
-                }
                 break;
             }
         }
