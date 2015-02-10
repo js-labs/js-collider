@@ -40,8 +40,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private static final AtomicReferenceFieldUpdater<Node, Node> s_nodeNextUpdater =
             AtomicReferenceFieldUpdater.newUpdater( Node.class, Node.class, "next" );
 
-    private static final RetainableByteBufferFriend s_retainableByteBufferFriend = new RetainableByteBufferFriend();
-
     private static final int STATE_MASK   = 0x0003;
     private static final int ST_STARTING  = 0x0000;
     private static final int ST_RUNNING   = 0x0001;
@@ -65,11 +63,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private SocketChannelReader m_socketChannelReader;
     private ThreadPool.Runnable m_writer;
     private long m_bytesSent;
-
-    public static class RetainableByteBufferFriend
-    {
-        private RetainableByteBufferFriend() {}
-    }
 
     private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
@@ -123,7 +116,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
         public Node( RetainableByteBuffer retainableByteBuffer )
         {
-            this.buf = retainableByteBuffer.getByteBuffer( s_retainableByteBufferFriend );
+            this.buf = retainableByteBuffer.getByteBuffer();
             this.rbuf = retainableByteBuffer;
         }
     }
@@ -210,7 +203,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     assert( node.rbuf == null );
 
                     buf.flip();
-                    node.buf = buf.getByteBuffer( s_retainableByteBufferFriend );
+                    node.buf = buf.getByteBuffer();
                     node.rbuf = buf;
 
                     if (prev == null)

@@ -22,13 +22,6 @@ import java.util.Arrays;
 
 public class Util
 {
-    private static final RetainableByteBufferFriend s_retainableByteBufferFriend = new RetainableByteBufferFriend();
-
-    public static class RetainableByteBufferFriend
-    {
-        private RetainableByteBufferFriend() {}
-    }
-
     private static final char [] HD =
     {
         '0', '1', '2', '3', '4', '5', '6', '7',
@@ -114,6 +107,6 @@ public class Util
 
     public static String hexDump( final RetainableByteBuffer rbb )
     {
-        return hexDump( rbb.getByteBuffer(s_retainableByteBufferFriend) );
+        return hexDump( rbb.getByteBuffer() );
     }
 }

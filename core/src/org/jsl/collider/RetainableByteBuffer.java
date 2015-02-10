@@ -35,20 +35,37 @@ public abstract class RetainableByteBuffer
      */
 
     private final ByteBuffer m_buf;
-    private final int m_offs;
-    private final int m_size;
+    private final int m_offset;
+    private final int m_length;
     private volatile int m_retainCount;
+
+    private final static class Slice extends RetainableByteBuffer
+    {
+        private final RetainableByteBuffer m_rbuf;
+
+        protected void finalRelease()
+        {
+            m_rbuf.release();
+        }
+
+        public Slice( RetainableByteBuffer rbuf )
+        {
+            super( rbuf.m_buf.slice(), 0, rbuf.m_buf.remaining() );
+            m_rbuf = rbuf;
+            rbuf.retain();
+        }
+    }
 
     protected abstract void finalRelease();
 
-    public RetainableByteBuffer( ByteBuffer buf, int offs, int size )
+    public RetainableByteBuffer( ByteBuffer buf, int offset, int length )
     {
         m_buf = buf;
-        m_offs = offs;
-        m_size = size;
+        m_offset = offset;
+        m_length = length;
         m_retainCount = 1;
-        m_buf.position( offs );
-        m_buf.limit( offs + size );
+        m_buf.position( offset );
+        m_buf.limit( offset + length );
     }
 
     public final void retain()
@@ -62,6 +79,18 @@ public abstract class RetainableByteBuffer
         }
     }
 
+    public final RetainableByteBuffer slice()
+    {
+        final int position = m_buf.position();
+        if ((position == m_offset) &&
+            ((m_buf.limit() - position) == m_length))
+        {
+            retain();
+            return this;
+        }
+        return new Slice( this );
+    }
+
     public final void release()
     {
         for (;;)
@@ -72,69 +101,74 @@ public abstract class RetainableByteBuffer
             if (s_retainCountUpdater.compareAndSet(this, retainCount, newValue))
             {
                 if (newValue == 0)
+                {
+                    /* The instance can be reused with cache,
+                     * so it is better to set retain count = 1
+                     * before finalRelease() call.
+                     */
+                    m_retainCount = 1;
                     finalRelease();
+                }
                 break;
             }
         }
     }
 
-    public final ByteBuffer getByteBuffer( final SessionImpl.RetainableByteBufferFriend friend )
-    {
-        return m_buf;
-    }
-
-    public final ByteBuffer getByteBuffer( final Util.RetainableByteBufferFriend friend )
+    public final ByteBuffer getByteBuffer()
     {
         return m_buf;
     }
 
     public final int capacity()
     {
-        return m_size;
+        return m_length;
     }
 
     public final RetainableByteBuffer clear()
     {
-        assert( m_retainCount == 1 );
-        m_buf.position( m_offs );
-        m_buf.limit( m_offs + m_size );
+        m_buf.position( m_offset );
+        m_buf.limit( m_offset + m_length );
+        return this;
+    }
+
+    public final RetainableByteBuffer reset()
+    {
+        m_buf.position( m_offset );
+        m_buf.limit( m_offset + m_length );
         return this;
     }
 
     public final RetainableByteBuffer flip()
     {
-        assert( m_retainCount == 1 );
         final int position = m_buf.position();
-        m_buf.position( m_offs );
+        m_buf.position( m_offset );
         m_buf.limit( position );
         return this;
     }
 
     public final int limit()
     {
-        return (m_buf.limit() - m_offs);
+        return (m_buf.limit() - m_offset);
     }
 
     public final RetainableByteBuffer limit( int limit )
     {
-        assert( m_retainCount == 1 );
-        if ((limit < 0) || (limit > m_size))
+        if ((limit < 0) || (limit > m_length))
             throw new IllegalArgumentException();
-        m_buf.limit( m_offs + limit );
+        m_buf.limit( m_offset + limit );
         return this;
     }
 
     public final int position()
     {
-        return (m_buf.position() - m_offs);
+        return (m_buf.position() - m_offset);
     }
 
     public final RetainableByteBuffer position( int position )
     {
-        assert( m_retainCount == 1 );
         if ((position < 0) || (position > limit()))
             throw new IllegalArgumentException();
-        m_buf.position( m_offs + position );
+        m_buf.position( m_offset + position );
         return this;
     }
 
@@ -145,29 +179,25 @@ public abstract class RetainableByteBuffer
 
     public final RetainableByteBuffer put( ByteBuffer src )
     {
-        assert( m_retainCount == 1 );
         m_buf.put( src );
         return this;
     }
 
     public final RetainableByteBuffer put( RetainableByteBuffer src )
     {
-        assert( m_retainCount == 1 );
         m_buf.put( src.m_buf );
         return this;
     }
 
     public final RetainableByteBuffer putInt( int value )
     {
-        assert( m_retainCount == 1 );
         m_buf.putInt( value );
         return this;
     }
 
     public final RetainableByteBuffer putInt( int index, int value )
     {
-        assert( m_retainCount == 1 );
-        m_buf.putInt( index+m_offs, value );
+        m_buf.putInt( index+m_offset, value );
         return this;
     }
 
@@ -178,41 +208,37 @@ public abstract class RetainableByteBuffer
 
     public final int getInt( int index )
     {
-        return m_buf.getInt( m_offs+index );
+        return m_buf.getInt( m_offset+index );
     }
 
     public final RetainableByteBuffer putShort( short value )
     {
-        assert( m_retainCount == 1 );
         m_buf.putShort( value );
         return this;
     }
 
     public final RetainableByteBuffer putShort( int index, short value )
     {
-        assert( m_retainCount == 1 );
-        m_buf.putShort( index+m_offs, value );
+        m_buf.putShort( index+m_offset, value );
         return this;
     }
 
     public final RetainableByteBuffer putDouble( double value )
     {
-        assert( m_retainCount == 1 );
         m_buf.putDouble( value );
         return this;
     }
 
     public final RetainableByteBuffer putDouble( int index, double value )
     {
-        assert( m_retainCount == 1 );
-        m_buf.putDouble( index+m_offs, value );
+        m_buf.putDouble( index+m_offset, value );
         return this;
     }
 
     public String toString()
     {
         String ret = super.toString();
-        ret += " [" + m_offs + ", " + m_size + "]";
+        ret += " [" + m_offset + ", " + m_length + "]";
         return ret;
     }
 }
