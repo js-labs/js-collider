@@ -25,7 +25,6 @@ import java.util.concurrent.locks.AbstractQueuedSynchronizer;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
 public class ThreadPool
 {
     public static abstract class Runnable
@@ -129,27 +128,23 @@ public class ThreadPool
                 if (runnable.nextThreadPoolRunnable == null)
                 {
                     m_hra.set( idx, null );
-                    if (!m_tra.compareAndSet(idx, runnable, null))
-                    {
-                        while (runnable.nextThreadPoolRunnable == null);
-                        m_hra.set( idx, runnable.nextThreadPoolRunnable );
-                        s_nextUpdater.lazySet( runnable, null );
-                    }
+                    if (m_tra.compareAndSet(idx, runnable, null))
+                        return runnable;
+                    while (runnable.nextThreadPoolRunnable == null);
                 }
-                else
-                {
-                    m_hra.set( idx, runnable.nextThreadPoolRunnable );
-                    s_nextUpdater.lazySet( runnable, null );
-                }
+                m_hra.set( idx, runnable.nextThreadPoolRunnable );
+                s_nextUpdater.lazySet( runnable, null );
                 return runnable;
             }
         }
     }
 
-    private static class Lock extends Runnable
+    private static class DummyRunnable extends Runnable
     {
         public void runInThreadPool()
         {
+            /* Should never be called */
+            assert( false );
         }
     }
 
@@ -157,7 +152,7 @@ public class ThreadPool
             = AtomicReferenceFieldUpdater.newUpdater( Runnable.class, Runnable.class, "nextThreadPoolRunnable" );
 
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
-    private static final Lock LOCK = new Lock();
+    private static final Runnable LOCK = new DummyRunnable();
     private static final int FS_PADDING = 16;
 
     private final String m_name;
