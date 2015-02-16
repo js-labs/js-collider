@@ -30,7 +30,7 @@ public abstract class RetainableByteBuffer
     /* It looks like a good idea having a possibility
      * to link RetainableByteBuffers to each other
      * (adding something like a 'next' member),
-     * but it is not, at least because we can enqueue same
+     * but it is not, at least because we can send same
      * retainable byte buffer to the multiple sessions.
      */
 
@@ -106,7 +106,7 @@ public abstract class RetainableByteBuffer
                      * so it is better to set retain count = 1
                      * before finalRelease() call.
                      */
-                    m_retainCount = 1;
+                    s_retainCountUpdater.lazySet( this, 1 );
                     finalRelease();
                 }
                 break;
