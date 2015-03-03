@@ -678,8 +678,8 @@ public class AcceptorImpl extends SessionEmitterImpl
     public int handleReadyOps( ThreadPool threadPool )
     {
         assert( m_selectionKey.readyOps() == SelectionKey.OP_ACCEPT );
-        m_selectionKey.interestOps( 0 );
         threadPool.execute( m_channelAcceptor );
+        m_selectionKey.interestOps(0);
         return 0;
     }
 }
