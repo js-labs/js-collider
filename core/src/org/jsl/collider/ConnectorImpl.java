@@ -469,8 +469,8 @@ public class ConnectorImpl extends SessionEmitterImpl
     public int handleReadyOps( ThreadPool threadPool )
     {
         assert( m_selectionKey.readyOps() == SelectionKey.OP_CONNECT );
-        m_selectionKey.interestOps(0);
         m_collider.executeInThreadPool( new Starter2() );
+        m_selectionKey.interestOps(0);
         return 0;
     }
 }
