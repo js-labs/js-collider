@@ -84,7 +84,7 @@ public class ThreadPool
                 int cc = m_contentionFactor;
                 for (;;)
                 {
-                    Runnable runnable = getNext( idx );
+                    final Runnable runnable = getNext( idx );
                     if (runnable == null)
                     {
                         if (--cc == 0)
