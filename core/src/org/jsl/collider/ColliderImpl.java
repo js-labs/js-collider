@@ -37,7 +37,6 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -182,7 +181,7 @@ public class ColliderImpl extends Collider
 
         public void runInThreadPool()
         {
-            if (m_strList.get(15) == cmp)
+            if (m_strHead == cmp)
                 m_selector.wakeup();
             cmp = null;
             m_alarm.compareAndSet( null, this );
@@ -328,6 +327,15 @@ public class ColliderImpl extends Collider
 
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
+    private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strHeadUpdater =
+            AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strTail" );
+
+    private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strTailUpdater =
+            AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strTail" );
+
+    private static final AtomicReferenceFieldUpdater<SelectorThreadRunnable, SelectorThreadRunnable> s_nextSelectorThreadRunnableUpdater =
+            AtomicReferenceFieldUpdater.newUpdater( SelectorThreadRunnable.class, SelectorThreadRunnable.class, "nextSelectorThreadRunnable" );
+
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
     private int m_state;
@@ -339,7 +347,9 @@ public class ColliderImpl extends Collider
     private ByteBufferPool m_joinPool;
     private boolean m_stop;
 
-    private final AtomicReferenceArray<SelectorThreadRunnable> m_strList;
+    private volatile SelectorThreadRunnable m_strHead;
+    private long m_pad1, m_pad2, m_pad3, m_pad4, m_pad5, m_pad6, m_pad7, m_pad8;
+    private volatile SelectorThreadRunnable m_strTail;
     private SelectorThreadRunnable m_strLater;
     private final AtomicReference<SelectorAlarm> m_alarm;
 
@@ -367,7 +377,6 @@ public class ColliderImpl extends Collider
         m_dataBlockCache = new HashMap<Integer, DataBlockCache>();
         m_stop = false;
 
-        m_strList = new AtomicReferenceArray<SelectorThreadRunnable>( 16+16+15 );
         m_alarm = new AtomicReference<SelectorAlarm>( new SelectorAlarm(null) );
     }
 
@@ -409,10 +418,10 @@ public class ColliderImpl extends Collider
                         m_selector.selectNow();
                 }
 
-                if (m_strList.compareAndSet(31, null, dummyRunnable))
-                    m_strList.set( 15, dummyRunnable );
+                if (s_strTailUpdater.compareAndSet(this, null, dummyRunnable))
+                    m_strHead = dummyRunnable;
 
-                Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
+                final Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
                 for (SelectionKey key : selectedKeys)
                 {
                     ChannelHandler channelHandler = (ChannelHandler) key.attachment();
@@ -421,31 +430,29 @@ public class ColliderImpl extends Collider
                 selectedKeys.clear();
 
                 SelectorThreadRunnable runnable;
-                do { runnable = m_strList.get( 15 ); }
-                while (runnable == null);
+                while ((runnable = m_strHead) == null);
 
                 for (;;)
                 {
                     SelectorThreadRunnable next = runnable.nextSelectorThreadRunnable;
                     if (next == null)
                     {
-                        m_strList.set( 15, null );
-                        if (!m_strList.compareAndSet(31, runnable, null))
+                        m_strHead = null;
+                        if (!s_strTailUpdater.compareAndSet(this, runnable, null))
                         {
-                            while (runnable.nextSelectorThreadRunnable == null);
-                            next = runnable.nextSelectorThreadRunnable;
-                            runnable.nextSelectorThreadRunnable = null;
+                            while ((next = runnable.nextSelectorThreadRunnable) == null);
+                            s_nextSelectorThreadRunnableUpdater.lazySet( runnable, null );
                         }
                     }
                     else
-                        runnable.nextSelectorThreadRunnable = null;
+                        s_nextSelectorThreadRunnableUpdater.lazySet( runnable, null );
 
                     readers -= runnable.runInSelectorThread();
 
                     runnable = next;
                     if (runnable == null)
                     {
-                        runnable = m_strList.get( 15 );
+                        runnable = m_strHead;
                         if (runnable == null)
                             break;
                     }
@@ -509,10 +516,10 @@ public class ColliderImpl extends Collider
     public final void executeInSelectorThread( SelectorThreadRunnable runnable )
     {
         assert( runnable.nextSelectorThreadRunnable == null );
-        SelectorThreadRunnable tail = m_strList.getAndSet( 31, runnable );
+        final SelectorThreadRunnable tail = s_strTailUpdater.getAndSet( this, runnable );
         if (tail == null)
         {
-            m_strList.set( 15, runnable );
+            m_strHead = runnable;
 
             for (;;)
             {
@@ -537,9 +544,9 @@ public class ColliderImpl extends Collider
     public final void executeInSelectorThreadNoWakeup( SelectorThreadRunnable runnable )
     {
         assert( runnable.nextSelectorThreadRunnable == null );
-        SelectorThreadRunnable tail = m_strList.getAndSet( 31, runnable );
+        final SelectorThreadRunnable tail = s_strTailUpdater.getAndSet( this, runnable );
         if (tail == null)
-            m_strList.set( 15, runnable );
+            m_strHead = runnable;
         else
             tail.nextSelectorThreadRunnable = runnable;
     }
