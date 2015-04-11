@@ -29,7 +29,6 @@ import java.net.StandardProtocolFamily;
 import java.nio.channels.Selector;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.MembershipKey;
 import java.util.Set;
@@ -623,12 +622,8 @@ public class ColliderImpl extends Collider
         removeEmitter( acceptor );
     }
 
-    public void addConnector( Connector connector ) throws IOException
+    public void addConnector( Connector connector )
     {
-        final SocketChannel socketChannel = SocketChannel.open();
-        socketChannel.configureBlocking( false );
-        final boolean connected = socketChannel.connect( connector.getAddr() );
-
         SessionSharedData sessionSharedData = getSessionSharedData( connector );
 
         ConnectorImpl connectorImpl = new ConnectorImpl(
@@ -639,15 +634,13 @@ public class ColliderImpl extends Collider
                 sessionSharedData.getJoinPool(),
                 m_selector );
 
-        IOException ex = null;
-
         m_lock.lock();
         try
         {
             if (m_stop)
-                ex = new IOException( "Collider stopped." );
+                throw new RuntimeException( "Collider is stopped." );
             else if (m_emitters.containsKey(connector))
-                ex = new IOException( "Connector already registered." );
+                throw new RuntimeException( "Connector already registered." );
             else
                 m_emitters.put( connector, connectorImpl );
         }
@@ -656,22 +649,7 @@ public class ColliderImpl extends Collider
             m_lock.unlock();
         }
 
-        if (ex == null)
-            connectorImpl.start( socketChannel, connected );
-        else
-        {
-            try
-            {
-                socketChannel.close();
-            }
-            catch (IOException ex1)
-            {
-                /* Should never happen */
-                if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex1.toString() );
-            }
-            throw ex;
-        }
+        connectorImpl.start();
     }
 
     public void removeConnector( Connector connector ) throws InterruptedException

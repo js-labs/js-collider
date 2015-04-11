@@ -142,8 +142,8 @@
         <run-test name="remove_acceptor"/>
     </target>
 
-    <target name="test.remove_connector" depends="compile_tests">
-        <run-test name="remove_connector"/>
+    <target name="test.connector_remove" depends="compile_tests">
+        <run-test name="connector_remove"/>
     </target>
 
     <target name="test.dgram_listener" depends="compile_tests">
@@ -170,7 +170,7 @@
                      test.session_close,
                      test.shmem_throughput,
                      test.remove_acceptor,
-                     test.remove_connector,
+                     test.connector_remove,
                      test.dgram_listener,
                      test.pubsub"/>
 

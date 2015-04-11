@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework tests.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2015 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.remove_connector;
+package org.jsl.tests.connector_remove;
 
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
@@ -50,6 +50,8 @@ public class Main
 
         public void onException( IOException ex )
         {
+            /* Should never be called. */
+            assert( false );
         }
     }
 
@@ -84,12 +86,12 @@ public class Main
 
         public void onException( IOException ex )
         {
+            /* should never be called */
             assert( false );
         }
     }
 
-    /*
-     * Test 3:
+    /* Test 3:
      * Create connector for unreachable address.
      */
     private static class Test3Connector extends Connector
@@ -106,7 +108,7 @@ public class Main
 
         public Session.Listener createSessionListener( Session session )
         {
-            /* Should not be called. */
+            /* Should never be called. */
             assert( false );
             return null;
         }
@@ -120,60 +122,124 @@ public class Main
         }
     }
 
-    private static class TestAcceptor extends Acceptor
+    /* Test 4:
+     * Start and stop the connector few times
+     */
+    private static class Test4Connector extends Connector
     {
-        public void onAcceptorStarted( Collider collider, int localPort )
-        {
-            System.out.println( "Acceptor started at port " + localPort );
-            final InetSocketAddress addr = new InetSocketAddress( "localhost", localPort );
-            final AtomicInteger testsRemaining = new AtomicInteger( 2 );
-            try
-            {
-                final Test2Connector test2Connector = new Test2Connector( addr, collider, testsRemaining );
-                collider.addConnector( test2Connector );
-                
-            }
-            catch (IOException ex)
-            {
-                /* Should not happen. */
-                ex.printStackTrace();
-                collider.stop();
-            }
+        final AtomicInteger m_sessionsCounter;
 
-            try
-            {
-                /* Most probably no Doom server on localhost. */
-                final InetSocketAddress wrongAddr = new InetSocketAddress( "localhost", 666 );
-                final Test3Connector test3Connector = new Test3Connector( wrongAddr, collider, testsRemaining );
-                collider.addConnector( test3Connector );
-            }
-            catch (IOException ex)
-            {
-                /* Some platforms like Solaris detects unreacheble address first go
-                 * and throws exception in this case. Better to handle it properly.
-                 */
-                System.out.println( "Test3 connector failed: " + ex.toString() );
-                final int tr = testsRemaining.decrementAndGet();
-                if (tr == 0)
-                    collider.stop();
-            }
+        public Test4Connector( InetSocketAddress addr, AtomicInteger sessionsCounter )
+        {
+            super( addr );
+            m_sessionsCounter = sessionsCounter;
         }
 
         public Session.Listener createSessionListener( Session session )
         {
-            return new ServerListener();
+            session.closeConnection();
+            return new SessionListener( session, m_sessionsCounter );
+        }
+
+        public void onException( IOException ex )
+        {
+            /* Should never be called. */
+            assert( false );
         }
     }
 
-    private static class ServerListener implements Session.Listener
+    private static class Test4Thread extends Thread
     {
+        private final Collider m_collider;
+        private final InetSocketAddress m_addr;
+        private final AtomicInteger m_testsRemaining;
+        private final AtomicInteger m_sessions;
+
+        public Test4Thread(
+                Collider collider,
+                InetSocketAddress addr,
+                AtomicInteger testsRemaining,
+                AtomicInteger sessions )
+        {
+            m_collider = collider;
+            m_addr = addr;
+            m_testsRemaining = testsRemaining;
+            m_sessions = sessions;
+        }
+
+        public void run()
+        {
+            for (int idx=0; idx<10; idx++)
+            {
+                final Test4Connector test4Connector = new Test4Connector( m_addr, m_sessions );
+                m_collider.addConnector( test4Connector );
+                Thread.yield();
+                Thread.yield();
+                try { m_collider.removeConnector( test4Connector ); }
+                catch (InterruptedException ex) { ex.printStackTrace(); }
+            }
+
+            final int testsRemaining = m_testsRemaining.decrementAndGet();
+            if (testsRemaining == 0)
+                m_collider.stop();
+        }
+    }
+
+    private static class TestAcceptor extends Acceptor
+    {
+        private final AtomicInteger m_sessionsCounter;
+
+        public TestAcceptor( AtomicInteger sessionsCounter )
+        {
+            m_sessionsCounter = sessionsCounter;
+        }
+
+        public void onAcceptorStarted( Collider collider, int localPort )
+        {
+            System.out.println( "Acceptor started at port " + localPort );
+            final InetSocketAddress addr = new InetSocketAddress( "localhost", localPort );
+            final AtomicInteger testsRemaining = new AtomicInteger( 3 );
+
+            final Test2Connector test2Connector = new Test2Connector( addr, collider, testsRemaining );
+            collider.addConnector( test2Connector );
+
+            /* Most probably no Doom server on localhost. */
+            final InetSocketAddress doomAddr = new InetSocketAddress( "localhost", 666 );
+            final Test3Connector test3Connector = new Test3Connector( doomAddr, collider, testsRemaining );
+            collider.addConnector( test3Connector );
+
+            final Test4Thread test4Thread = new Test4Thread( collider, addr, testsRemaining, m_sessionsCounter );
+            test4Thread.start();
+        }
+
+        public Session.Listener createSessionListener( Session session )
+        {
+            return new SessionListener( session, m_sessionsCounter );
+        }
+    }
+
+    private static class SessionListener implements Session.Listener
+    {
+        private final Session m_session;
+        private final AtomicInteger m_sessionsCounter;
+
+        public SessionListener( Session session, AtomicInteger sessionsCounter )
+        {
+            m_session = session;
+            m_sessionsCounter = sessionsCounter;
+            sessionsCounter.incrementAndGet();
+            System.out.println( m_session.getLocalAddress() + "->" + m_session.getRemoteAddress() + ": init" );
+        }
+
         public void onDataReceived( ByteBuffer data )
         {
-            assert( false );
+            /* Should never be called. */
         }
 
         public void onConnectionClosed()
         {
+            m_sessionsCounter.decrementAndGet();
+            System.out.println( m_session.getLocalAddress() + "->" + m_session.getRemoteAddress() + ": close" );
         }
     }
 
@@ -181,32 +247,24 @@ public class Main
     {
         try
         {
+            final Collider collider = Collider.create();
+            final AtomicInteger sessionsCounter = new AtomicInteger();
+
             /* Address does not really matter for test1,
              * connector will be removed as soon as will be added.
              */
             final InetSocketAddress addr = new InetSocketAddress( "localhost", 666 );
-            final Collider collider = Collider.create();
-            final TestAcceptor testAcceptor = new TestAcceptor();
-
             final Test1Connector test1Connector = new Test1Connector( addr );
+
+            final TestAcceptor testAcceptor = new TestAcceptor( sessionsCounter );
             collider.addAcceptor( testAcceptor );
             
-            try
-            {
-                collider.addConnector( test1Connector );
-            }
-            catch (IOException ex)
-            {
-                /* Test1 connector connects to the unknown address,
-                 * can throw an exception, but not a problem actually,
-                 * test can continue.
-                 */
-                System.out.println( "Test1: " + ex.toString() );
-            }
-
+            collider.addConnector( test1Connector );
             collider.removeConnector( test1Connector );
             System.out.println( "Test1 connector removed." );
+
             collider.run();
+            assert( sessionsCounter.get() == 0 );
         }
         catch (IOException ex)
         {

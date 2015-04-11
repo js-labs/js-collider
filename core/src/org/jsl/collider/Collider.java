@@ -113,7 +113,13 @@ public abstract class Collider
      */
     public abstract void removeAcceptor( Acceptor acceptor ) throws InterruptedException;
 
-    public abstract void addConnector( Connector connector ) throws IOException;
+    /**
+     * Adds <tt>Connector</tt> to the collider.
+     * Operation is asynchronous, socket operations can throw an exception,
+     * Connector.onException will be called in this case in the collider thread pool,
+     * better to handle it properly.
+     */
+    public abstract void addConnector( Connector connector );
     public abstract void removeConnector( Connector connector ) throws InterruptedException;
 
     public abstract void addDatagramListener(
