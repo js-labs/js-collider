@@ -57,16 +57,7 @@ public class Server
             System.out.println( "ShMem throughput test server started at port " + portNumber );
             final InetSocketAddress addr = new InetSocketAddress( "localhost", portNumber );
             for (int idx=0; idx<m_sessions; idx++)
-            {
-                try
-                {
-                    collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
-                }
-                catch (IOException ex)
-                {
-                    ex.printStackTrace();
-                }
-            }
+                collider.addConnector( new Client.Connector(addr, true, m_messages, m_messageLength) );
         }
     }
 
