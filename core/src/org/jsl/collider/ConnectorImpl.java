@@ -269,32 +269,26 @@ public class ConnectorImpl extends SessionEmitterImpl
 
             if (m_selectionKey != null)
             {
-                final int interestOps = m_selectionKey.interestOps();
-                /* If ((interestOps & SelectionKey.OP_CONNECT) == 0)
-                 * then connection already established, just do nothing here.
-                 */
-                if ((interestOps & SelectionKey.OP_CONNECT) != 0)
+                assert( (m_selectionKey.interestOps() & SelectionKey.OP_CONNECT) != 0 );
+                m_lock.lock();
+                try
                 {
-                    m_lock.lock();
-                    try
-                    {
-                        assert (m_state == CONNECTING);
-                        m_state = STOPPED;
-                        if (m_waiters > 0)
-                            m_cond.signalAll();
-                    }
-                    finally
-                    {
-                        m_lock.unlock();
-                    }
-
-                    m_selectionKey.cancel();
-                    m_selectionKey = null;
-
-                    try { m_socketChannel.close(); }
-                    catch (final IOException ex) { logException(ex); }
-                    m_socketChannel = null;
+                    assert (m_state == CONNECTING);
+                    m_state = STOPPED;
+                    if (m_waiters > 0)
+                        m_cond.signalAll();
                 }
+                finally
+                {
+                    m_lock.unlock();
+                }
+
+                m_selectionKey.cancel();
+                m_selectionKey = null;
+
+                try { m_socketChannel.close(); }
+                catch (final IOException ex) { logException(ex); }
+                m_socketChannel = null;
             }
             return 0;
         }
