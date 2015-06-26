@@ -44,16 +44,16 @@ public class Client
         {
             try
             {
-                SocketChannel socketChannel = SocketChannel.open( m_addr );
-                Socket socket = socketChannel.socket();
+                final SocketChannel socketChannel = SocketChannel.open( m_addr );
+                final Socket socket = socketChannel.socket();
                 socket.setTcpNoDelay( true );
                 socket.setSendBufferSize( m_socketBufferSize );
                 socket.setReceiveBufferSize( m_socketBufferSize );
 
                 System.out.println( "Client connected " + socket.getRemoteSocketAddress() + "." );
 
-                Semaphore sem = new Semaphore(0);
-                ReceiverThread receiverThread = new ReceiverThread( sem, socketChannel );
+                final Semaphore sem = new Semaphore(0);
+                final ReceiverThread receiverThread = new ReceiverThread( sem, socketChannel );
                 receiverThread.start();
 
                 ByteBuffer bb = m_messageBlock.duplicate();
@@ -75,7 +75,7 @@ public class Client
                 socketChannel.write(bb);
 
                 try { receiverThread.join(); }
-                catch (InterruptedException ex ) { ex.printStackTrace(); }
+                catch (final InterruptedException ex) { ex.printStackTrace(); }
                 socketChannel.close();
 
                 final long endTime = receiverThread.getEndTime();
@@ -87,7 +87,7 @@ public class Client
                         Util.formatDelay(startTime, endTime) + " sec (" +
                         (int)tm + " msgs/sec)." );
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 ex.printStackTrace();
             }

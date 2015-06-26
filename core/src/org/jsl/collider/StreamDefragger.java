@@ -49,9 +49,9 @@ import java.nio.ByteBuffer;
  *           }
  *       };
  *
- *       public void onDataReceived( ByteBuffer data )
+ *       public void onDataReceived( RetainableByteBuffer data )
  *       {
- *           ByteBuffer msg = streamDefragger.getNext( data );
+ *           RetainableByteBuffer msg = streamDefragger.getNext( data );
  *           while (msg != null)
  *           {
  *               // process message
@@ -61,6 +61,7 @@ import java.nio.ByteBuffer;
  *
  *       public void onConnectionClose()
  *       {
+ *           streamDefragger.reset();
  *       }
  *   }
  * }</pre>
@@ -68,17 +69,43 @@ import java.nio.ByteBuffer;
 
 public abstract class StreamDefragger
 {
-    public final static ByteBuffer INVALID_HEADER = ByteBuffer.allocate(0);
+    public final static RetainableByteBuffer INVALID_HEADER = new BufferImpl(null);
 
     private final int m_headerSize;
-    private ByteBuffer m_buf;
-    private ByteBuffer m_data;
+    private RetainableByteBuffer m_buf;
+    private RetainableByteBuffer m_data;
     private int m_packetLen;
     private int m_pos;
     private int m_limit;
 
-    private static boolean copyData( ByteBuffer dst, ByteBuffer src, int bytes )
+    private static class BufferImpl extends RetainableByteBufferImpl
     {
+        public BufferImpl( ByteBuffer byteBuffer )
+        {
+            super( byteBuffer );
+        }
+
+        protected void finalRelease()
+        {
+            /* Do nothing */
+        }
+
+        public static BufferImpl create( int capacity, boolean isDirect )
+        {
+            if (capacity < 1024)
+                capacity = 1024;
+            final ByteBuffer byteBuffer =
+                    isDirect ? ByteBuffer.allocateDirect( capacity )
+                             : ByteBuffer.allocate( capacity );
+            return new BufferImpl( byteBuffer );
+        }
+    }
+
+    private static boolean copyData(
+            RetainableByteBuffer rdst, RetainableByteBuffer rsrc, int bytes )
+    {
+        final ByteBuffer dst = rdst.getNioByteBuffer();
+        final ByteBuffer src = rsrc.getNioByteBuffer();
         final int pos = src.position();
         final int limit = src.limit();
         final int available = (limit - pos);
@@ -96,22 +123,12 @@ public abstract class StreamDefragger
         }
     }
 
-    private static ByteBuffer getBuffer( int capacity, boolean isDirect )
-    {
-        if (capacity < 1024)
-            capacity = 1024;
-        if (isDirect)
-            return ByteBuffer.allocateDirect( capacity );
-        else
-            return ByteBuffer.allocate( capacity );
-    }
-
     public StreamDefragger( int headerSize )
     {
         m_headerSize = headerSize;
     }
 
-    public final ByteBuffer getNext( ByteBuffer data )
+    public final RetainableByteBuffer getNext( RetainableByteBuffer data )
     {
         assert( m_data == null );
 
@@ -120,18 +137,18 @@ public abstract class StreamDefragger
             int pos = m_buf.position();
             if (pos < m_headerSize)
             {
-                int cc = (m_headerSize - pos);
+                final int cc = (m_headerSize - pos);
                 if (!copyData(m_buf, data, cc))
                     return null;
 
                 m_buf.flip();
-                m_packetLen = validateHeader( m_buf );
+                m_packetLen = validateHeader( m_buf.getNioByteBuffer() );
                 if (m_packetLen <= 0)
                     return INVALID_HEADER;
 
                 if (m_buf.capacity() < m_packetLen)
                 {
-                    ByteBuffer buf = ByteBuffer.allocate( m_packetLen );
+                    final BufferImpl buf = BufferImpl.create( m_packetLen, data.getNioByteBuffer().isDirect() );
                     m_buf.position( 0 );
                     m_buf.limit( m_headerSize );
                     buf.put( m_buf );
@@ -144,7 +161,7 @@ public abstract class StreamDefragger
                 m_buf.position( pos );
             }
 
-            int cc = (m_packetLen - pos);
+            final int cc = (m_packetLen - pos);
             if (!copyData(m_buf, data, cc))
                 return null;
             m_buf.flip();
@@ -162,7 +179,7 @@ public abstract class StreamDefragger
         return getNext();
     }
 
-    public final ByteBuffer getNext()
+    public final RetainableByteBuffer getNext()
     {
         m_data.position( m_pos );
         m_data.limit( m_limit );
@@ -170,24 +187,23 @@ public abstract class StreamDefragger
         final int bytesRemaining = (m_limit - m_pos);
         if (bytesRemaining == 0)
         {
-            if (m_buf != null)
-                m_buf.clear();
+            if ((m_buf != null) && !m_buf.releaseReuse())
+                m_buf = null;
             m_data = null;
             return null;
         }
 
         if (bytesRemaining < m_headerSize)
         {
-            if (m_buf == null)
-                m_buf = getBuffer( m_headerSize, m_data.isDirect() );
-            else
-                m_buf.clear();
+            /* m_buf will always have at least m_headerSize capacity */
+            if ((m_buf == null) || !m_buf.releaseReuse())
+                m_buf = BufferImpl.create( m_headerSize, m_data.getNioByteBuffer().isDirect() );
             m_buf.put( m_data );
             m_data = null;
             return null;
         }
 
-        m_packetLen = validateHeader( m_data );
+        m_packetLen = validateHeader( m_data.getNioByteBuffer() );
         m_data.position( m_pos );
 
         if (m_packetLen <= 0)
@@ -195,10 +211,16 @@ public abstract class StreamDefragger
 
         if (bytesRemaining < m_packetLen)
         {
-            if ((m_buf == null) || (m_buf.capacity() < m_packetLen))
-                m_buf = getBuffer( m_packetLen, m_data.isDirect() );
-            else
-                m_buf.clear();
+            if (m_buf == null)
+                m_buf = BufferImpl.create( m_packetLen, m_data.getNioByteBuffer().isDirect() );
+            else if (m_buf.capacity() < m_packetLen)
+            {
+                m_buf.release();
+                m_buf = BufferImpl.create( m_packetLen, m_data.getNioByteBuffer().isDirect() );
+            }
+            else if (!m_buf.releaseReuse())
+                m_buf = BufferImpl.create( m_packetLen, m_data.getNioByteBuffer().isDirect() );
+
             m_buf.put( m_data );
             m_data = null;
             return null;
@@ -207,6 +229,15 @@ public abstract class StreamDefragger
         m_pos += m_packetLen;
         m_data.limit( m_pos );
         return m_data;
+    }
+
+    public void reset()
+    {
+        if (m_buf != null)
+        {
+            m_buf.release();
+            m_buf = null;
+        }
     }
 
     abstract protected int validateHeader( ByteBuffer header );

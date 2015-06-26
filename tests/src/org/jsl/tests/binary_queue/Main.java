@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2015 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
@@ -15,10 +15,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package org.jsl.tests.binary_queue_test;
+package org.jsl.tests.binary_queue;
 
 import org.jsl.collider.DataBlockCache;
-import org.jsl.collider.StreamDefragger;
+import org.jsl.tests.StreamDefragger;
 import org.jsl.tests.BinaryQueue;
 import org.jsl.tests.Util;
 
@@ -142,10 +142,10 @@ public class Main
 
     public void putData( ByteBuffer data )
     {
-        long bytesReady = m_outputQueue.putData( data );
+        final long bytesReady = m_outputQueue.putData( data );
         if (bytesReady > 0)
         {
-            long state = m_state.addAndGet( bytesReady );
+            final long state = m_state.addAndGet( bytesReady );
             if (state == bytesReady)
                 m_sema.release();
         }
@@ -153,10 +153,10 @@ public class Main
 
     public void putInt( int value )
     {
-        int bytesReady = m_outputQueue.putInt( value );
+        final int bytesReady = m_outputQueue.putInt( value );
         if (bytesReady > 0)
         {
-            long state = m_state.addAndGet( bytesReady );
+            final long state = m_state.addAndGet( bytesReady );
             if (state == bytesReady)
                 m_sema.release();
         }

@@ -22,7 +22,6 @@ package org.jsl.collider;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.Selector;
 import java.nio.channels.MembershipKey;
@@ -52,7 +51,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
 
     private final ColliderImpl m_collider;
     private final Selector m_selector;
-    private final DataBlockCache m_dataBlockCache;
+    private final RetainableDataBlockCache m_dataBlockCache;
     private final DatagramListener m_datagramListener;
     private DatagramChannel m_datagramChannel;
     private MembershipKey m_membershipKey;
@@ -68,8 +67,8 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
     private volatile int m_state;
     private PacketInfo m_packetInfoHead;
     private PacketInfo m_packetInfoTail;
-    private DataBlock m_dataBlockHead;
-    private DataBlock m_dataBlockTail;
+    private RetainableDataBlock m_dataBlockHead;
+    private RetainableDataBlock m_dataBlockTail;
     private long m_threadID;
 
     /* Collider.removeDatagramListener() definitely should guarantee
@@ -100,7 +99,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
             super( null );
         }
 
-        public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
+        public void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr )
         {
         }
     }
@@ -261,8 +260,8 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
 
         int bytesReady = (state & LENGTH_MASK);
         int bytesRemaining = bytesReady;
-        DataBlock dataBlock = m_dataBlockHead;
-        ByteBuffer rw = dataBlock.rw;
+        RetainableDataBlock dataBlock = m_dataBlockHead;
+        RetainableByteBuffer rw = dataBlock.rw;
         int position = rw.position();
         int capacity = rw.capacity();
 
@@ -275,8 +274,9 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
             position = (position + 3) & -4;
             if ((capacity - position) < m_readMinSize)
             {
-                final DataBlock next = dataBlock.getNextAndReset();
-                m_dataBlockCache.put( dataBlock );
+                final RetainableDataBlock next = dataBlock.next;
+                dataBlock.next = null;
+                dataBlock.release();
                 m_dataBlockHead = next;
                 dataBlock = next;
                 rw = dataBlock.rw;
@@ -377,7 +377,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
     public DatagramListenerImpl(
             ColliderImpl collider,
             Selector selector,
-            DataBlockCache dataBlockCache,
+            RetainableDataBlockCache dataBlockCache,
             DatagramListener datagramListener,
             DatagramChannel datagramChannel,
             MembershipKey membershipKey )
@@ -472,11 +472,10 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                             closeSocket();
 
                             assert( m_dataBlockHead == m_dataBlockTail );
-                            final DataBlock dataBlock = m_dataBlockHead;
-                            m_dataBlockHead = m_dataBlockTail = null;
+                            m_dataBlockHead.release();
+                            m_dataBlockHead = null;
+                            m_dataBlockTail = null;
 
-                            dataBlock.reset();
-                            m_dataBlockCache.put( dataBlock );
                             m_collider.removeDatagramListenerNoWait( m_datagramListener );
 
                             m_lock.lock();
@@ -519,7 +518,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
 
     public void runInThreadPool()
     {
-        DataBlock dataBlock = m_dataBlockTail;
+        RetainableDataBlock dataBlock = m_dataBlockTail;
         int pos = (dataBlock.ww.position() + 3) & -4;
         int space = (dataBlock.ww.limit() - pos);
         if (space < m_readMinSize)
@@ -545,7 +544,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                 }
 
                 if (dataBlock != m_dataBlockTail)
-                    m_dataBlockCache.put( dataBlock );
+                    dataBlock.release();
 
                 m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
                 return;
@@ -606,21 +605,21 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                 if ((sourceAddr == null) || (bytesReceived == 0))
                 {
                     if (dataBlock != m_dataBlockTail)
-                        m_dataBlockCache.put( dataBlock );
+                        dataBlock.release();
 
                     m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
                     return;
                 }
             }
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             /* Should not happen, considered as a bug. */
             if (s_logger.isLoggable(Level.WARNING))
                 s_logger.log( Level.WARNING, m_addr + ": " + ex.toString() );
 
             if (dataBlock != m_dataBlockTail)
-                m_dataBlockCache.put( dataBlock );
+                dataBlock.release();
 
             m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
         }

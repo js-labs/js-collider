@@ -19,10 +19,7 @@
 
 package org.jsl.tests.session_close;
 
-import org.jsl.collider.Collider;
-import org.jsl.collider.Acceptor;
-import org.jsl.collider.Session;
-import org.jsl.collider.StreamDefragger;
+import org.jsl.collider.*;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -44,7 +41,7 @@ public class Server
             m_session = session;
             m_stream = stream;
 
-            ByteBuffer msg = stream.getNext();
+            RetainableByteBuffer msg = stream.getNext();
             while (msg != null)
             {
                 final int rc = onMessageReceived( msg );
@@ -54,10 +51,12 @@ public class Server
             }
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() > 0 );
-            ByteBuffer msg = m_stream.getNext( data );
+            if (data.remaining() == 0)
+                throw new AssertionError();
+
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
                 final int rc = onMessageReceived( msg );
@@ -73,7 +72,7 @@ public class Server
                 m_session.getCollider().stop();
         }
 
-        public abstract int onMessageReceived( ByteBuffer msg );
+        public abstract int onMessageReceived( RetainableByteBuffer msg );
     }
 
     private class Test1Listener extends TestListener
@@ -93,13 +92,13 @@ public class Server
             super.onConnectionClosed();
         }
 
-        public int onMessageReceived( ByteBuffer msg )
+        public int onMessageReceived( RetainableByteBuffer msg )
         {
             /* Just send message back */
-            ByteBuffer byteBuffer = ByteBuffer.allocateDirect( msg.remaining() );
-            byteBuffer.put( msg );
-            byteBuffer.flip();
-            final int rc = m_session.sendData( byteBuffer );
+            final ByteBuffer reply = ByteBuffer.allocateDirect( msg.remaining() );
+            msg.get(reply);
+            reply.flip();
+            final int rc = m_session.sendData( reply );
             if (rc >= 0)
                 m_processedMessages++;
             return 0;
@@ -124,35 +123,40 @@ public class Server
             super.onConnectionClosed();
         }
 
-        public int onMessageReceived( ByteBuffer msg )
+        public int onMessageReceived( RetainableByteBuffer msg )
         {
             final int messages = ++m_messages;
             if (messages < REPLY_MESSAGES)
             {
-                ByteBuffer byteBuffer = ByteBuffer.allocateDirect( msg.remaining() );
-                byteBuffer.put( msg );
-                byteBuffer.flip();
-                final int rc = m_session.sendData( byteBuffer );
-                assert( rc >= 0 );
+                final ByteBuffer reply = ByteBuffer.allocateDirect( msg.remaining() );
+                msg.get( reply );
+                reply.flip();
+                final int rc = m_session.sendData( reply );
+                if (rc < 0)
+                    throw new AssertionError();
                 return 0;
             }
             else if (messages == REPLY_MESSAGES)
             {
                 final int messageLength = msg.remaining();
                 assert( messageLength >= 8 );
-                ByteBuffer byteBuffer = ByteBuffer.allocateDirect( messageLength );
-                byteBuffer.put( msg );
-                byteBuffer.putInt( 4, -1 );
-                byteBuffer.flip();
+                final ByteBuffer reply = ByteBuffer.allocateDirect( messageLength );
+                msg.get( reply );
+                reply.flip();
+                reply.putInt(4, -1);
 
-                int rc = m_session.sendData( byteBuffer );
-                assert( rc >= 0 );
+                int rc = m_session.sendData( reply );
+                if (rc < 0)
+                    throw new AssertionError();
 
                 rc = m_session.closeConnection();
-                assert( rc == 0 );
+                if (rc != 0)
+                    throw new AssertionError();
 
-                rc = m_session.sendData( byteBuffer );
-                assert( rc == -1 );
+                rc = m_session.sendData( reply );
+                if (rc != -1)
+                    throw new AssertionError();
+
                 return -1;
             }
             else
@@ -160,8 +164,7 @@ public class Server
                 /* Listener should not receive any messages
                  * after Session.closeConnection() call.
                  */
-                assert( false );
-                return -1;
+                throw new AssertionError();
             }
         }
     }
@@ -184,40 +187,34 @@ public class Server
             System.out.println( "Connection accepted from " + session.getRemoteAddress() );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() > 0 );
+            if (data.remaining() == 0)
+                throw new AssertionError();
 
-            ByteBuffer msg = m_stream.getNext( data );
-            assert( msg != null );
+            RetainableByteBuffer msg = m_stream.getNext( data );
 
             msg.getInt(); /* skip message length */
             final int testType = msg.getInt();
-            Session.Listener newListener = null;
-
             switch (testType)
             {
                 case 1:
-                    newListener = new Test1Listener( m_session, m_stream );
+                    m_session.replaceListener( new Test1Listener(m_session, m_stream) );
                 break;
 
                 case 2:
-                    newListener = new Test2Listener( m_session, m_stream );
+                    m_session.replaceListener( new Test2Listener(m_session, m_stream) );
                 break;
 
                 default:
-                    System.out.println( "Internal error." );
-                    assert( false );
-                break;
+                    throw new AssertionError();
             }
-
-            m_session.replaceListener( newListener );
         }
 
         public void onConnectionClosed()
         {
             /* Should never be called in the test. */
-            assert( false );
+            throw new AssertionError();
         }
     }
 
@@ -257,7 +254,7 @@ public class Server
             collider.addAcceptor( new TestAcceptor(socketBufferSize) );
             collider.run();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }

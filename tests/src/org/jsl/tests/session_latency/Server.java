@@ -21,6 +21,7 @@ package org.jsl.tests.session_latency;
 
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
+import org.jsl.collider.RetainableByteBuffer;
 import org.jsl.collider.Session;
 
 import java.io.IOException;
@@ -42,14 +43,12 @@ public class Server
     private class ServerListener implements Session.Listener
     {
         private final Session m_session;
-        private final ByteBuffer m_byteBuffer;
         private Session m_session2;
         private int m_messages;
 
-        public ServerListener( Session session, int messageLength )
+        public ServerListener( Session session )
         {
             m_session = session;
-            m_byteBuffer = ByteBuffer.allocateDirect( messageLength );
 
             for (;;)
             {
@@ -74,21 +73,21 @@ public class Server
             }
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             final int pos = data.position();
-            final int bytesReady = data.remaining();
-            final int messageLength = data.getInt();
-            assert( bytesReady == messageLength );
-            assert( messageLength == m_byteBuffer.capacity() );
+            final int bytesReceived = data.remaining();
+            final int messageLength = data.getInt( pos );
+            if (bytesReceived != messageLength)
+                throw new AssertionError();
 
-            data.position( pos );
-            m_byteBuffer.clear();
-            m_byteBuffer.put( data );
-            m_byteBuffer.flip();
-            m_session2.sendData( m_byteBuffer );
-
-            if (++m_messages == Server.this.m_messages)
+            if (++m_messages < Server.this.m_messages)
+            {
+                final RetainableByteBuffer reply = data.slice();
+                m_session2.sendData( reply );
+                reply.release();
+            }
+            else
             {
                 m_session.sendData( m_msgStop );
                 m_session.closeConnection();
@@ -100,7 +99,7 @@ public class Server
         public void onConnectionClosed()
         {
             System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
-            int sessionsDone = m_sessionsDone.incrementAndGet();
+            final int sessionsDone = m_sessionsDone.incrementAndGet();
             if (sessionsDone == m_sessions)
                 m_session.getCollider().stop();
         }
@@ -123,7 +122,7 @@ public class Server
 
         public Session.Listener createSessionListener( Session session )
         {
-            return new ServerListener( session, m_msg.capacity() );
+            return new ServerListener( session );
         }
     }
 
@@ -133,6 +132,8 @@ public class Server
         m_messages = messages;
         m_msg = ByteBuffer.allocateDirect( messageLength );
         m_msg.putInt( 0, messageLength );
+        for (int idx=4; idx<messageLength; idx++)
+            m_msg.put( idx, (byte) idx );
         m_msgStop = ByteBuffer.allocateDirect( 4 );
         m_msgStop.putInt( 0, 4 );
 
@@ -145,11 +146,16 @@ public class Server
     {
         try
         {
-            final Collider collider = Collider.create();
+            /* Would be better to avoid message fragmentation. */
+            final Collider.Config config = new Collider.Config();
+            if (m_msg.capacity() > config.inputQueueBlockSize)
+                config.inputQueueBlockSize = m_msg.capacity();
+
+            final Collider collider = Collider.create( config );
             collider.addAcceptor( new TestAcceptor() );
             collider.run();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }

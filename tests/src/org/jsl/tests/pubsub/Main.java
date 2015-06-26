@@ -28,14 +28,14 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
+/* ZeroMQ PUB-SUB pattern performance test */
+
 public class Main
 {
     private final int m_subscribers;
     private final int m_messages;
     private final int m_messageLength;
     private final int m_socketBufferSize;
-
-    private final ByteBufferPool m_byteBufferPool;
 
     private final AtomicInteger m_subscribersDone;
     private Collider m_collider;
@@ -56,9 +56,10 @@ public class Main
             m_session = session;
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() == 5 );
+            if (data.remaining() != 5)
+                throw new AssertionError();
             final int messageLength = data.getInt();
             assert( messageLength == 5 );
             final byte clientType = data.get();
@@ -89,9 +90,7 @@ public class Main
                         readyToStart = true;
                 }
                 else
-                {
-                    assert( false );
-                }
+                    throw new AssertionError();
             }
             finally
             {
@@ -114,6 +113,7 @@ public class Main
     private class PubListener implements Session.Listener
     {
         private final StreamDefragger m_stream;
+        private int m_messagesProcessed;
 
         public PubListener()
         {
@@ -126,29 +126,30 @@ public class Main
             };
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            ByteBuffer msg = m_stream.getNext( data );
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
                 final int position = msg.position();
-                final int messageLength = msg.getInt();
+                final int remaining = msg.remaining();
+                final int messageLength = msg.getInt( position );
+                if (remaining != messageLength)
+                    throw new AssertionError();
 
-                final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
-                msg.position( position );
-                buf.put( msg );
-                buf.position( 0 );
-
+                m_messagesProcessed++;
+                final RetainableByteBuffer reply = msg.slice();
                 for (Session s : m_subSession)
-                    s.sendData( buf );
+                    s.sendData( reply );
+                reply.release();
 
-                buf.release();
                 msg = m_stream.getNext();
             }
         }
 
         public void onConnectionClosed()
         {
+            System.out.println( "PubServer: processed " + m_messagesProcessed + " messages." );
         }
     }
 
@@ -188,7 +189,6 @@ public class Main
         m_messages = messages;
         m_messageLength = messageLength;
         m_socketBufferSize = socketBufferSize;
-        m_byteBufferPool = new ByteBufferPool();
         m_subscribersDone = new AtomicInteger(0);
 
         m_lock = new ReentrantLock();
@@ -210,11 +210,11 @@ public class Main
             for (int idx=0; idx<m_subscribers; idx++)
                 m_subClient[idx].join();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }
@@ -222,7 +222,7 @@ public class Main
 
     public void onSubscriberDone()
     {
-        int subscribersDone = m_subscribersDone.incrementAndGet();
+        final int subscribersDone = m_subscribersDone.incrementAndGet();
         if (subscribersDone == m_subscribers)
         {
             final long endTime = System.nanoTime();

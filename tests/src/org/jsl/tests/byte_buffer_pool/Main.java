@@ -17,8 +17,8 @@
 
 package org.jsl.tests.byte_buffer_pool;
 
-import org.jsl.collider.ByteBufferPool;
 import org.jsl.collider.RetainableByteBuffer;
+import org.jsl.collider.RetainableByteBufferPool;
 import org.jsl.tests.Util;
 
 import java.util.concurrent.Semaphore;
@@ -28,7 +28,7 @@ public class Main
 {
     private static final int OPS = 1000000;
     private final Semaphore m_sema;
-    private final ByteBufferPool m_pool;
+    private final RetainableByteBufferPool m_pool;
     private ReleaseThread m_releaseThread;
     private volatile boolean m_start;
 
@@ -106,7 +106,7 @@ public class Main
             loop: for (;;)
             {
                 try { m_sema.acquire(); }
-                catch (InterruptedException ex) { ex.printStackTrace(); }
+                catch (final InterruptedException ex) { ex.printStackTrace(); }
 
                 for (;;)
                 {
@@ -144,7 +144,7 @@ public class Main
     private Main()
     {
         m_sema = new Semaphore(0);
-        m_pool = new ByteBufferPool();
+        m_pool = new RetainableByteBufferPool();
     }
 
     private void run()
@@ -160,16 +160,7 @@ public class Main
             thread[idx].start();
         }
 
-        try
-        {
-            for (int idx=0; idx<thread.length; idx++)
-                m_sema.acquire();
-        }
-        catch (InterruptedException ex)
-        {
-            ex.printStackTrace();
-        }
-
+        m_sema.acquireUninterruptibly( thread.length );
         m_start = true;
 
         try
@@ -178,7 +169,7 @@ public class Main
                 t.join();
             m_releaseThread.join();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }

@@ -21,6 +21,7 @@ package org.jsl.tests.send_throughput;
 
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
+import org.jsl.collider.RetainableByteBuffer;
 import org.jsl.collider.Session;
 import org.jsl.tests.Util;
 
@@ -52,7 +53,7 @@ public class Server
             System.out.println( "Connection accepted from " + session.getRemoteAddress() );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             /* We expect only one small message from the client,
              * does not make a sense to handle possible fragmentation.
@@ -90,7 +91,9 @@ public class Server
 
         public void onConnectionClosed()
         {
-            System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
+            System.out.println(
+                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                    ": connection closed." );
         }
     }
 
@@ -107,19 +110,19 @@ public class Server
         {
             int messages = m_messages;
             try { m_semStart.acquire(); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            catch (final InterruptedException ex) { ex.printStackTrace(); }
 
-            long startTime = System.nanoTime();
+            final long startTime = System.nanoTime();
             for (; messages>0; messages--)
                 m_session.sendData( m_msg.duplicate() );
-            long endTime = System.nanoTime();
+            final long endTime = System.nanoTime();
 
             System.out.println(
                     "Sent " + m_messages + " messages at " +
                     Util.formatDelay(startTime, endTime) + " sec." );
 
             m_session.closeConnection();
-            int sessions = m_sessionsDone.decrementAndGet();
+            final int sessions = m_sessionsDone.decrementAndGet();
             if (sessions == 0)
                 m_session.getCollider().stop();
         }

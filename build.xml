@@ -168,7 +168,6 @@
                      test.session_latency,
                      test.session_throughput,
                      test.session_close,
-                     test.shmem_throughput,
                      test.remove_acceptor,
                      test.connector_remove,
                      test.dgram_listener,

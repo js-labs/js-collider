@@ -41,7 +41,7 @@ public abstract class SessionEmitter
         m_addr = addr;
 
         reuseAddr = false;
-        tcpNoDelay = false;
+        tcpNoDelay = true;
 
         /* Use collider global settings by default */
         socketRecvBufSize = 0;

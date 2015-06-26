@@ -19,11 +19,14 @@
 
 package org.jsl.tests.session_throughput;
 
+/* Client connect to the server and send some messages,
+ * server transmit each message received from client to all connected clients.
+ */
 public class Main
 {
     public static void main( String args[] )
     {
-        int sessions = 1;
+        int sessions = 2;
         int messages = 100000;
         int messageLength = 500;
         int socketBufferSize = (64 * 1024);

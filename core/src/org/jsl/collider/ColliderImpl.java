@@ -41,8 +41,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-
-public class ColliderImpl extends Collider
+class ColliderImpl extends Collider
 {
     public interface ChannelHandler
     {
@@ -189,21 +188,23 @@ public class ColliderImpl extends Collider
 
     private static class SessionSharedData
     {
-        private final DataBlockCache m_inputQueueDataBlockCache;
+        private final RetainableDataBlockCache m_inputQueueDataBlockCache;
         private final int m_joinMessageMaxSize;
-        private final ByteBufferPool m_joinPool;
+        private final RetainableByteBufferPool m_joinPool;
 
-        SessionSharedData(
-                DataBlockCache inputQueueDataBlockCache, int joinMessageMaxSize, ByteBufferPool joinPool )
+        public SessionSharedData(
+                RetainableDataBlockCache inputQueueDataBlockCache,
+                int joinMessageMaxSize,
+                RetainableByteBufferPool joinPool )
         {
             m_inputQueueDataBlockCache = inputQueueDataBlockCache;
             m_joinMessageMaxSize = joinMessageMaxSize;
             m_joinPool = joinPool;
         }
 
-        DataBlockCache getInputQueueDataBlockCache() { return m_inputQueueDataBlockCache; }
+        RetainableDataBlockCache getInputQueueDataBlockCache() { return m_inputQueueDataBlockCache; }
         int getJoinMessageMaxSize() { return m_joinMessageMaxSize; }
-        ByteBufferPool getJoinPool() { return m_joinPool; }
+        RetainableByteBufferPool getJoinPool() { return m_joinPool; }
     }
 
     private SessionSharedData getSessionSharedData( final SessionEmitter sessionEmitter )
@@ -228,10 +229,10 @@ public class ColliderImpl extends Collider
         m_lock.lock();
         try
         {
-            DataBlockCache cache = m_dataBlockCache.get( inputQueueBlockSize );
+            RetainableDataBlockCache cache = m_dataBlockCache.get( inputQueueBlockSize );
             if (cache == null)
             {
-                cache = new DataBlockCache(
+                cache = new RetainableDataBlockCache(
                             config.useDirectBuffers,
                             inputQueueBlockSize,
                             8 /* initial size */,
@@ -239,7 +240,7 @@ public class ColliderImpl extends Collider
                 m_dataBlockCache.put( inputQueueBlockSize, cache );
             }
 
-            ByteBufferPool joinPool;
+            RetainableByteBufferPool joinPool = null;
             if (joinMessageMaxSize > 0)
             {
                 if (m_joinPool == null)
@@ -256,12 +257,10 @@ public class ColliderImpl extends Collider
                     }
 
                     final int joinPoolChunkSize = socketSendBufferSize * 2;
-                    m_joinPool = new ByteBufferPool( joinPoolChunkSize );
+                    m_joinPool = new RetainableByteBufferPool( joinPoolChunkSize );
                 }
                 joinPool = m_joinPool;
             }
-            else
-                joinPool = null;
 
             return new SessionSharedData( cache, joinMessageMaxSize, joinPool );
         }
@@ -327,7 +326,7 @@ public class ColliderImpl extends Collider
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
     private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strHeadUpdater =
-            AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strTail" );
+            AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strHead" );
 
     private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strTailUpdater =
             AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strTail" );
@@ -342,8 +341,8 @@ public class ColliderImpl extends Collider
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
     private final Map<DatagramListener, DatagramListenerImpl> m_datagramListeners;
-    private final Map<Integer, DataBlockCache> m_dataBlockCache;
-    private ByteBufferPool m_joinPool;
+    private final Map<Integer, RetainableDataBlockCache> m_dataBlockCache;
+    private RetainableByteBufferPool m_joinPool;
     private boolean m_stop;
 
     private volatile SelectorThreadRunnable m_strHead;
@@ -373,7 +372,7 @@ public class ColliderImpl extends Collider
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
         m_datagramListeners = new HashMap<DatagramListener, DatagramListenerImpl>();
-        m_dataBlockCache = new HashMap<Integer, DataBlockCache>();
+        m_dataBlockCache = new HashMap<Integer, RetainableDataBlockCache>();
         m_stop = false;
 
         m_alarm = new AtomicReference<SelectorAlarm>( new SelectorAlarm(null) );
@@ -418,12 +417,12 @@ public class ColliderImpl extends Collider
                 }
 
                 if (s_strTailUpdater.compareAndSet(this, null, dummyRunnable))
-                    m_strHead = dummyRunnable;
+                    s_strHeadUpdater.lazySet( this, dummyRunnable );
 
                 final Set<SelectionKey> selectedKeys = m_selector.selectedKeys();
                 for (SelectionKey key : selectedKeys)
                 {
-                    ChannelHandler channelHandler = (ChannelHandler) key.attachment();
+                    final ChannelHandler channelHandler = (ChannelHandler) key.attachment();
                     readers += channelHandler.handleReadyOps( m_threadPool );
                 }
                 selectedKeys.clear();
@@ -447,6 +446,7 @@ public class ColliderImpl extends Collider
                         s_nextSelectorThreadRunnableUpdater.lazySet( runnable, null );
 
                     readers -= runnable.runInSelectorThread();
+                    assert( readers >= 0 );
 
                     runnable = next;
                     if (runnable == null)
@@ -473,18 +473,18 @@ public class ColliderImpl extends Collider
 
             m_threadPool.stopAndWait();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             if (s_logger.isLoggable(Level.WARNING))
                 s_logger.warning( ex.toString() );
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             if (s_logger.isLoggable(Level.WARNING))
                 s_logger.warning( ex.toString() );
         }
 
-        for (Map.Entry<Integer, DataBlockCache> me : m_dataBlockCache.entrySet())
+        for (Map.Entry<Integer, RetainableDataBlockCache> me : m_dataBlockCache.entrySet())
             me.getValue().clear( s_logger );
         m_dataBlockCache.clear();
 
@@ -607,7 +607,7 @@ public class ColliderImpl extends Collider
             {
                 serverSocketChannel.close();
             }
-            catch (IOException ex1)
+            catch (final IOException ex1)
             {
                 /* Should never happen */
                 if (s_logger.isLoggable(Level.WARNING))
@@ -707,14 +707,14 @@ public class ColliderImpl extends Collider
         if (inputQueueBlockSize < 2*1024)
             inputQueueBlockSize = (2 * 1024);
 
-        DataBlockCache dataBlockCache;
+        RetainableDataBlockCache dataBlockCache;
         m_lock.lock();
         try
         {
             dataBlockCache = m_dataBlockCache.get( inputQueueBlockSize );
             if (dataBlockCache == null)
             {
-                dataBlockCache = new DataBlockCache(
+                dataBlockCache = new RetainableDataBlockCache(
                         config.useDirectBuffers,
                         inputQueueBlockSize,
                         4 /* initial size */,
@@ -758,7 +758,7 @@ public class ColliderImpl extends Collider
             {
                 datagramChannel.close();
             }
-            catch (IOException ex1)
+            catch (final IOException ex1)
             {
                 /* Should never happen */
                 if (s_logger.isLoggable(Level.WARNING))

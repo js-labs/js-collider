@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework tests.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2015 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify

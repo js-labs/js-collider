@@ -19,7 +19,7 @@
 
 package org.jsl.tests.session_throughput;
 
-import org.jsl.collider.StreamDefragger;
+import org.jsl.tests.StreamDefragger;
 import org.jsl.tests.Util;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -110,13 +110,15 @@ public class Client
                 {
                     protected int validateHeader( ByteBuffer header )
                     {
-                        final int messageLength = header.getInt();
-                        assert( messageLength == m_messageLength );
+                        final int position = header.position();
+                        final int messageLength = header.getInt( position );
+                        if (messageLength != m_messageLength)
+                            throw new AssertionError();
                         return messageLength;
                     }
                 };
 
-                Semaphore semStart = new Semaphore(0);
+                final Semaphore semStart = new Semaphore(0);
                 WriterThread writerThread = new WriterThread( socketChannel, semStart );
                 writerThread.start();
 
@@ -161,11 +163,11 @@ public class Client
                 writerThread.join();
                 socketChannel.close();
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 ex.printStackTrace();
             }
-            catch (InterruptedException ex)
+            catch (final InterruptedException ex)
             {
                 ex.printStackTrace();
             }

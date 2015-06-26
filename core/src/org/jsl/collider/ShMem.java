@@ -126,13 +126,13 @@ public abstract class ShMem
                 {
                     pos += size;
                     buf.limit( pos );
-                    listener.onDataReceived( buf );
+                    //FIXME listener.onDataReceived( buf );
                     buf.position( pos );
                     return 0;
                 }
 
                 buf.limit( m_nextBlockPos );
-                listener.onDataReceived( buf );
+                //FIXME listener.onDataReceived( buf );
 
                 buf.clear();
                 final int nextIdx = buf.getInt( m_nextBlockPos );

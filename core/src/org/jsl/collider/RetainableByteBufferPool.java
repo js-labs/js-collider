@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Sergey Zubarev, info@js-labs.org
+ * Copyright (C) 2015 Sergey Zubarev, info@js-labs.org
  *
  * This file is a part of JS-Collider framework.
  *
@@ -23,12 +23,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.logging.Logger;
 
-/* Pool provides fast RetainableByteBuffer allocation by slicing
- * a bigger byte buffer. Best to be used for buffers with
- * a short life time.
- */
-
-public class ByteBufferPool
+public class RetainableByteBufferPool
 {
     private static class Chunk
     {
@@ -113,12 +108,18 @@ public class ByteBufferPool
     private static class BufferImpl extends RetainableByteBuffer
     {
         private final Chunk m_chunk;
+        private final int m_offs;
+        private final int m_capacity;
         private final int m_reservedSize;
 
-        public BufferImpl( Chunk chunk, int offs, int size, int reservedSize )
+        public BufferImpl( Chunk chunk, int offs, int capacity, int reservedSize )
         {
-            super( chunk.getByteBuffer().duplicate(), offs, size );
+            super( chunk.getByteBuffer().duplicate() );
+            m_buf.position(offs);
+            m_buf.limit(offs + capacity);
             m_chunk = chunk;
+            m_offs = offs;
+            m_capacity = capacity;
             m_reservedSize = reservedSize;
         }
 
@@ -130,13 +131,102 @@ public class ByteBufferPool
         public String toString()
         {
             String ret = super.toString();
-            ret += " reserved=" + m_reservedSize;
+            ret += " [" + m_chunk.toString() + " reserved=" + m_reservedSize + "]";
             return ret;
+        }
+
+        public RetainableByteBuffer clear()
+        {
+            m_buf.clear();
+            m_buf.position( m_offs );
+            m_buf.limit( m_offs + m_capacity );
+            return this;
+        }
+
+        public RetainableByteBuffer flip()
+        {
+            final int position = m_buf.position();
+            m_buf.position( m_offs );
+            m_buf.limit( position );
+            return this;
+        }
+
+        public int capacity()
+        {
+            return m_capacity;
+        }
+
+        public int limit()
+        {
+            return (m_buf.limit() - m_offs);
+        }
+
+        public RetainableByteBuffer limit( int newLimit )
+        {
+            if ((newLimit > m_capacity) || (newLimit < 0))
+                throw new IllegalArgumentException();
+            m_buf.limit( m_offs + newLimit );
+            return this;
+        }
+
+        public int position()
+        {
+            return (m_buf.position() - m_offs);
+        }
+
+        public RetainableByteBuffer position( int position )
+        {
+            m_buf.position( m_offs + position );
+            return this;
+        }
+
+        public byte get( int index )
+        {
+            return m_buf.get( m_offs + index );
+        }
+
+        public RetainableByteBuffer put( int index, byte value )
+        {
+            m_buf.put( index, value );
+            return this;
+        }
+
+        public int getInt( int index )
+        {
+            return m_buf.getInt( m_offs + index );
+        }
+
+        public RetainableByteBuffer putInt( int index, int value )
+        {
+            m_buf.putInt( m_offs + index, value );
+            return this;
+        }
+
+        public short getShort( int index )
+        {
+            return m_buf.getShort( m_offs + index );
+        }
+
+        public RetainableByteBuffer putShort( int index, short value )
+        {
+            m_buf.putShort( m_offs + index, value );
+            return this;
+        }
+
+        public double getDouble( int index )
+        {
+            return m_buf.getDouble( m_offs + index );
+        }
+
+        public RetainableByteBuffer putDouble( int index, double value )
+        {
+            m_buf.putDouble( m_offs + index, value );
+            return this;
         }
     }
 
-    private final static AtomicIntegerFieldUpdater<ByteBufferPool> s_stateUpdater =
-            AtomicIntegerFieldUpdater.newUpdater( ByteBufferPool.class, "m_state" );
+    private final static AtomicIntegerFieldUpdater<RetainableByteBufferPool> s_stateUpdater =
+            AtomicIntegerFieldUpdater.newUpdater( RetainableByteBufferPool.class, "m_state" );
 
     private final boolean m_useDirectBuffers;
     private final ChunkCache m_cache;
@@ -164,17 +254,17 @@ public class ByteBufferPool
      * Default constructor.
      * Creates a pool with chunk size = 64Kb.
      */
-    public ByteBufferPool()
+    public RetainableByteBufferPool()
     {
         this( 64*1024 );
     }
 
-    public ByteBufferPool( int chunkSize )
+    public RetainableByteBufferPool( int chunkSize )
     {
         this( chunkSize, true );
     }
 
-    public ByteBufferPool( int chunkSize, boolean useDirectBuffers )
+    public RetainableByteBufferPool( int chunkSize, boolean useDirectBuffers )
     {
         m_useDirectBuffers = useDirectBuffers;
         m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128, 2 );
@@ -275,9 +365,10 @@ public class ByteBufferPool
             {
                 /* size > m_chunkSize */
                 final ByteBuffer buf =
-                        m_useDirectBuffers ? ByteBuffer.allocateDirect(size) : ByteBuffer.allocate( size );
+                        m_useDirectBuffers ? ByteBuffer.allocateDirect( size )
+                                           : ByteBuffer.allocate( size );
                 final Chunk chunk = new Chunk( null, buf );
-                BufferImpl ret = new BufferImpl( chunk, 0, size, size );
+                final BufferImpl ret = new BufferImpl( chunk, 0, size, size );
                 chunk.release(1);
                 return ret;
             }

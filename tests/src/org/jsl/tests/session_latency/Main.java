@@ -21,7 +21,7 @@ package org.jsl.tests.session_latency;
 
 public class Main
 {
-    public static void main( String args[] )
+    public static void main( String [] args )
     {
         int sessions = 2;
         int messages = 1000;
@@ -42,7 +42,7 @@ public class Main
                 messages + " messages, " +
                 messageLength + " bytes/message." );
 
-        Client client = new Client( sessions );
+        final Client client = new Client( sessions );
         new Server(sessions, messages, messageLength, client).run();
     }
 }

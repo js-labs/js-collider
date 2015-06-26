@@ -48,5 +48,5 @@ public abstract class DatagramListener
         return m_addr;
     }
 
-    public abstract void onDataReceived( ByteBuffer data, SocketAddress sourceAddr );
+    public abstract void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr );
 }

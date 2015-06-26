@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework tests.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2015 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
@@ -31,9 +31,9 @@ import java.nio.channels.SocketChannel;
 public class Client
 {
     private InetSocketAddress m_addr;
-    private int m_messages;
-    private ByteBuffer m_msg;
-    private Thread [] m_threads;
+    private final int m_messages;
+    private final ByteBuffer m_msg;
+    private final Thread [] m_threads;
 
     private class SessionThread extends Thread
     {
@@ -50,8 +50,8 @@ public class Client
                         "Client socket connected " + socket.getLocalSocketAddress() +
                         " -> " + socket.getRemoteSocketAddress() + "." );
 
-                /* Warming up the server */
-                for (int idx=0; idx<10; idx++)
+                /* warming up */
+                for (int idx=0; idx<100; idx++)
                 {
                     socketChannel.write( msg );
                     msg.flip();
@@ -69,16 +69,17 @@ public class Client
                     assert( bytesReceived == m_msg.capacity() );
                     buf.clear();
                 }
-                long endTime = System.nanoTime();
+                final long endTime = System.nanoTime();
                 socketChannel.close();
 
-                int messages = (m_messages * 2);
-                long tm = ((endTime - startTime) / 1000);
-                System.out.println( messages + " messages exchanged at " +
-                                    Util.formatDelay(startTime, endTime) + " sec (" +
-                                    (tm / messages) + " usec/msg)" );
+                final int messages = (m_messages * 2);
+                final long tm = ((endTime - startTime) / 1000);
+                System.out.println(
+                        messages + " messages exchanged at " +
+                        Util.formatDelay(startTime, endTime) + " sec (" +
+                        (tm / messages) + " usec/msg)" );
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 ex.printStackTrace();
             }
@@ -115,7 +116,7 @@ public class Client
             {
                 thread.join();
             }
-            catch (InterruptedException ex)
+            catch (final InterruptedException ex)
             {
                 ex.printStackTrace();
             }
@@ -140,7 +141,7 @@ public class Client
 
             new Client(sessions, messages, messageLength).start( new InetSocketAddress(addr, portNumber) );
         }
-        catch (UnknownHostException ex)
+        catch (final UnknownHostException ex)
         {
             ex.printStackTrace();
         }

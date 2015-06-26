@@ -19,14 +19,10 @@
 
 package org.jsl.tests.connector_remove;
 
-import org.jsl.collider.Acceptor;
-import org.jsl.collider.Collider;
-import org.jsl.collider.Connector;
-import org.jsl.collider.Session;
+import org.jsl.collider.*;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
@@ -44,14 +40,13 @@ public class Main
         public Session.Listener createSessionListener( Session session )
         {
             /* Should never be called. */
-            assert( false );
-            return null;
+            throw new AssertionError();
         }
 
         public void onException( IOException ex )
         {
             /* Should never be called. */
-            assert( false );
+            throw new AssertionError();
         }
     }
 
@@ -74,7 +69,7 @@ public class Main
         public Session.Listener createSessionListener( Session session )
         {
             try { m_collider.removeConnector( this ); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            catch (final InterruptedException ex) { ex.printStackTrace(); }
             System.out.println( "Test2 connector removed." );
 
             final int testsRemaining = m_testsRemaining.decrementAndGet();
@@ -87,7 +82,7 @@ public class Main
         public void onException( IOException ex )
         {
             /* should never be called */
-            assert( false );
+            throw new AssertionError();
         }
     }
 
@@ -109,8 +104,7 @@ public class Main
         public Session.Listener createSessionListener( Session session )
         {
             /* Should never be called. */
-            assert( false );
-            return null;
+            throw new AssertionError();
         }
 
         public void onException( IOException ex )
@@ -144,7 +138,7 @@ public class Main
         public void onException( IOException ex )
         {
             /* Should never be called. */
-            assert( false );
+            throw new AssertionError();
         }
     }
 
@@ -176,7 +170,7 @@ public class Main
                 Thread.yield();
                 Thread.yield();
                 try { m_collider.removeConnector( test4Connector ); }
-                catch (InterruptedException ex) { ex.printStackTrace(); }
+                catch (final InterruptedException ex) { ex.printStackTrace(); }
             }
 
             final int testsRemaining = m_testsRemaining.decrementAndGet();
@@ -231,9 +225,10 @@ public class Main
             System.out.println( m_session.getLocalAddress() + "->" + m_session.getRemoteAddress() + ": init" );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             /* Should never be called. */
+            throw new AssertionError();
         }
 
         public void onConnectionClosed()
@@ -266,11 +261,11 @@ public class Main
             collider.run();
             assert( sessionsCounter.get() == 0 );
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }

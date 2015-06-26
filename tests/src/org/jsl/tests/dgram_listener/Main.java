@@ -21,13 +21,12 @@ package org.jsl.tests.dgram_listener;
 
 import org.jsl.collider.Collider;
 import org.jsl.collider.DatagramListener;
-import org.jsl.collider.Util;
+import org.jsl.collider.RetainableByteBuffer;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.StandardProtocolFamily;
-import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 
 public class Main
@@ -39,7 +38,7 @@ public class Main
             super( addr );
         }
 
-        public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
+        public void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr )
         {
             /* Should never be called. */
             assert( false );
@@ -61,7 +60,7 @@ public class Main
             m_waitPackets = waitPackets;
         }
 
-        public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
+        public void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr )
         {
             if (data.remaining() == 0)
                 throw new RuntimeException( "zero ByteBuffer" );
@@ -119,7 +118,7 @@ public class Main
             m_waitPackets = waitPackets;
         }
 
-        public void onDataReceived( ByteBuffer data, SocketAddress sourceAddr )
+        public void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr )
         {
             if (data.remaining() == 0)
                 throw new RuntimeException( "zero ByteBuffer" );

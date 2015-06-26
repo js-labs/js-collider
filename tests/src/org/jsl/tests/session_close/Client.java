@@ -19,7 +19,7 @@
 
 package org.jsl.tests.session_close;
 
-import org.jsl.collider.StreamDefragger;
+import org.jsl.tests.StreamDefragger;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -169,7 +169,7 @@ public class Client
             {
                 for (;;)
                 {
-                    int bytesReceived = m_socketChannel.read( byteBuffer );
+                    final int bytesReceived = m_socketChannel.read( byteBuffer );
                     if (bytesReceived == 0)
                         break;
 
@@ -188,7 +188,7 @@ public class Client
                     byteBuffer.clear();
                 }
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 /* IOException is expected, just skip it.
                  * ex.printStackTrace();

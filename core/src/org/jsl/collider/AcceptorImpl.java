@@ -51,7 +51,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                     if (socketChannel == null)
                         break;
                 }
-                catch (IOException ex)
+                catch (final IOException ex)
                 {
                     if (s_logger.isLoggable(Level.WARNING))
                         s_logger.warning( m_localAddr + ": " + ex.toString() );
@@ -62,7 +62,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                 {
                     socketChannel.configureBlocking( false );
                 }
-                catch (IOException ex)
+                catch (final IOException ex)
                 {
                     /* Having unblocking mode is critical,
                      * can't work with this socket.
@@ -74,7 +74,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                     {
                         socketChannel.close();
                     }
-                    catch (IOException ex1)
+                    catch (final IOException ex1)
                     {
                         if (s_logger.isLoggable(Level.WARNING))
                             s_logger.warning( m_localAddr + ": " + ex1.toString() );
@@ -104,7 +104,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                     {
                         socketChannel.close();
                     }
-                    catch (IOException ex)
+                    catch (final IOException ex)
                     {
                         if (s_logger.isLoggable(Level.FINE))
                             s_logger.fine( m_localAddr + ": " + ex.toString() + "." );
@@ -135,7 +135,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                 final SelectionKey selectionKey = m_socketChannel.register( m_selector, 0, null );
                 m_collider.executeInThreadPool( new SessionStarter2(m_socketChannel, selectionKey) );
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 /* Not necessary a framework problem,
                  * can happen in a case if peer closed connection.
@@ -189,7 +189,7 @@ public class AcceptorImpl extends SessionEmitterImpl
                 m_collider.executeInThreadPool( new Starter2() );
                 return 0;
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 /* Any exception here means a bug in Collider framework. */
                 if (s_logger.isLoggable(Level.WARNING))
@@ -200,7 +200,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             {
                 m_serverChannel.close();
             }
-            catch (IOException ex1)
+            catch (final IOException ex1)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( m_localAddr + ": " + ex1 + "." );
@@ -234,7 +234,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             m_selectionKey = null;
 
             try { m_serverChannel.close(); }
-            catch (IOException ex) { logException(ex); }
+            catch (final IOException ex) { logException(ex); }
             m_serverChannel = null;
 
             m_lock.lock();
@@ -358,7 +358,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             {
                 m_serverChannel.close();
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( m_localAddr + ": " + ex.toString() + "." );
@@ -469,10 +469,10 @@ public class AcceptorImpl extends SessionEmitterImpl
 
     public AcceptorImpl(
             ColliderImpl collider,
-            DataBlockCache inputQueueDataBlockCache,
+            RetainableDataBlockCache inputQueueDataBlockCache,
             Acceptor acceptor,
             int joinMessageMaxSize,
-            ByteBufferPool joinPool,
+            RetainableByteBufferPool joinPool,
             Selector selector,
             ServerSocketChannel serverChannel )
     {
@@ -601,7 +601,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             {
                 m_serverChannel.close();
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( m_localAddr + ": " + ex + "." );
@@ -632,7 +632,7 @@ public class AcceptorImpl extends SessionEmitterImpl
             {
                 m_serverChannel.close();
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
                     s_logger.warning( m_localAddr + ": " + ex + "." );

@@ -24,14 +24,15 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.HashSet;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class Server
 {
     private final Client m_client;
     private final int m_socketBufferSize;
-    private final ByteBufferPool m_byteBufferPool;
 
+    private final AtomicInteger m_sessions;
     private final ReentrantLock m_lock;
     private final HashSet<Session> m_clients;
 
@@ -40,7 +41,6 @@ public class Server
         private final Session m_session;
         private final StreamDefragger m_streamDefragger;
         private int m_messagesReceived;
-        private HashSet<Session> m_clients;
 
         public ServerListener( Session session )
         {
@@ -49,79 +49,64 @@ public class Server
             {
                 protected int validateHeader( ByteBuffer header )
                 {
-                    return header.getInt();
+                    final int pos = header.position();
+                    return header.getInt( pos );
                 }
             };
+
+            System.out.println( session.getRemoteAddress() + ": connection accepted" );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             assert( data.remaining() > 0 );
 
-            ByteBuffer msg = m_streamDefragger.getNext( data );
+            RetainableByteBuffer msg = m_streamDefragger.getNext( data );
             while (msg != null)
             {
                 final int position = msg.position();
-                final int bytesReady = msg.remaining();
+                final int remaining = msg.remaining();
                 final int messageLength = msg.getInt();
-                assert( bytesReady == messageLength );
+                if (remaining != messageLength)
+                    throw new AssertionError();
 
-                if (++m_messagesReceived == 1)
+                if (m_messagesReceived++ == 0)
                 {
-                    final HashSet<Session> clients = Server.this.m_clients;
                     final int sessions = msg.getInt();
 
                     m_lock.lock();
                     try
                     {
-                        clients.add( m_session );
-                        if (clients.size() == sessions)
-                            m_clients = new HashSet<Session>( clients );
+                        m_clients.add( m_session );
                     }
                     finally
                     {
                         m_lock.unlock();
                     }
 
-                    if (m_clients != null)
+                    if (m_sessions.incrementAndGet() == sessions)
                     {
                         System.out.println( "All clients connected, starting test." );
-                        final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
 
                         msg.position( position );
-                        buf.put( msg );
-                        buf.flip();
+                        final RetainableByteBuffer reply = msg.slice();
 
                         for (Session session : m_clients)
-                            session.sendData( buf );
-                        buf.release();
+                            session.sendData( reply );
+
+                        reply.release();
                     }
                 }
                 else
                 {
-                    if (m_clients == null)
-                    {
-                        m_lock.lock();
-                        try
-                        {
-                            m_clients = new HashSet<Session>( Server.this.m_clients );
-                        }
-                        finally
-                        {
-                            m_lock.unlock();
-                        }
-                    }
-
-                    final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
-
                     msg.position( position );
-                    buf.put( msg );
-                    buf.flip();
+                    final RetainableByteBuffer reply = msg.slice();
 
+                    /* m_clients will not be modified any more, can access it safely. */
                     for (Session session : m_clients)
-                        session.sendData( buf );
+                        session.sendData( reply );
 
-                    buf.release();
+                    reply.release();
                 }
                 msg = m_streamDefragger.getNext();
             }
@@ -129,18 +114,13 @@ public class Server
 
         public void onConnectionClosed()
         {
-            final HashSet<Session> clients = Server.this.m_clients;
-            m_lock.lock();
-            try
-            {
-                clients.remove( m_session );
-                if (clients.size() == 0)
-                    m_session.getCollider().stop();
-            }
-            finally
-            {
-                m_lock.unlock();
-            }
+            final int sessions = m_sessions.decrementAndGet();
+            if (sessions < 0)
+                throw new AssertionError();
+            if (sessions == 0)
+                m_session.getCollider().stop();
+
+            System.out.println( m_session.getRemoteAddress() + ": connection closed" );
         }
     }
 
@@ -150,8 +130,8 @@ public class Server
         {
             super( new InetSocketAddress(0) );
             tcpNoDelay = true;
-            socketRecvBufSize = Server.this.m_socketBufferSize;
-            socketSendBufSize = Server.this.m_socketBufferSize;
+            socketRecvBufSize = m_socketBufferSize;
+            socketSendBufSize = m_socketBufferSize;
         }
 
         public void onAcceptorStarted( Collider collider, int localPort )
@@ -171,7 +151,7 @@ public class Server
     {
         m_client = client;
         m_socketBufferSize = socketBufferSize;
-        m_byteBufferPool = new ByteBufferPool();
+        m_sessions = new AtomicInteger();
         m_lock = new ReentrantLock();
         m_clients = new HashSet<Session>();
     }
@@ -184,14 +164,12 @@ public class Server
             collider.addAcceptor( new TestAcceptor() );
             collider.run();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }
 
         if (m_client != null)
             m_client.stopAndWait();
-
-        System.out.println( m_byteBufferPool.clear() );
     }
 }

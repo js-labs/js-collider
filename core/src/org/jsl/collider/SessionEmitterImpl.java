@@ -27,18 +27,18 @@ import java.nio.channels.SocketChannel;
 public abstract class SessionEmitterImpl
 {
     protected final ColliderImpl m_collider;
-    protected final DataBlockCache m_inputQueueDataBlockCache;
+    protected final RetainableDataBlockCache m_inputQueueDataBlockCache;
     private final SessionEmitter m_sessionEmitter;
     private final int m_joinMessageMaxSize;
-    private final ByteBufferPool m_joinPool;
+    private final RetainableByteBufferPool m_joinPool;
     private final int m_forwardReadMaxSize;
 
     protected SessionEmitterImpl(
             ColliderImpl collider,
-            DataBlockCache inputQueueDataBlockCache,
+            RetainableDataBlockCache inputQueueDataBlockCache,
             SessionEmitter sessionEmitter,
             int joinMessageMaxSize,
-            ByteBufferPool joinPool )
+            RetainableByteBufferPool joinPool )
     {
         m_collider = collider;
         m_inputQueueDataBlockCache = inputQueueDataBlockCache;
@@ -78,7 +78,7 @@ public abstract class SessionEmitterImpl
         {
             socket.setTcpNoDelay( m_sessionEmitter.tcpNoDelay );
         }
-        catch (SocketException ex)
+        catch (final SocketException ex)
         {
             logException( ex );
         }
@@ -87,7 +87,7 @@ public abstract class SessionEmitterImpl
         {
             socket.setReuseAddress( m_sessionEmitter.reuseAddr );
         }
-        catch (SocketException ex)
+        catch (final SocketException ex)
         {
             logException( ex );
         }
@@ -102,7 +102,7 @@ public abstract class SessionEmitterImpl
             {
                 socket.setReceiveBufferSize( recvBufferSize );
             }
-            catch (SocketException ex)
+            catch (final SocketException ex)
             {
                 logException( ex );
             }
@@ -118,7 +118,7 @@ public abstract class SessionEmitterImpl
             {
                 socket.setSendBufferSize( sendBufferSize );
             }
-            catch (SocketException ex)
+            catch (final SocketException ex)
             {
                 logException( ex );
             }

@@ -20,7 +20,6 @@
 package org.jsl.collider;
 
 import java.io.File;
-import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 
@@ -29,7 +28,7 @@ public class ShMemServer extends ShMem
     private final ChannelIn m_in;
     private final ChannelOut m_out;
 
-    public ShMemServer( ByteBuffer buf ) throws Exception
+    public ShMemServer( RetainableByteBuffer buf ) throws Exception
     {
         final short descriptorVersion = buf.getShort();
         final int bufLimit = buf.limit();
@@ -41,12 +40,12 @@ public class ShMemServer extends ShMem
 
         final int length = buf.getShort();
         buf.limit( buf.position() + length );
-        final File fileC2S = new File( decoder.decode(buf).toString() );
+        final File fileC2S = new File( decoder.decode(buf.getNioByteBuffer()).toString() );
         m_in = new ChannelIn( fileC2S, blockSize, false );
 
         buf.limit( bufLimit );
         buf.getShort();
-        final File fileS2C = new File( decoder.decode(buf).toString() );
+        final File fileS2C = new File( decoder.decode(buf.getNioByteBuffer()).toString() );
         m_out = new ChannelOut( fileS2C, blockSize, false );
     }
 

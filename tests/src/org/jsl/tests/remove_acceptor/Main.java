@@ -21,11 +21,11 @@ package org.jsl.tests.remove_acceptor;
 
 import org.jsl.collider.Acceptor;
 import org.jsl.collider.Collider;
+import org.jsl.collider.RetainableByteBuffer;
 import org.jsl.collider.Session;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,14 +43,13 @@ public class Main
         public void onAcceptorStarted( Collider collider, int localPort )
         {
             /* Should never be called. */
-            assert( false );
+            throw new AssertionError();
         }
 
         public Session.Listener createSessionListener( Session session )
         {
             /* Should never be called */
-            assert( false );
-            return null;
+            throw new AssertionError();
         }
     }
 
@@ -63,14 +62,13 @@ public class Main
         {
             System.out.println( "Test2: port " + localPort );
             try { collider.removeAcceptor( this ); }
-            catch (InterruptedException ignored) {}
+            catch (final InterruptedException ignored) {}
         }
 
         public Session.Listener createSessionListener( Session session )
         {
             /* Should never be called */
-            assert( false );
-            return null;
+            throw new AssertionError();
         }
     }
 
@@ -112,7 +110,7 @@ public class Main
             {
                m_collider.removeAcceptor( this );
             }
-            catch (InterruptedException ex)
+            catch (final InterruptedException ex)
             {
                 ex.printStackTrace();
             }
@@ -127,10 +125,10 @@ public class Main
 
     private static class Test3Listener implements Session.Listener
     {
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             /* Should never be called. */
-            assert( false );
+            throw new AssertionError();
         }
 
         public void onConnectionClosed()
@@ -170,10 +168,10 @@ public class Main
 
     private static class Test4Listener implements Session.Listener
     {
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             /* Should never be called. */
-            assert( false );
+            throw new AssertionError();
         }
 
         public void onConnectionClosed()
@@ -199,11 +197,11 @@ public class Main
         public void run()
         {
             try { Thread.sleep( m_timeout ); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            catch (final InterruptedException ex) { ex.printStackTrace(); }
 
             System.out.println( "Test4: removing acceptor..." );
             try { m_collider.removeAcceptor( m_acceptor ); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            catch (final InterruptedException ex) { ex.printStackTrace(); }
 
             final int testsRemaining = m_testsRemaining.decrementAndGet();
             if (testsRemaining == 0)
@@ -235,12 +233,12 @@ public class Main
                     Thread.sleep( 100 );
                     sockets.add( socketChannel );
                 }
-                catch (IOException ex)
+                catch (final IOException ex)
                 {
                     /* Expected */
                     break;
                 }
-                catch (InterruptedException ex)
+                catch (final InterruptedException ex)
                 {
                     ex.printStackTrace();
                 }
@@ -251,7 +249,7 @@ public class Main
             for (SocketChannel socketChannel : sockets)
             {
                 try { socketChannel.close(); }
-                catch (IOException ex) { ex.printStackTrace(); }
+                catch (final IOException ex) { ex.printStackTrace(); }
             }
         }
     }
@@ -273,7 +271,7 @@ public class Main
 
             collider.addAcceptor( test1Acceptor );
             try { collider.removeAcceptor( test1Acceptor ); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            catch (final InterruptedException ex) { ex.printStackTrace(); }
 
             collider.addAcceptor( test2Acceptor );
             collider.addAcceptor( test3Acceptor );
@@ -284,13 +282,13 @@ public class Main
             collider.removeAcceptor( test1Acceptor );
             collider.removeAcceptor( test2Acceptor );
             collider.removeAcceptor( test3Acceptor );
-            collider.removeAcceptor( test4Acceptor );
+            //collider.removeAcceptor( test4Acceptor );
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }

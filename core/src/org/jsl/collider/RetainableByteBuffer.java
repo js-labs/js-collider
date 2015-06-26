@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Sergey Zubarev, info@js-labs.org
+ * Copyright (C) 2015 Sergey Zubarev, info@js-labs.org
  *
  * This file is a part of JS-Collider framework.
  *
@@ -27,45 +27,38 @@ public abstract class RetainableByteBuffer
     private final static AtomicIntegerFieldUpdater<RetainableByteBuffer> s_retainCountUpdater =
             AtomicIntegerFieldUpdater.newUpdater( RetainableByteBuffer.class, "m_retainCount" );
 
-    /* It looks like a good idea having a possibility
-     * to link RetainableByteBuffers to each other
-     * (adding something like a 'next' member),
-     * but it is not, at least because we can send same
-     * retainable byte buffer to the multiple sessions.
-     */
-
-    private final ByteBuffer m_buf;
-    private final int m_offset;
-    private final int m_length;
+    protected final ByteBuffer m_buf;
     private volatile int m_retainCount;
 
-    private final static class Slice extends RetainableByteBuffer
+    private class Slice extends RetainableByteBufferImpl
     {
-        private final RetainableByteBuffer m_rbuf;
+        public Slice( ByteBuffer buf )
+        {
+            super( buf );
+        }
 
         protected void finalRelease()
         {
-            m_rbuf.release();
-        }
-
-        public Slice( RetainableByteBuffer rbuf )
-        {
-            super( rbuf.m_buf.slice(), 0, rbuf.m_buf.remaining() );
-            m_rbuf = rbuf;
-            rbuf.retain();
+            /* do not need to call super.finalRelease() */
+            RetainableByteBuffer.this.release();
         }
     }
 
-    protected abstract void finalRelease();
+    protected void finalRelease()
+    {
+        m_buf.clear();
+        s_retainCountUpdater.lazySet( this, 1 );
+    }
 
-    public RetainableByteBuffer( ByteBuffer buf, int offset, int length )
+    protected RetainableByteBuffer( ByteBuffer buf )
     {
         m_buf = buf;
-        m_offset = offset;
-        m_length = length;
-        m_retainCount = 1;
-        m_buf.position( offset );
-        m_buf.limit( offset + length );
+        s_retainCountUpdater.lazySet( this, 1 );
+    }
+
+    public final ByteBuffer getNioByteBuffer()
+    {
+        return m_buf;
     }
 
     public final void retain()
@@ -79,102 +72,116 @@ public abstract class RetainableByteBuffer
         }
     }
 
-    public final RetainableByteBuffer slice()
-    {
-        final int position = m_buf.position();
-        if ((position == m_offset) &&
-            ((m_buf.limit() - position) == m_length))
-        {
-            retain();
-            return this;
-        }
-        return new Slice( this );
-    }
-
     public final void release()
     {
         for (;;)
         {
             final int retainCount = m_retainCount;
             assert( retainCount > 0 );
-            final int newValue = (retainCount - 1);
-            if (s_retainCountUpdater.compareAndSet(this, retainCount, newValue))
+            if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount-1))
             {
-                if (newValue == 0)
-                {
-                    /* The instance can be reused with cache,
-                     * so it is better to set retain count = 1
-                     * before finalRelease() call.
-                     */
-                    s_retainCountUpdater.lazySet( this, 1 );
+                if (retainCount == 1)
                     finalRelease();
-                }
                 break;
             }
         }
     }
 
-    public final ByteBuffer getByteBuffer()
+    public final boolean releaseReuse()
     {
-        return m_buf;
+        for (;;)
+        {
+            final int retainCount = m_retainCount;
+            assert( retainCount > 0 );
+
+            if (retainCount == 1)
+            {
+                /* instance has only one reference
+                 * and this reference definitely owned by the caller,
+                 * so it can be safely reused.
+                 */
+                clear();
+                return true;
+            }
+            else if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount-1))
+                return false;
+        }
     }
 
-    public final int capacity()
+    public final boolean clearSafe()
     {
-        return m_length;
+        if (m_retainCount == 1)
+        {
+            /* instance has only one reference and this reference
+             * and it definitely owned by the caller,
+             * so we can safely clear the instance.
+             */
+            clear();
+            return true;
+        }
+        else
+            return false;
     }
 
-    public final RetainableByteBuffer clear()
+    public RetainableByteBuffer slice()
     {
-        m_buf.position( m_offset );
-        m_buf.limit( m_offset + m_length );
-        return this;
+        retain();
+        return new Slice( m_buf.slice() );
     }
 
-    public final RetainableByteBuffer reset()
-    {
-        m_buf.position( m_offset );
-        m_buf.limit( m_offset + m_length );
-        return this;
-    }
+    /*
+     * ByteBuffer interface mimic.
+     */
 
-    public final RetainableByteBuffer flip()
-    {
-        final int position = m_buf.position();
-        m_buf.position( m_offset );
-        m_buf.limit( position );
-        return this;
-    }
+    public abstract RetainableByteBuffer clear();
+    public abstract RetainableByteBuffer flip();
 
-    public final int limit()
-    {
-        return (m_buf.limit() - m_offset);
-    }
+    public abstract int capacity();
 
-    public final RetainableByteBuffer limit( int limit )
-    {
-        if ((limit < 0) || (limit > m_length))
-            throw new IllegalArgumentException();
-        m_buf.limit( m_offset + limit );
-        return this;
-    }
+    public abstract int limit();
+    public abstract RetainableByteBuffer limit( int limit );
 
-    public final int position()
-    {
-        return (m_buf.position() - m_offset);
-    }
+    public abstract int position();
+    public abstract RetainableByteBuffer position( int position );
 
-    public final RetainableByteBuffer position( int position )
-    {
-        if ((position < 0) || (position > limit()))
-            throw new IllegalArgumentException();
-        m_buf.position( m_offset + position );
-        return this;
-    }
+    public abstract byte get( int index );
+    public abstract RetainableByteBuffer put( int index, byte value );
+
+    public abstract int getInt( int index );
+    public abstract RetainableByteBuffer putInt( int index, int value );
+
+    public abstract short getShort( int index );
+    public abstract RetainableByteBuffer putShort( int index, short value );
+
+    public abstract double getDouble( int index );
+    public abstract RetainableByteBuffer putDouble( int index, double value );
 
     public final int remaining()
     {
         return m_buf.remaining();
+    }
+
+    public RetainableByteBuffer reset()
+    {
+        m_buf.reset();
+        return this;
+    }
+
+    public final byte get()
+    {
+        return m_buf.get();
+    }
+
+    public final RetainableByteBuffer get( ByteBuffer dst )
+    {
+        dst.put( m_buf );
+        return this;
+    }
+
+    public final RetainableByteBuffer put( byte value )
+    {
+        m_buf.put( value );
+        return this;
     }
 
     public final RetainableByteBuffer put( ByteBuffer src )
@@ -195,20 +202,9 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
-    public final RetainableByteBuffer putInt( int index, int value )
-    {
-        m_buf.putInt( index+m_offset, value );
-        return this;
-    }
-
     public final int getInt()
     {
         return m_buf.getInt();
-    }
-
-    public final int getInt( int index )
-    {
-        return m_buf.getInt( m_offset+index );
     }
 
     public final RetainableByteBuffer putShort( short value )
@@ -217,10 +213,9 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
-    public final RetainableByteBuffer putShort( int index, short value )
+    public final short getShort()
     {
-        m_buf.putShort( index+m_offset, value );
-        return this;
+        return m_buf.getShort();
     }
 
     public final RetainableByteBuffer putDouble( double value )
@@ -229,16 +224,8 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
-    public final RetainableByteBuffer putDouble( int index, double value )
+    public final double getDouble()
     {
-        m_buf.putDouble( index+m_offset, value );
-        return this;
-    }
-
-    public String toString()
-    {
-        String ret = super.toString();
-        ret += " [" + m_offset + ", " + m_length + "]";
-        return ret;
+        return m_buf.getDouble();
     }
 }

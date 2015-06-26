@@ -19,9 +19,7 @@
 
 package org.jsl.tests.pubsub;
 
-import org.jsl.collider.Collider;
-import org.jsl.collider.Connector;
-import org.jsl.collider.Session;
+import org.jsl.collider.*;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -45,8 +43,8 @@ public class PubClient extends Thread
             m_session = session;
 
             System.out.println(
-                    "PubClient connected " + session.getLocalAddress() +
-                    " -> " + session.getRemoteAddress() + "." );
+                    "PubClient: connected " + session.getLocalAddress() +
+                    " -> " + session.getRemoteAddress() );
 
             final ByteBuffer buf = ByteBuffer.allocateDirect( 5 );
             buf.putInt(5);
@@ -55,10 +53,14 @@ public class PubClient extends Thread
             session.sendData( buf );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            /* All subscribers are connected to the server now, let's start. */
-            assert( data.remaining() > 0 );
+            /* All subscribers are connected to the server,
+             * let's start.
+             */
+            if (data.remaining() == 0)
+                throw new AssertionError();
+
             m_thread = new Thread( this );
             m_thread.start();
         }
@@ -72,7 +74,7 @@ public class PubClient extends Thread
                 {
                     m_thread.join();
                 }
-                catch (InterruptedException ex)
+                catch (final InterruptedException ex)
                 {
                     ex.printStackTrace();
                 }
@@ -93,6 +95,13 @@ public class PubClient extends Thread
             m_startTime = System.nanoTime();
             for (int idx=0; idx<m_messages; idx++)
                 m_session.sendData( buf );
+            final long endTime = System.nanoTime();
+
+            //m_session.closeConnection();
+
+            System.out.println(
+                    "PubClient: sent " + m_messages + " messages at " +
+                    Util.formatDelay(m_startTime, endTime) );
         }
     }
 
@@ -103,7 +112,7 @@ public class PubClient extends Thread
             super( addr );
             socketSendBufSize = m_socketBufferSize;
             socketRecvBufSize = m_socketBufferSize;
-            joinMessageMaxSize = 1024;
+            //joinMessageMaxSize = 1024;
         }
 
         public Session.Listener createSessionListener( Session session )
@@ -133,7 +142,7 @@ public class PubClient extends Thread
             collider.addConnector( new PubConnector( m_addr ) );
             collider.run();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }

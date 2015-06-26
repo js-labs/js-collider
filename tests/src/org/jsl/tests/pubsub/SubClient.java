@@ -21,10 +21,9 @@ package org.jsl.tests.pubsub;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import org.jsl.collider.Collider;
-import org.jsl.collider.Connector;
-import org.jsl.collider.Session;
-import org.jsl.collider.StreamDefragger;
+
+import org.jsl.collider.*;
+
 import java.nio.ByteBuffer;
 
 public class SubClient extends Thread
@@ -57,19 +56,21 @@ public class SubClient extends Thread
 
             final ByteBuffer buf = ByteBuffer.allocateDirect( 5 );
             buf.putInt(5);
-            buf.put( (byte) 1 );
+            buf.put( (byte) 1 /*subscriber*/);
             buf.position(0);
             session.sendData( buf );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() > 0 );
+            if (data.remaining() == 0)
+                throw new AssertionError();
 
-            ByteBuffer msg = m_stream.getNext( data );
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
-                int messagesReceived = ++m_messagesReceived;
+                final int messagesReceived = ++m_messagesReceived;
+                //System.out.println( "msg [" + messagesReceived + "]\n" + Util.hexDump(msg) );
                 if (m_messages == 0)
                 {
                     msg.getInt(); // skip message length

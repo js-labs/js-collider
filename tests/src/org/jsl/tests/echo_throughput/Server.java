@@ -19,7 +19,11 @@
 
 package org.jsl.tests.echo_throughput;
 
-import org.jsl.collider.*;
+import org.jsl.collider.Collider;
+import org.jsl.collider.Session;
+import org.jsl.collider.StreamDefragger;
+import org.jsl.collider.RetainableByteBuffer;
+import org.jsl.collider.Acceptor;
 import org.jsl.tests.Util;
 
 import java.io.IOException;
@@ -30,7 +34,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class Server
 {
     private final Client m_client;
-    private final ByteBufferPool m_byteBufferPool;
     private final AtomicInteger m_sessionsDone;
 
     private class ServerListener implements Session.Listener
@@ -48,30 +51,35 @@ public class Server
             m_session = session;
             m_stream = new StreamDefragger(4)
             {
-                protected int validateHeader(ByteBuffer header)
+                protected int validateHeader( ByteBuffer header )
                 {
-                    return header.getInt();
+                    final int pos = header.position();
+                    return header.getInt( pos );
                 }
             };
-            System.out.println( "Connection accepted from " + session.getRemoteAddress() );
+            System.out.println(
+                    session.getLocalAddress() + " -> " + session.getRemoteAddress() +
+                    ": connection accepted" );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             final int bytesReceived = data.remaining();
-            assert( bytesReceived > 0 );
+            if (bytesReceived == 0)
+                throw new AssertionError();
             m_bytesReceived += bytesReceived;
 
-            ByteBuffer msg = m_stream.getNext( data );
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
-                final int position = msg.position();
+                final int pos = msg.position();
                 final int bytesReady = msg.remaining();
-                final int messageLength = msg.getInt();
-                assert( messageLength == bytesReady );
+                final int messageLength = msg.getInt( pos );
+                if (messageLength != bytesReady)
+                    throw new AssertionError();
 
-                final int sessionsExpected = msg.getInt();
-                final int messagesExpected = msg.getInt();
+                final int sessionsExpected = msg.getInt( pos + (Integer.SIZE/Byte.SIZE) );
+                final int messagesExpected = msg.getInt( pos + 2*(Integer.SIZE/Byte.SIZE) );
                 if (m_messagesExpected == 0)
                 {
                     m_startTime = System.nanoTime();
@@ -80,25 +88,25 @@ public class Server
                 }
                 else
                 {
-                    assert( m_sessionsExpected == sessionsExpected );
-                    assert( m_messagesExpected == messagesExpected );
+                    if ((m_sessionsExpected != sessionsExpected) ||
+                        (m_messagesExpected != messagesExpected))
+                    {
+                        throw new AssertionError();
+                    }
                 }
+
                 m_messagesReceived++;
 
-                final RetainableByteBuffer buf = m_byteBufferPool.alloc( messageLength );
-
-                msg.position( position );
-                buf.put( msg );
-                buf.flip();
-                m_session.sendData( buf );
-                buf.release();
+                final RetainableByteBuffer reply = msg.slice();
+                m_session.sendData( reply );
+                reply.release();
 
                 msg = m_stream.getNext();
             }
 
             if (m_messagesReceived == m_messagesExpected)
             {
-                long endTime = System.nanoTime();
+                final long endTime = System.nanoTime();
                 double tm = (endTime - m_startTime) / 1000;
                 tm /= 1000000.0;
                 tm = (m_messagesReceived / tm);
@@ -112,8 +120,10 @@ public class Server
 
         public void onConnectionClosed()
         {
-            System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
-            int sessionsDone = m_sessionsDone.incrementAndGet();
+            System.out.println(
+                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                    ": connection closed" );
+            final int sessionsDone = m_sessionsDone.incrementAndGet();
             if (sessionsDone == m_sessionsExpected)
                 m_session.getCollider().stop();
         }
@@ -124,7 +134,6 @@ public class Server
         public TestAcceptor( int socketBufferSize )
         {
             super( new InetSocketAddress(0) );
-            tcpNoDelay = true;
             socketRecvBufSize = socketBufferSize;
             socketSendBufSize = socketBufferSize;
         }
@@ -145,7 +154,6 @@ public class Server
     public Server( Client client )
     {
         m_client = client;
-        m_byteBufferPool = new ByteBufferPool();
         m_sessionsDone = new AtomicInteger(0);
     }
 
@@ -154,12 +162,11 @@ public class Server
         try
         {
             final Collider collider = Collider.create();
-            collider.addAcceptor( new TestAcceptor(socketBufferSize) );
+            collider.addAcceptor(new TestAcceptor(socketBufferSize));
             collider.run();
             m_client.stopAndWait();
-            System.out.println( m_byteBufferPool.clear() );
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }

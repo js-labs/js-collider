@@ -59,7 +59,9 @@ public class Client
                 for (;;)
                 {
                     final long sendTime = bb.getLong(4);
-                    if ((sendTime > 0) && (messages > 5))
+
+                    /* First message we receive is a server start message */
+                    if (messages > 10)
                         statCounter.trace( (recvTime - sendTime) / 1000 );
 
                     bb.putLong( 4, System.nanoTime() );
@@ -82,7 +84,7 @@ public class Client
 
                 System.out.println( statCounter.getStats() );
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 ex.printStackTrace();
             }
@@ -111,7 +113,7 @@ public class Client
             {
                 thread.join();
             }
-            catch (InterruptedException ex)
+            catch (final InterruptedException ex)
             {
                 ex.printStackTrace();
             }

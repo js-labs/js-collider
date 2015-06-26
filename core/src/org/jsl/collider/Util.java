@@ -36,7 +36,7 @@ public class Util
         return "0.0";
     }
 
-    public static String hexDump( final ByteBuffer bb )
+    public static String hexDump( ByteBuffer bb )
     {
         int pos = bb.position();
         int limit = bb.limit();
@@ -105,8 +105,8 @@ public class Util
         return sb.toString();
     }
 
-    public static String hexDump( final RetainableByteBuffer rbb )
+    public static String hexDump( RetainableByteBuffer bb )
     {
-        return hexDump( rbb.getByteBuffer() );
+        return hexDump( bb.getNioByteBuffer() );
     }
 }

@@ -29,13 +29,10 @@ public interface Session
         /**
          * Called by framework when some data is available.
          * Executed serially in a one thread, but not necessary always the same.
-         * ByteBuffer is read only and valid only during function call.
-         * Should not be retained for further use. If some data needs
-         * to be used later then it should be copied.
          * Position in the byte buffer can be greater than 0,
          * limit can be less than capacity.
          */
-        public abstract void onDataReceived( ByteBuffer data );
+        public abstract void onDataReceived( RetainableByteBuffer data );
 
         /**
          * Called by framework when underlying socket channel

@@ -19,7 +19,7 @@
 
 package org.jsl.tests.send_throughput;
 
-import org.jsl.collider.StreamDefragger;
+import org.jsl.tests.StreamDefragger;
 import org.jsl.tests.Util;
 
 import java.io.IOException;

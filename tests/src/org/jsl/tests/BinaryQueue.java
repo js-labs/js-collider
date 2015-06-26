@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013 Sergey Zubarev, info@js-labs.org
  *
- * This file is a part of JS-Collider framework.
+ * This file is a part of JS-Collider test.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as
@@ -492,7 +492,7 @@ public class BinaryQueue
 
         if (pos == m_blockSize)
         {
-            DataBlock next = dataBlock.next;
+            final DataBlock next = dataBlock.next;
             assert( next != null );
             assert( next.rw.position() == 0 );
             dataBlock.reset();

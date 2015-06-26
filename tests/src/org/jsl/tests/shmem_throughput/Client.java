@@ -19,6 +19,7 @@
 
 package org.jsl.tests.shmem_throughput;
 
+import org.jsl.collider.RetainableByteBuffer;
 import org.jsl.collider.Session;
 import org.jsl.collider.ShMemClient;
 import org.jsl.tests.Util;
@@ -65,7 +66,8 @@ public class Client
 
         public void onException( IOException ex )
         {
-            assert( false );
+            /* should never be called */
+            throw new AssertionError();
         }
     }
 
@@ -122,9 +124,11 @@ public class Client
             session.sendData( buf );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() == 4 );
+            if (data.remaining() == 0)
+                throw new AssertionError();
+
             if (data.getInt() == 0)
             {
                 /* Server rejected shared memory IPC */
@@ -189,10 +193,10 @@ public class Client
             m_sender.start();
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             /* Should never happen by test design. */
-            assert( false );
+            throw new AssertionError();
         }
 
         public void onConnectionClosed()
@@ -201,7 +205,7 @@ public class Client
             {
                 m_sender.join();
             }
-            catch (InterruptedException ex)
+            catch (final InterruptedException ex)
             {
                 ex.printStackTrace();
             }

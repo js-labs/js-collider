@@ -19,13 +19,9 @@
 
 package org.jsl.tests.shmem_throughput;
 
-import org.jsl.collider.Collider;
-import org.jsl.collider.Session;
-import org.jsl.collider.ShMemServer;
-import org.jsl.collider.StreamDefragger;
+import org.jsl.collider.*;
 import org.jsl.tests.Util;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,10 +69,11 @@ public class Server
             System.out.println( session.getRemoteAddress() + ": connection accepted." );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
             final int bytesReceived = data.remaining();
-            assert( bytesReceived > 0 );
+            if (bytesReceived == 0)
+                throw new AssertionError();
 
             final int messageLength = data.getInt();
             if (bytesReceived != messageLength)
@@ -89,7 +86,7 @@ public class Server
             if (messageLength > 4)
             {
                 try { shMem = new ShMemServer( data ); }
-                catch (Exception ex) { ex.printStackTrace(); }
+                catch (final Exception ex) { ex.printStackTrace(); }
             }
 
             ByteBuffer reply = ByteBuffer.allocateDirect(4);
@@ -136,9 +133,9 @@ public class Server
             };
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            ByteBuffer msg = m_stream.getNext( data );
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
                 final int bytesReady = msg.remaining();

@@ -19,10 +19,7 @@
 
 package org.jsl.tests.recv_throughput;
 
-import org.jsl.collider.Acceptor;
-import org.jsl.collider.Collider;
-import org.jsl.collider.Session;
-import org.jsl.collider.StreamDefragger;
+import org.jsl.collider.*;
 import org.jsl.tests.Util;
 
 import java.io.IOException;
@@ -52,29 +49,32 @@ public class Server
             m_session = session;
             m_stream = new StreamDefragger(4)
             {
-                protected int validateHeader(ByteBuffer header)
+                protected int validateHeader( ByteBuffer header )
                 {
-                    return header.getInt();
+                    return header.getInt( header.position() );
                 }
             };
-            System.out.println( "Connection accepted from " + session.getRemoteAddress() );
+            System.out.println(
+                    session.getLocalAddress() + " -> " + session.getRemoteAddress() +
+                    ": connection accepted" );
         }
 
-        public void onDataReceived( ByteBuffer data )
+        public void onDataReceived( RetainableByteBuffer data )
         {
-            assert( data.remaining() > 0 );
+            if (data.remaining() == 0)
+                throw new AssertionError();
 
             m_bytesTotal += data.remaining();
             m_callbacks++;
-            ByteBuffer msg = m_stream.getNext( data );
+            RetainableByteBuffer msg = m_stream.getNext( data );
             while (msg != null)
             {
                 if (m_messagesTotal == 0)
                 {
                     m_startTime = System.nanoTime();
-                    data.getInt(); // skip length
-                    m_messagesTotal = data.getInt();
-                    m_sessionsTotal = data.getInt();
+                    msg.getInt(); // skip length
+                    m_messagesTotal = msg.getInt();
+                    m_sessionsTotal = msg.getInt();
                 }
                 m_messagesReceived++;
                 msg = m_stream.getNext();
@@ -82,7 +82,7 @@ public class Server
 
             if (m_messagesReceived == m_messagesTotal)
             {
-                long endTime = System.nanoTime();
+                final long endTime = System.nanoTime();
                 double tm = (endTime - m_startTime) / 1000;
                 tm /= 1000000.0;
                 tm = (m_messagesReceived / tm);
@@ -95,8 +95,10 @@ public class Server
 
         public void onConnectionClosed()
         {
-            System.out.println( "Connection closed to " + m_session.getRemoteAddress() );
-            int sessionsDone = m_sessionsDone.incrementAndGet();
+            System.out.println(
+                    m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
+                    ": connection closed" );
+            final int sessionsDone = m_sessionsDone.incrementAndGet();
             if (sessionsDone == m_sessionsTotal)
                 m_session.getCollider().stop();
         }
@@ -106,7 +108,6 @@ public class Server
     {
         public TestAcceptor()
         {
-            tcpNoDelay = true;
             socketRecvBufSize = m_socketRecvBufSize;
         }
 
@@ -139,7 +140,7 @@ public class Server
             collider.run();
             m_client.stopAndWait();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }

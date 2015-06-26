@@ -35,7 +35,7 @@ import java.util.logging.Logger;
 public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
-    private static final Node CLOSE_MARKER = new Node();
+    private static final Node CLOSE_MARKER = new Node( (ByteBuffer) null );
 
     private static final AtomicReferenceFieldUpdater<Node, Node> s_nodeNextUpdater =
             AtomicReferenceFieldUpdater.newUpdater( Node.class, Node.class, "next" );
@@ -57,7 +57,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     private final Starter m_starter;
     private final AtomicInteger m_state;
 
-    private volatile Node m_head;
+    private Node m_head;
     private final AtomicReference<Node> m_tail;
 
     private SocketChannelReader m_socketChannelReader;
@@ -78,10 +78,14 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             {
                 m_socketChannel.close();
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
+                {
+                    s_logger.warning(
+                            m_localSocketAddress + " -> " + m_remoteSocketAddress.toString() +
+                            ": " + ex.toString());
+                }
             }
             m_socketChannel = null;
             return 0;
@@ -105,19 +109,17 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         public ByteBuffer buf;
         public RetainableByteBuffer rbuf;
 
-        public Node()
-        {
-        }
-
         public Node( ByteBuffer buf )
         {
             this.buf = buf;
+            this.rbuf = null;
         }
 
-        public Node( RetainableByteBuffer retainableByteBuffer )
+        public Node( RetainableByteBuffer rbuf )
         {
-            this.buf = retainableByteBuffer.getByteBuffer();
-            this.rbuf = retainableByteBuffer;
+            this.buf = rbuf.getNioByteBuffer();
+            this.rbuf = rbuf;
+            rbuf.retain();
         }
     }
 
@@ -125,19 +127,18 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
     {
         private final int m_socketSendBufferSize;
         private final int m_joinMessageMaxSize;
-        private final ByteBufferPool m_pool;
+        private final RetainableByteBufferPool m_pool;
         private final ByteBuffer [] m_iov;
         private int m_iovc;
-        private boolean m_notJoin;
 
         private void joinMessages()
         {
-            int bytesPrepared = 0;
-            Node node = m_head;
+            int bytesReady = 0;
             Node prev = null;
+            Node node = m_head;
             for (int idx=0; idx<m_iovc; idx++)
             {
-                bytesPrepared += m_iov[idx].remaining();
+                bytesReady += m_iov[idx].remaining();
                 prev = node;
                 node = node.next;
             }
@@ -150,30 +151,30 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     break;
                 assert( m_iov[m_iovc] == null );
 
+                int joinNodes = 0;
                 int joinBytes = 0;
-                int msgs = 0;
                 for (Node nn=node;;)
                 {
                     final int nodeBytes = nn.buf.remaining();
                     if (nodeBytes >= m_joinMessageMaxSize)
                         break;
+                    joinNodes++;
                     joinBytes += nodeBytes;
-                    msgs++;
-                    if ((bytesPrepared + joinBytes) > m_socketSendBufferSize)
+                    if ((bytesReady + joinBytes) > m_socketSendBufferSize)
                         break;
                     nn = nn.next;
                     if ((nn == null) || (nn == CLOSE_MARKER))
                         break;
                 }
 
-                if (msgs > 1)
+                if (joinNodes > 1)
                 {
                     final RetainableByteBuffer buf = m_pool.alloc( joinBytes, m_joinMessageMaxSize*2 );
-                    int spaceRemaining = buf.remaining();
+                    int space = buf.remaining();
                     int nodeBytes = node.buf.remaining();
                     for (;;)
                     {
-                        assert( spaceRemaining >= nodeBytes );
+                        assert( space >= nodeBytes );
 
                         buf.put( node.buf.duplicate() );
                         node.buf = null;
@@ -184,15 +185,15 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             node.rbuf = null;
                         }
 
-                        if (--msgs == 0)
+                        if (--joinNodes == 0)
                             break;
 
                         final Node next = node.next;
                         assert( (next != null) && (next != CLOSE_MARKER) );
 
-                        spaceRemaining -= nodeBytes;
+                        space -= nodeBytes;
                         nodeBytes = next.buf.remaining();
-                        if (spaceRemaining < nodeBytes)
+                        if (space < nodeBytes)
                             break;
 
                         s_nodeNextUpdater.lazySet( node, null );
@@ -203,7 +204,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     assert( node.rbuf == null );
 
                     buf.flip();
-                    node.buf = buf.getByteBuffer();
+                    node.buf = buf.getNioByteBuffer();
                     node.rbuf = buf;
 
                     if (prev == null)
@@ -220,8 +221,8 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     m_iovc++;
                 }
 
-                bytesPrepared += node.buf.remaining();
-                if (bytesPrepared > m_socketSendBufferSize)
+                bytesReady += node.buf.remaining();
+                if (bytesReady > m_socketSendBufferSize)
                     break;
 
                 prev = node;
@@ -230,9 +231,11 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         }
 
         public SocketWriter(
-                int socketSendBufferSize, int joinMessageMaxSize, ByteBufferPool pool )
+                int socketSendBufferSize,
+                int joinMessageMaxSize,
+                RetainableByteBufferPool pool )
         {
-            /* Makes no sense to write at once
+            /* It makes no sense to write at once
              * significantly more than socket send buffer size.
              */
             m_socketSendBufferSize = socketSendBufferSize;
@@ -240,12 +243,11 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             m_pool = pool;
             m_iov = new ByteBuffer[32];
             m_iovc = 0;
-            m_notJoin = true;
         }
 
         public void runInThreadPool()
         {
-            if (m_notJoin)
+            if (m_joinMessageMaxSize == 0)
             {
                 Node node = m_head;
                 for (int idx=0; idx<m_iovc; idx++)
@@ -276,13 +278,13 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 }
                 m_bytesSent += bytesSent;
             }
-            catch (IOException ex)
+            catch (final IOException ex)
             {
                 closeAndCleanupQueue( ex );
                 releaseSocket( "SocketWriter");
                 return;
             }
-            catch (NotYetConnectedException ex)
+            catch (final NotYetConnectedException ex)
             {
                 closeAndCleanupQueue( ex );
                 releaseSocket( "SocketWriter" );
@@ -302,7 +304,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                         m_iov[cc] = null;
                     m_iovc = iovc;
                     m_head = node;
-                    m_notJoin = (m_joinMessageMaxSize == 0);
                     m_collider.executeInThreadPool( this );
                     return;
                 }
@@ -324,7 +325,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
             }
 
             m_iovc = 0;
-            m_notJoin = true;
             final Node next = node.next;
             if (next == null)
             {
@@ -337,10 +337,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     if (m_head == CLOSE_MARKER)
                         releaseSocket( "SocketWriter.runInThreadPool()" );
                     else
-                    {
-                        m_notJoin = (m_joinMessageMaxSize == 0);
                         m_collider.executeInThreadPool( m_writer );
-                    }
                 }
             }
             else
@@ -350,10 +347,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 if (m_head == CLOSE_MARKER)
                     releaseSocket( "SocketWriter.runInThreadPool()" );
                 else
-                {
-                    m_notJoin = (m_joinMessageMaxSize == 0);
                     m_collider.executeInThreadPool( m_writer );
-                }
             }
         }
     }
@@ -487,7 +481,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 {
                     m_socketChannel.write( m_buf );
                 }
-                catch (Exception ex)
+                catch (final Exception ex)
                 {
                     closeAndCleanupQueue( ex );
                     releaseSocket( "ShMemWriter5" );
@@ -500,7 +494,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     if (s_logger.isLoggable(Level.FINER))
                         s_logger.finer( m_remoteSocketAddress + ": m_buf.remaining()=" + m_buf.remaining() + "." );
 
-                    ByteBuffer dup = m_buf.duplicate();
+                    final ByteBuffer dup = m_buf.duplicate();
                     m_buf.clear();
                     m_buf.put( dup );
 
@@ -638,10 +632,14 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     {
                         m_socketChannel.close();
                     }
-                    catch (IOException ex)
+                    catch (final IOException ex)
                     {
                         if (s_logger.isLoggable(Level.WARNING))
-                            s_logger.warning( m_remoteSocketAddress.toString() + ": " + ex.toString() );
+                        {
+                            s_logger.warning(
+                                    m_localSocketAddress + " -> " + m_remoteSocketAddress +
+                                    ": " + ex.toString() );
+                        }
                     }
                     m_socketChannel = null;
                 }
@@ -657,7 +655,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 SelectionKey selectionKey,
                 int socketSendBufferSize,
                 int joinMessageMaxSize,
-                ByteBufferPool joinPool )
+                RetainableByteBufferPool joinPool )
     {
         m_collider = collider;
         m_socketChannel = socketChannel;
@@ -676,7 +674,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     public final void initialize(
                 int inputQueueMaxSize,
-                DataBlockCache inputQueueDataBlockCache,
+                RetainableDataBlockCache inputQueueDataBlockCache,
                 Listener listener )
     {
         if (listener == null)
@@ -727,8 +725,13 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                             m_localSocketAddress + " -> " + m_remoteSocketAddress +
                             ": " + stateToString(state) + "." );
                 }
-                if (listener != null)
-                    listener.onConnectionClosed();
+
+                if (m_socketChannelReader != null)
+                {
+                    /* listener != null */
+                    m_socketChannelReader.reset();
+                }
+
                 break;
             }
         }
@@ -774,7 +777,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
             if (m_tail.compareAndSet(tail, node))
             {
-                data.retain();
                 if (tail == null)
                 {
                     m_head = node;
@@ -816,7 +818,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
         {
             m_socketChannel.write( data );
         }
-        catch (Exception ex)
+        catch (final Exception ex)
         {
             closeAndCleanupQueue( ex );
             releaseSocket( "sendDataSync()" );
@@ -880,7 +882,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
                                 m_socketChannelReader.stop();
 
-                                if ((state & SOCK_RC_MASK) == 0)
+                                if ((newState & SOCK_RC_MASK) == 0)
                                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );
 
                                 break;
@@ -926,7 +928,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     public int accelerate( ShMem shMem, ByteBuffer message )
     {
-        final Node node = new Node();
+        final Node node = new Node( (ByteBuffer) null );
         Node tail;
         for (;;)
         {
@@ -1091,7 +1093,7 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                 {
                     s_logger.finer(
                             m_localSocketAddress + " -> " + m_remoteSocketAddress +
-                            ": " + hint + " " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                            ": " + stateToString(state) + " -> " + stateToString(newState) + ": " + hint );
                 }
                 if ((newState & SOCK_RC_MASK) == 0)
                     m_collider.executeInSelectorThread( new SelectorDeregistrator() );

@@ -26,10 +26,9 @@
  *
  * Queue implements binary message serialization allowing user thread
  * to process just added message if queue was empty. Data will not be
- * copied in to the queue in this case, only length will be increased.
- * If queue was not empty at put() call - message data is copied
- * into the queue and supposed to be handled by the thread which
- * processes the data at this time.
+ * copied in to the queue in this case. If queue was not empty
+ * at put() call - message data is copied into the queue and supposed
+ * to be handled by the thread which processes the data at this time.
  *
  * Typical usage pattern looks like:
  *
@@ -193,7 +192,8 @@ public class MessageQueue
             ((msgSize = ((ByteBuffer)m_head.rw.limit(m_rdOffs+MSG_SIZE_SIZE)).getInt(m_rdOffs)) == 0))
         {
             final DataBlock dataBlock = m_head;
-            m_head = dataBlock.getNextAndReset();
+            m_head = dataBlock.next;
+            dataBlock.reset();
             m_dataBlockCache.put( dataBlock );
             m_rdOffs = 0;
             assert( m_head.rw.position() == 0 );
