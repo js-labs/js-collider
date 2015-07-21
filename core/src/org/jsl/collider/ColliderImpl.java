@@ -139,10 +139,10 @@ class ColliderImpl extends Collider
     {
         public int runInSelectorThread()
         {
-            Set<SelectionKey> keys = m_selector.keys();
+            final Set<SelectionKey> keys = m_selector.keys();
             for (SelectionKey key : keys)
             {
-                Object attachment = key.attachment();
+                final Object attachment = key.attachment();
                 if (attachment instanceof SessionImpl)
                     ((SessionImpl)attachment).closeConnection();
                 /*
@@ -155,7 +155,7 @@ class ColliderImpl extends Collider
                  * }
                  */
             }
-            m_state = ST_STOPPING;
+            m_run = false;
             return 0;
         }
     }
@@ -320,9 +320,6 @@ class ColliderImpl extends Collider
         }
     }
 
-    private final static int ST_RUNNING = 1;
-    private final static int ST_STOPPING = 2;
-
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
 
     private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strHeadUpdater =
@@ -336,7 +333,7 @@ class ColliderImpl extends Collider
 
     private final Selector m_selector;
     private final ThreadPool m_threadPool;
-    private int m_state;
+    private boolean m_run;
 
     private final ReentrantLock m_lock;
     private final Map<SessionEmitter, SessionEmitterImpl> m_emitters;
@@ -346,7 +343,6 @@ class ColliderImpl extends Collider
     private boolean m_stop;
 
     private volatile SelectorThreadRunnable m_strHead;
-    private long m_pad1, m_pad2, m_pad3, m_pad4, m_pad5, m_pad6, m_pad7, m_pad8;
     private volatile SelectorThreadRunnable m_strTail;
     private SelectorThreadRunnable m_strLater;
     private final AtomicReference<SelectorAlarm> m_alarm;
@@ -367,7 +363,7 @@ class ColliderImpl extends Collider
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
 
-        m_state = ST_RUNNING;
+        m_run = true;
 
         m_lock = new ReentrantLock();
         m_emitters = new HashMap<SessionEmitter, SessionEmitterImpl>();
@@ -381,7 +377,7 @@ class ColliderImpl extends Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "run" );
+            s_logger.fine( "start" );
 
         m_threadPool.start();
 
@@ -395,7 +391,7 @@ class ColliderImpl extends Collider
             for (;;)
             {
                 statLoopIt++;
-                if (m_state != ST_STOPPING)
+                if (m_run)
                 {
                     if (readers > 0)
                     {
@@ -407,13 +403,12 @@ class ColliderImpl extends Collider
                 }
                 else
                 {
+                    m_selector.selectNow();
                     if (m_selector.keys().size() == 0)
                     {
                         assert( readers == 0 );
                         break;
                     }
-                    else
-                        m_selector.selectNow();
                 }
 
                 if (s_strTailUpdater.compareAndSet(this, null, dummyRunnable))

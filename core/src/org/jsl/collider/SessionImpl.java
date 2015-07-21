@@ -32,7 +32,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
-public class SessionImpl implements Session, ColliderImpl.ChannelHandler
+class SessionImpl implements Session, ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Session" );
     private static final Node CLOSE_MARKER = new Node( (ByteBuffer) null );
@@ -62,7 +62,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
 
     private SocketChannelReader m_socketChannelReader;
     private ThreadPool.Runnable m_writer;
-    private long m_bytesSent;
 
     private class SelectorDeregistrator extends ColliderImpl.SelectorThreadRunnable
     {
@@ -276,7 +275,6 @@ public class SessionImpl implements Session, ColliderImpl.ChannelHandler
                     m_collider.executeInSelectorThread( m_starter );
                     return;
                 }
-                m_bytesSent += bytesSent;
             }
             catch (final IOException ex)
             {

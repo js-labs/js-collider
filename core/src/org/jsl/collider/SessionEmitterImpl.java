@@ -24,7 +24,7 @@ import java.net.SocketException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 
-public abstract class SessionEmitterImpl
+abstract class SessionEmitterImpl
 {
     protected final ColliderImpl m_collider;
     protected final RetainableDataBlockCache m_inputQueueDataBlockCache;
