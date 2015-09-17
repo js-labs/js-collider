@@ -30,8 +30,8 @@ public abstract class ObjectCache<TYPE>
     private final TYPE [] m_cache;
     private int m_size;
     private int m_gets;
-    private int m_miss;
     private int m_puts;
+    private int m_miss;
 
     protected abstract TYPE allocateObject();
 
@@ -86,7 +86,7 @@ public abstract class ObjectCache<TYPE>
         return allocateObject();
     }
 
-    public final void clear( Logger logger, int initialSize )
+    public final void clear( Logger logger )
     {
         for (int idx=0; idx<m_size; idx++)
         {
@@ -94,14 +94,12 @@ public abstract class ObjectCache<TYPE>
             m_cache[idx] = null;
         }
 
-        if (m_size < initialSize)
+        if (m_puts != m_gets)
         {
             if (logger.isLoggable(Level.WARNING))
             {
                 logger.log( Level.WARNING,
-                        m_name + ": resource leak detected: current size " +
-                        m_size + " less than initial size " + initialSize +
-                        " (get=" + m_gets + ", miss=" + m_miss + ", put=" + m_puts + ")." );
+                        m_name + ": resource leak detected: gets=" + m_gets + ", puts=" + m_puts + "." );
             }
         }
         else
@@ -117,7 +115,7 @@ public abstract class ObjectCache<TYPE>
         m_size = 0;
     }
 
-    public final String clear( int initialSize )
+    public String clear( int initialSize )
     {
         for (int idx=0; idx<m_size; idx++)
         {
@@ -128,11 +126,11 @@ public abstract class ObjectCache<TYPE>
         final int size = m_size;
         m_size = 0;
 
-        if (size < initialSize)
+        if (m_puts != m_gets)
         {
             return m_name + ": WARNING: resource leak detected: current size " +
                    size + " less than initial size " + initialSize +
-                    " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
+                   " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
         }
         else
         {

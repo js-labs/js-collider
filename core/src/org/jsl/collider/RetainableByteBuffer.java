@@ -123,10 +123,16 @@ public abstract class RetainableByteBuffer
             return false;
     }
 
-    public RetainableByteBuffer slice()
+    public final RetainableByteBuffer slice()
     {
         retain();
         return new Slice( m_buf.slice() );
+    }
+
+    public final RetainableByteBuffer duplicate()
+    {
+        retain();
+        return new Slice( m_buf.duplicate() );
     }
 
     /*

@@ -23,38 +23,39 @@ import java.nio.ByteBuffer;
 
 public class RetainableByteBufferCache extends ObjectCache<RetainableByteBuffer>
 {
-    private class BufferImpl extends RetainableByteBufferImpl
+    private static class BufferImpl extends RetainableByteBufferImpl
     {
-        public BufferImpl( ByteBuffer buf )
+        private RetainableByteBufferCache m_cache;
+
+        public BufferImpl( ByteBuffer buf, RetainableByteBufferCache cache )
         {
             super( buf );
+            m_cache = cache;
         }
 
         protected void finalRelease()
         {
             super.finalRelease();
-            RetainableByteBufferCache.this.put( this );
+            m_cache.put( this );
         }
     }
 
-    private final int m_bufferCapacity;
     private final boolean m_useDirectBuffer;
+    private final int m_bufferCapacity;
 
     protected BufferImpl allocateObject()
     {
-        final ByteBuffer buf = 
+        final ByteBuffer buf =
                 m_useDirectBuffer
                     ? ByteBuffer.allocateDirect( m_bufferCapacity )
                     : ByteBuffer.allocate( m_bufferCapacity );
-        return new BufferImpl( buf );
+        return new BufferImpl( buf, this );
     }
 
-    public RetainableByteBufferCache( int bufferCapacity, boolean useDirectBuffer, int maxSize, int initialSize )
+    public RetainableByteBufferCache( boolean useDirectBuffer, int bufferCapacity, int size )
     {
-        super( RetainableByteBuffer.class.getSimpleName() + "-" + bufferCapacity, new RetainableByteBuffer[maxSize] );
-        m_bufferCapacity = bufferCapacity;
+        super( RetainableByteBufferCache.class.getSimpleName() + "-" + bufferCapacity, new RetainableByteBuffer[size] );
         m_useDirectBuffer = useDirectBuffer;
-        for (int idx=0; idx<initialSize; idx++)
-            put( allocateObject() );
+        m_bufferCapacity = bufferCapacity;
     }
 }

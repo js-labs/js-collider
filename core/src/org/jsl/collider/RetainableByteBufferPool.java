@@ -68,40 +68,23 @@ public class RetainableByteBufferPool
 
     private static class ChunkCache extends ObjectCache<Chunk>
     {
-        private final boolean m_useDirectBuffers;
+        private final boolean m_useDirectBuffer;
         private final int m_bufferCapacity;
-        private final int m_initialSize;
 
-        public ChunkCache( boolean useDirectBuffers, int bufferCapacity, int maxCacheSize, int initialSize )
+        public ChunkCache( boolean useDirectBuffer, int bufferCapacity, int maxCacheSize )
         {
             super( "ByteBufferPool[" + bufferCapacity + "]", new Chunk[maxCacheSize] );
-
-            m_useDirectBuffers = useDirectBuffers;
+            m_useDirectBuffer = useDirectBuffer;
             m_bufferCapacity = bufferCapacity;
-            m_initialSize = initialSize;
-
-            for (int cc=initialSize; cc>0; cc--)
-                put( allocateObject() );
         }
 
         protected Chunk allocateObject()
         {
-            ByteBuffer buf;
-            if (m_useDirectBuffers)
-                buf = ByteBuffer.allocateDirect( m_bufferCapacity );
-            else
-                buf = ByteBuffer.allocate( m_bufferCapacity );
+            final ByteBuffer buf =
+                    m_useDirectBuffer
+                            ? ByteBuffer.allocateDirect( m_bufferCapacity )
+                            : ByteBuffer.allocate( m_bufferCapacity );
             return new Chunk( this, buf );
-        }
-
-        public final void clear( Logger logger )
-        {
-            clear( logger, m_initialSize );
-        }
-
-        public final String clear()
-        {
-            return clear( m_initialSize );
         }
     }
 
@@ -267,7 +250,7 @@ public class RetainableByteBufferPool
     public RetainableByteBufferPool( int chunkSize, boolean useDirectBuffers )
     {
         m_useDirectBuffers = useDirectBuffers;
-        m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128, 2 );
+        m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128 );
         m_chunkSize = chunkSize;
         m_chunk = m_cache.get();
     }
@@ -383,10 +366,5 @@ public class RetainableByteBufferPool
     public final void clear( Logger logger )
     {
         m_cache.clear( logger );
-    }
-
-    public final String clear()
-    {
-        return m_cache.clear();
     }
 }
