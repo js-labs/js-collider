@@ -30,7 +30,7 @@ public class DataBlock
     public DataBlock( ByteBuffer buf )
     {
         ww = buf;
-        rw = buf.asReadOnlyBuffer();
+        rw = buf.duplicate();
     }
 
     public final DataBlock reset()

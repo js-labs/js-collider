@@ -55,7 +55,7 @@ public class RetainableDataBlock
     public RetainableDataBlock( ByteBuffer byteBuffer )
     {
         ww = byteBuffer;
-        rw = new BufferImpl( byteBuffer.asReadOnlyBuffer(), this );
+        rw = new BufferImpl( byteBuffer.duplicate(), this );
     }
 
     public final void release()
