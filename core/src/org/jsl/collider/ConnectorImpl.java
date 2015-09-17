@@ -30,7 +30,8 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.nio.channels.Selector;
 
-public class ConnectorImpl extends SessionEmitterImpl
+class ConnectorImpl
+        extends SessionEmitterImpl
         implements ColliderImpl.ChannelHandler
 {
     private static final Logger s_logger = Logger.getLogger( Connector.class.getName() );
@@ -192,6 +193,10 @@ public class ConnectorImpl extends SessionEmitterImpl
         }
     }
 
+    /* We receive socket connection notification in selector thread,
+     * but would be better to release selector thread a soon as possible.
+     * Starter3 creates and initialize a new session in the ThreadPool.
+     */
     private class Starter3 extends ThreadPool.Runnable
     {
         private final SocketChannel m_socketChannel;
@@ -453,9 +458,9 @@ public class ConnectorImpl extends SessionEmitterImpl
     {
         assert( m_selectionKey.readyOps() == SelectionKey.OP_CONNECT );
         m_collider.executeInThreadPool( new Starter3(m_socketChannel, m_selectionKey) );
-        m_socketChannel = null;
         m_selectionKey.interestOps(0);
         m_selectionKey = null;
+        m_socketChannel = null;
         return 0;
     }
 }
