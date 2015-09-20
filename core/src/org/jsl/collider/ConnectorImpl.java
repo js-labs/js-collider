@@ -457,10 +457,10 @@ class ConnectorImpl
     public int handleReadyOps( ThreadPool threadPool )
     {
         assert( m_selectionKey.readyOps() == SelectionKey.OP_CONNECT );
+        m_selectionKey.interestOps( 0 );
         m_collider.executeInThreadPool( new Starter3(m_socketChannel, m_selectionKey) );
-        m_selectionKey.interestOps(0);
-        m_selectionKey = null;
         m_socketChannel = null;
+        m_selectionKey = null;
         return 0;
     }
 }
