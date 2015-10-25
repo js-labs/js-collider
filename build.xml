@@ -19,7 +19,7 @@
 
 <project name="JS-Collider">
 
-    <property name="VERSION" value="0.91"/>
+    <property name="VERSION" value="0.92"/>
     <property name="OUT_DIR" location="out/production"/>
 
     <macrodef name="run-test">
