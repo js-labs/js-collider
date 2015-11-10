@@ -17,17 +17,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
 -->
 
-<project name="JS-Collider">
+<project name="js-collider">
 
-    <property name="VERSION" value="0.92"/>
-    <property name="OUT_DIR" location="out/production"/>
+    <xmlproperty file="pom.xml" prefix="pom"/>
+    <property name="VERSION" value="${pom.project.version}"/>
+    <property name="OUT_DIR" location="target"/>
 
     <macrodef name="run-test">
         <attribute name="name"/>
         <sequential>
             <java classname="org.jsl.tests.@{name}.Main" fork="true">
                 <classpath>
-                    <pathelement location="${OUT_DIR}/core"/>
+                    <pathelement location="${OUT_DIR}/classes"/>
                     <pathelement location="${OUT_DIR}/tests"/>
                 </classpath>
                 <jvmarg value="-ea"/>
@@ -38,16 +39,16 @@
     </macrodef>
 
     <target name="clean">
-        <delete dir="out"/>
+        <delete dir="${OUT_DIR}"/>
     </target>
 
     <target name="compile">
-        <mkdir dir="${OUT_DIR}/core"/>
-        <javac srcdir="core/src" destdir="${OUT_DIR}/core" includeantruntime="false" debug="true"/>
+        <mkdir dir="${OUT_DIR}/classes"/>
+        <javac srcdir="src/main/java" destdir="${OUT_DIR}/classes" includeantruntime="false" debug="true"/>
     </target>
 
-    <target name="dist" depends="compile">
-        <jar jarfile="out/${ant.project.name}-${VERSION}.jar" basedir="${OUT_DIR}/core">
+    <target name="package" depends="compile">
+        <jar jarfile="${OUT_DIR}/${ant.project.name}-${VERSION}.jar" basedir="${OUT_DIR}/classes">
             <manifest>
                 <attribute name="Implementation-Title" value="${ant.project.name}"/>
                 <attribute name="Implementation-Vendor" value="org.jsl"/>
@@ -55,7 +56,7 @@
                 <attribute name="Sealed" value="true"/>
             </manifest>
         </jar>
-        <jar jarfile="out/${ant.project.name}-${VERSION}-src.jar" basedir="core/src">
+        <jar jarfile="${OUT_DIR}/${ant.project.name}-${VERSION}-sources.jar" basedir="src/main/java">
             <manifest>
                 <attribute name="Implementation-Title" value="${ant.project.name}"/>
                 <attribute name="Implementation-Vendor" value="org.jsl"/>
@@ -69,7 +70,7 @@
         <mkdir dir="${OUT_DIR}/tests"/>
         <javac srcdir="tests/src" destdir="${OUT_DIR}/tests" includeantruntime="false" debug="true">
             <classpath>
-                <pathelement location="${OUT_DIR}/core"/>
+                <pathelement location="${OUT_DIR}/classes"/>
             </classpath>
         </javac>
     </target>

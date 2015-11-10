@@ -320,7 +320,7 @@ class ColliderImpl extends Collider
         }
     }
 
-    private static final Logger s_logger = Logger.getLogger( "org.jsl.collider.Collider" );
+    private static final Logger s_logger = Logger.getLogger( Collider.class.getName() );
 
     private static final AtomicReferenceFieldUpdater<ColliderImpl, SelectorThreadRunnable> s_strHeadUpdater =
             AtomicReferenceFieldUpdater.newUpdater( ColliderImpl.class, SelectorThreadRunnable.class, "m_strHead" );

@@ -20,13 +20,15 @@ package org.jsl.tests.byte_buffer_pool;
 import org.jsl.collider.RetainableByteBuffer;
 import org.jsl.collider.RetainableByteBufferPool;
 import org.jsl.tests.Util;
-
+import java.util.logging.Logger;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class Main
 {
+    private static final Logger s_logger = Logger.getLogger( Main.class.getName() );
     private static final int OPS = 1000000;
+
     private final Semaphore m_sema;
     private final RetainableByteBufferPool m_pool;
     private ReleaseThread m_releaseThread;
@@ -174,7 +176,7 @@ public class Main
             ex.printStackTrace();
         }
 
-        System.out.println( m_pool.clear() );
+        System.out.println( s_logger );
     }
 
     public static void main( String [] args )

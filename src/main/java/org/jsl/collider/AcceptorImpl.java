@@ -34,7 +34,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 
-public class AcceptorImpl extends SessionEmitterImpl
+class AcceptorImpl extends SessionEmitterImpl
         implements ColliderImpl.ChannelHandler
 {
     private class ChannelAcceptor extends ThreadPool.Runnable
