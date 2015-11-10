@@ -49,7 +49,9 @@ for API documentation and performance tests results.
 You will require JDK 1.7 and appache ant or maven.
 
     ant package
+
 or
+
     mvn package
 
 ### Running tests
