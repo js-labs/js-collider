@@ -46,14 +46,16 @@ for API documentation and performance tests results.
 
 ### Building
 
-You will require JDK 1.7 and appache ant.
+You will require JDK 1.7 and appache ant or maven.
 
-    ant dist
+    ant package
+or
+    mvn package
 
 ### Running tests
 
     ant tests
-    
+
 ### Contacts
 
 Need more features or support? Contact info@js-labs.org
