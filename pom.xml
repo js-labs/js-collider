@@ -2,14 +2,32 @@
   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>org.jsl.collider</groupId>
+  <groupId>org.js-labs</groupId>
   <artifactId>js-collider</artifactId>
   <packaging>jar</packaging>
 
   <name>js-collider</name>
-  <version>0.93</version>
+  <version>0.1.0</version>
+  <description>Java NIO framework</description>
   <url>https://github.com/js-labs/js-collider</url>
-  <description>NIO framework</description>
+
+  <licenses>
+    <license>
+      <name>GNU Affero General Public License</name>
+      <url>http://www.gnu.org/licenses/agpl-3.0.txt</url>
+      <distribution>repo</distribution>
+      <comments>GNU Affero General Public License</comments>
+    </license>
+  </licenses>
+
+  <developers>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/js-labs/js-collider.git</connection>
+    <tag>v${project.version}</tag>
+    <url>https://github.com/js-labs/js-collider</url>
+  </scm>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -26,7 +44,6 @@
 
   <build>
     <plugins>
-
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-source-plugin</artifactId>
@@ -40,7 +57,27 @@
           </execution>
         </executions>
       </plugin>
-
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <version>2.10.3</version>
+        <executions>
+          <execution>
+            <id>attach-docs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-deploy-plugin</artifactId>
+        <version>2.8.2</version>
+        <configuration>
+          <altDeploymentRepository>local::default::file://${basedir}/target/repo</altDeploymentRepository>
+        </configuration>
+      </plugin>
     </plugins>
   </build>
 
