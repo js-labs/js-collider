@@ -412,7 +412,7 @@ class SocketChannelReader extends ThreadPool.Runnable
             remaining = m_dataBlockCache.getBlockSize();
             m_tail.next = m_dataBlockCache.get(2);
             m_tail = m_tail.next;
-            assert (remaining == m_tail.ww.capacity());
+            assert( remaining == m_tail.ww.capacity() );
         }
         else
         {
