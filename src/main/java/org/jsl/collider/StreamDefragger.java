@@ -61,7 +61,7 @@ import java.nio.ByteBuffer;
  *
  *       public void onConnectionClose()
  *       {
- *           streamDefragger.reset();
+ *           streamDefragger.close();
  *       }
  *   }
  * }</pre>
@@ -231,7 +231,7 @@ public abstract class StreamDefragger
         return m_data;
     }
 
-    public void reset()
+    public void close()
     {
         if (m_buf != null)
         {
