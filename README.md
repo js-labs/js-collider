@@ -1,8 +1,6 @@
                      JS-Collider
                      ===========
-
-[![Join the chat at https://gitter.im/js-labs/js-collider](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/js-labs/js-collider?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
-
+    
                        +-----+
                  /-----|     |-----\        +---+ 
                 /      |     |      <=======|A/C| Session emitters
@@ -26,6 +24,7 @@
                               TCP/IP
                               session
 
+[![Join the chat at https://gitter.im/js-labs/js-collider](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/js-labs/js-collider?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 JS-Collider is an asynchronous event-driven Java network (NIO)
 application framework designed to provide maximum performance
