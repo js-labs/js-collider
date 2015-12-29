@@ -87,7 +87,7 @@ public class Server
 
         public void onConnectionClosed()
         {
-            m_streamDefragger.reset();
+            m_streamDefragger.close();
 
             System.out.println(
                     m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
