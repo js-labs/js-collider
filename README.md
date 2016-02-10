@@ -45,6 +45,21 @@ and lock-free algorithms ([learn more](https://github.com/js-labs/js-collider/wi
 Refer the [Wiki](https://github.com/js-labs/js-collider/wiki)
 for API documentation and performance tests results.
 
+### Downloading from the Maven central repository
+
+Add the following dependency section to your pom.xml:
+
+    <dependencies>
+      ...
+        <dependency>
+          <groupId>org.js-labs</groupId>
+          <artifactId>js-collider</artifactId>
+          <version>A.B.C</version>
+          <scope>compile</scope>
+        </dependency>
+      ...
+    </dependencies>
+
 ### Building
 
 You will require JDK 1.7 and appache ant or maven.
@@ -54,7 +69,7 @@ You will require JDK 1.7 and appache ant or maven.
 or
 
     mvn package
-
+    
 ### Running tests
 
     ant tests
