@@ -24,9 +24,14 @@
     <property name="OUT_DIR" location="target"/>
 
     <macrodef name="run-test">
-        <attribute name="name"/>
         <sequential>
-            <java classname="org.jsl.tests.@{name}.Main" fork="true">
+            <property name="testName" value=""/>
+            <script language="javascript"> <![CDATA[
+                targetName = self.getOwningTarget().toString();
+                project.setProperty( "testName", targetName.slice(5) );
+            ]]>
+            </script>
+            <java classname="org.jsl.tests.${testName}.Main" fork="true">
                 <classpath>
                     <pathelement location="${OUT_DIR}/classes"/>
                     <pathelement location="${OUT_DIR}/tests"/>
@@ -75,103 +80,103 @@
         </javac>
     </target>
 
-    <target name="test.message_queue" depends="compile_tests">
-        <run-test name="message_queue"/>
-    </target>
-
     <target name="test.buffer_overlap_copy" depends="compile_tests">
-        <run-test name="buffer_overlap_copy"/>
-    </target>
-
-    <target name="test.sched_latency" depends="compile_tests">
-        <run-test name="sched_latency"/>
+        <run-test/>
     </target>
 
     <target name="test.byte_buffer_pool" depends="compile_tests">
-        <run-test name="byte_buffer_pool"/>
-    </target>
-
-    <target name="test.thread_pool" depends="compile_tests">
-        <run-test name="thread_pool"/>
-    </target>
-
-    <target name="test.thread_pool_throughput" depends="compile_tests">
-        <run-test name="thread_pool_throughput"/>
-    </target>
-
-    <target name="test.timer_queue" depends="compile_tests">
-        <run-test name="timer_queue"/>
-    </target>
-
-    <target name="test.recv_throughput" depends="compile_tests">
-        <run-test name="recv_throughput"/>
-    </target>
-
-    <target name="test.send_throughput" depends="compile_tests">
-        <run-test name="send_throughput"/>
-    </target>
-
-    <target name="test.echo_latency" depends="compile_tests">
-        <run-test name="echo_latency"/>
-    </target>
-
-    <target name="test.echo_throughput" depends="compile_tests">
-        <run-test name="echo_throughput"/>
-    </target>
-
-    <target name="test.queue_socket_send" depends="compile_tests">
-        <run-test name="queue_socket_send"/>
-    </target>
-
-    <target name="test.session_latency" depends="compile_tests">
-        <run-test name="session_latency"/>
-    </target>
-
-    <target name="test.session_throughput" depends="compile_tests">
-        <run-test name="session_throughput"/>
-    </target>
-
-    <target name="test.session_close" depends="compile_tests">
-        <run-test name="session_close"/>
-    </target>
-
-    <target name="test.shmem_throughput" depends="compile_tests">
-        <run-test name="shmem_throughput"/>
-    </target>
-
-    <target name="test.remove_acceptor" depends="compile_tests">
-        <run-test name="remove_acceptor"/>
+        <run-test/>
     </target>
 
     <target name="test.connector_remove" depends="compile_tests">
-        <run-test name="connector_remove"/>
+        <run-test/>
     </target>
 
     <target name="test.dgram_listener" depends="compile_tests">
-        <run-test name="dgram_listener"/>
+        <run-test/>
+    </target>
+
+    <target name="test.echo_latency" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.echo_throughput" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.message_queue" depends="compile_tests">
+        <run-test/>
     </target>
 
     <target name="test.pubsub" depends="compile_tests">
-        <run-test name="pubsub"/>
+        <run-test/>
+    </target>
+
+    <target name="test.queue_socket_send" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.recv_throughput" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.remove_acceptor" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.send_throughput" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.session_close" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.session_latency" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.session_throughput" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.sched_latency" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.shmem_throughput" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.timer_queue" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.thread_pool" depends="compile_tests">
+        <run-test/>
+    </target>
+
+    <target name="test.thread_pool_throughput" depends="compile_tests">
+        <run-test/>
     </target>
 
     <target name="tests"
             depends="test.buffer_overlap_copy,
-                     test.message_queue,
-                     test.sched_latency,
                      test.byte_buffer_pool,
-                     test.thread_pool,
-                     test.thread_pool_throughput,
-                     test.timer_queue,
-                     test.recv_throughput,
+                     test.connector_remove,
+                     test.dgram_listener,
                      test.echo_latency,
                      test.echo_throughput,
+                     test.message_queue,
+                     test.recv_throughput,
+                     test.remove_acceptor,
                      test.session_latency,
                      test.session_throughput,
                      test.session_close,
-                     test.remove_acceptor,
-                     test.connector_remove,
-                     test.dgram_listener,
+                     test.sched_latency,
+                     test.thread_pool,
+                     test.thread_pool_throughput,
+                     test.timer_queue,
                      test.pubsub"/>
 
 </project>
