@@ -51,8 +51,8 @@ public class Main
 
     public static void main( String args [] )
     {
-        final int OPS = 50;
-        final int SKIP = 0;
+        final int OPS = 100;
+        final int SKIP = 10;
         long res [] = new long[OPS];
 
         new SL_Semaphore(res).start();

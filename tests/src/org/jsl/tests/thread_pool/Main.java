@@ -75,7 +75,7 @@ public class Main
             m_done.await();
             m_threadPool.stopAndWait();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }
@@ -85,8 +85,8 @@ public class Main
 
     public static void main( String [] args )
     {
-        int tasks = 4;
-        int events = 100000;
+        final int tasks = 4;
+        final int events = 100000;
         new Main( tasks, events ).run();
     }
 }

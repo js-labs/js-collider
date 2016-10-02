@@ -19,9 +19,10 @@
 
 package org.jsl.collider;
 
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import java.util.concurrent.locks.AbstractQueuedSynchronizer;
+import java.util.concurrent.locks.LockSupport;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -33,54 +34,28 @@ public class ThreadPool
         public abstract void runInThreadPool();
     }
 
-    private static class Sync extends AbstractQueuedSynchronizer
-    {
-        private final int m_maxState;
-
-        public Sync( int maxState )
-        {
-            m_maxState = maxState;
-        }
-
-        protected final int tryAcquireShared( int acquires )
-        {
-            for (;;)
-            {
-                int state = getState();
-                int newState = (state - 1);
-                if ((newState < 0) || compareAndSetState(state, newState))
-                    return newState;
-            }
-        }
-
-        protected final boolean tryReleaseShared( int releases )
-        {
-            for (;;)
-            {
-                int state = getState();
-                if (state == m_maxState)
-                    return false;
-                if (compareAndSetState(state, state+releases))
-                    return true;
-            }
-        }
-    }
-
     private class Worker extends Thread
     {
+        private final int m_id;
+
+        public Worker( int id )
+        {
+            m_id = id;
+        }
+
         public void run()
         {
             final String name = m_name + "-" + getId();
+            final int workerId = (1 << m_id);
             setName( name );
 
             if (s_logger.isLoggable(Level.FINE))
                 s_logger.log( Level.FINE, name + ": started." );
 
+            int parks = 0;
             int idx = 0;
-            while (m_run)
+            loop: for (;;)
             {
-                m_sync.acquireShared(1);
-
                 int cc = m_contentionFactor;
                 for (;;)
                 {
@@ -98,10 +73,39 @@ public class ThreadPool
                     idx++;
                     idx %= m_contentionFactor;
                 }
+
+                for (;;)
+                {
+                    final int state = m_state;
+                    if ((state & STATE_STOP) == 0)
+                    {
+                        if (state == STATE_SPIN)
+                        {
+                            if (s_stateUpdater.compareAndSet(ThreadPool.this, STATE_SPIN, 0))
+                            {
+                                /* At least one runnable was dispatched while all threads were not idle.
+                                 * We have a possible race here, would be nice to check queues one more time.
+                                 */
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (s_stateUpdater.compareAndSet(ThreadPool.this, state, state|workerId))
+                            {
+                                parks++;
+                                LockSupport.park();
+                                break;
+                            }
+                        }
+                    }
+                    else
+                        break loop;
+                }
             }
 
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.log( Level.FINE, name + ": finished." );
+                s_logger.log( Level.FINE, name + ": finished (" + parks + " parks)." );
         }
     }
 
@@ -151,36 +155,46 @@ public class ThreadPool
     private static final AtomicReferenceFieldUpdater<Runnable, Runnable> s_nextUpdater
             = AtomicReferenceFieldUpdater.newUpdater( Runnable.class, Runnable.class, "nextThreadPoolRunnable" );
 
+    private static final AtomicIntegerFieldUpdater<ThreadPool> s_stateUpdater
+            = AtomicIntegerFieldUpdater.newUpdater( ThreadPool.class, "m_state" );
+
     private static final Logger s_logger = Logger.getLogger( ThreadPool.class.getName() );
     private static final Runnable LOCK = new DummyRunnable();
     private static final int FS_PADDING = 16;
+    private static final int IDLE_THREADS_MASK = 0x1FFFFFFF;
+    private static final int STATE_STOP = 0x40000000;
+    private static final int STATE_SPIN = 0x20000000;
 
     private final String m_name;
     private final int m_contentionFactor;
     private final Thread [] m_thread;
-    private final Sync m_sync;
     private final AtomicReferenceArray<Runnable> m_hra;
     private final AtomicReferenceArray<Runnable> m_tra;
-    private volatile boolean m_run;
+    private volatile int m_state;
 
     public ThreadPool( String name, int threads, int contentionFactor )
     {
-        m_name = name;
+        /* Current implementation supports up to 29 worker threads,
+         * should be enough for most cases for now.
+         * (640 kB ought to be enough for anybody, yes:)
+         */
+        if (threads > 29)
+            threads = 29;
 
         assert( contentionFactor >= 1 );
         if (contentionFactor < 1)
             contentionFactor = 1;
 
+        m_name = name;
         m_contentionFactor = contentionFactor;
 
         m_thread = new Thread[threads];
         for (int idx=0; idx<threads; idx++)
-            m_thread[idx] = new Worker();
+            m_thread[idx] = new Worker(idx);
 
-        m_sync = new Sync( threads );
         m_hra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
         m_tra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
-        m_run = true;
+        m_state = 0;
     }
 
     public ThreadPool( String name, int threads )
@@ -188,18 +202,40 @@ public class ThreadPool
         this( name, threads, 4 );
     }
 
-    public final void start()
+    public void start()
     {
         for (Thread thread : m_thread)
             thread.start();
     }
 
-    public final void stopAndWait() throws InterruptedException
+    public void stopAndWait() throws InterruptedException
     {
         assert( m_thread != null );
 
-        m_run = false;
-        m_sync.releaseShared( m_thread.length );
+        for (;;)
+        {
+            final int state = s_stateUpdater.get( this );
+            assert( (state & STATE_STOP) == 0 );
+            if (s_stateUpdater.compareAndSet(this, state, state|STATE_STOP))
+                break;
+        }
+
+        for (int idx=0; idx<m_thread.length; idx++)
+        {
+            final int workerId = (1 << idx);
+            for (;;)
+            {
+                final int state = s_stateUpdater.get(this);
+                if ((state & workerId) == 0)
+                    break;
+                if (s_stateUpdater.compareAndSet(this, state, state^workerId))
+                {
+                    LockSupport.unpark( m_thread[idx] );
+                    break;
+                }
+            }
+        }
+
         for (int idx=0; idx<m_thread.length; idx++)
         {
             m_thread[idx].join();
@@ -220,6 +256,39 @@ public class ThreadPool
         else
             tail.nextThreadPoolRunnable = runnable;
 
-        m_sync.releaseShared(1);
+        for (;;)
+        {
+            final int state = s_stateUpdater.get( this );
+            if ((state & IDLE_THREADS_MASK) == 0)
+            {
+                if ((state & STATE_SPIN) != 0)
+                    break;
+                if (s_stateUpdater.compareAndSet(this, state, state|STATE_SPIN))
+                    break;
+            }
+            else
+            {
+                int workerIdx;
+                if ((state & 1) == 0)
+                {
+                    workerIdx = 1;
+                    int v = state;
+                    if ((v & 0xFFFF) == 0) { workerIdx += 16; v >>= 16; }
+                    if ((v & 0xFF) == 0) { workerIdx += 8; v >>= 8; }
+                    if ((v & 0xF) == 0) { workerIdx += 4; v >>= 4; }
+                    if ((v & 0x3) == 0) { workerIdx += 2; v >>= 2; }
+                    workerIdx -= (v & 1);
+                }
+                else
+                    workerIdx = 0;
+
+                final int newState = (state ^ (1 << workerIdx));
+                if (s_stateUpdater.compareAndSet(this, state, newState))
+                {
+                    LockSupport.unpark( m_thread[workerIdx] );
+                    break;
+                }
+            }
+        }
     }
 }
