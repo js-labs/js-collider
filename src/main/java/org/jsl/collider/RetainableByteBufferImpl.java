@@ -20,28 +20,32 @@ package org.jsl.collider;
 
 import java.nio.ByteBuffer;
 
-abstract class RetainableByteBufferImpl extends RetainableByteBuffer
+class RetainableByteBufferImpl extends RetainableByteBuffer
 {
     public RetainableByteBufferImpl( ByteBuffer byteBuffer )
     {
         super( byteBuffer );
     }
 
+    /*
+     * NIO Buffer
+     */
+
+    public int capacity()
+    {
+        return m_buf.capacity();
+    }
+
     public RetainableByteBuffer clear()
     {
         m_buf.clear();
-        return null;
+        return this;
     }
 
     public RetainableByteBuffer flip()
     {
         m_buf.flip();
         return this;
-    }
-
-    public int capacity()
-    {
-        return m_buf.capacity();
     }
 
     public int limit()
@@ -65,6 +69,16 @@ abstract class RetainableByteBufferImpl extends RetainableByteBuffer
         m_buf.position( position );
         return this;
     }
+
+    public RetainableByteBuffer rewind()
+    {
+        m_buf.rewind();
+        return this;
+    }
+
+    /*
+     * NIO ByteBuffer
+     */
 
     public byte get( int index )
     {
@@ -96,6 +110,17 @@ abstract class RetainableByteBufferImpl extends RetainableByteBuffer
     public RetainableByteBuffer putShort( int index , short value )
     {
         m_buf.putShort( index, value );
+        return this;
+    }
+
+    public float getFloat( int index )
+    {
+        return m_buf.getFloat( index );
+    }
+
+    public RetainableByteBuffer putFloat( int index, float value )
+    {
+        m_buf.putFloat( index, value );
         return this;
     }
 

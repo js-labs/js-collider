@@ -26,6 +26,7 @@ import java.net.InetSocketAddress;
 import java.net.DatagramSocket;
 import java.net.StandardSocketOptions;
 import java.net.StandardProtocolFamily;
+import java.nio.ByteOrder;
 import java.nio.channels.Selector;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.ServerSocketChannel;
@@ -45,7 +46,7 @@ class ColliderImpl extends Collider
 {
     public interface ChannelHandler
     {
-        public int handleReadyOps( ThreadPool threadPool );
+        int handleReadyOps( ThreadPool threadPool );
     }
 
     public static abstract class SelectorThreadRunnable
@@ -256,8 +257,18 @@ class ColliderImpl extends Collider
                             socketSendBufferSize = (64 * 1024);
                     }
 
+                    boolean useDirectBuffers;
+                    if (sessionEmitter.useDirectBuffers > 0)
+                        useDirectBuffers = true;
+                    else if (sessionEmitter.useDirectBuffers == 0)
+                        useDirectBuffers = false;
+                    else
+                        useDirectBuffers = getConfig().useDirectBuffers;
+
                     final int joinPoolChunkSize = socketSendBufferSize * 2;
-                    m_joinPool = new RetainableByteBufferPool( joinPoolChunkSize );
+
+                    /* For the join pool byte order does not matter */
+                    m_joinPool = new RetainableByteBufferPool( joinPoolChunkSize, useDirectBuffers, ByteOrder.nativeOrder() );
                 }
                 joinPool = m_joinPool;
             }

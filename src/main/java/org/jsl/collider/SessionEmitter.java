@@ -20,11 +20,19 @@
 package org.jsl.collider;
 
 import java.net.InetSocketAddress;
+import java.nio.ByteOrder;
 
 
 public abstract class SessionEmitter
 {
     private final InetSocketAddress m_addr;
+
+    /*  > 0 : use direct buffers
+     * == 0 : use heap buffers
+     *  < 0 : use collider default buffer type
+     */
+    public int useDirectBuffers;
+    public ByteOrder byteOrder;
 
     public boolean reuseAddr;
     public boolean tcpNoDelay;
@@ -39,6 +47,9 @@ public abstract class SessionEmitter
     public SessionEmitter( InetSocketAddress addr )
     {
         m_addr = addr;
+
+        useDirectBuffers = -1;
+        byteOrder = null;
 
         reuseAddr = false;
         tcpNoDelay = true;

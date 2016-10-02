@@ -146,7 +146,7 @@ public class Main
     private Main()
     {
         m_sema = new Semaphore(0);
-        m_pool = new RetainableByteBufferPool();
+        m_pool = new RetainableByteBufferPool( 64*1024 );
     }
 
     private void run()

@@ -123,44 +123,19 @@ public abstract class RetainableByteBuffer
             return false;
     }
 
-    public final RetainableByteBuffer slice()
-    {
-        retain();
-        return new Slice( m_buf.slice() );
-    }
-
-    public final RetainableByteBuffer duplicate()
-    {
-        retain();
-        return new Slice( m_buf.duplicate() );
-    }
-
     /*
-     * ByteBuffer interface mimic.
+     * NIO Buffer interface mimic.
      */
 
+    public abstract int capacity();
     public abstract RetainableByteBuffer clear();
     public abstract RetainableByteBuffer flip();
-
-    public abstract int capacity();
 
     public abstract int limit();
     public abstract RetainableByteBuffer limit( int limit );
 
     public abstract int position();
     public abstract RetainableByteBuffer position( int position );
-
-    public abstract byte get( int index );
-    public abstract RetainableByteBuffer put( int index, byte value );
-
-    public abstract int getInt( int index );
-    public abstract RetainableByteBuffer putInt( int index, int value );
-
-    public abstract short getShort( int index );
-    public abstract RetainableByteBuffer putShort( int index, short value );
-
-    public abstract double getDouble( int index );
-    public abstract RetainableByteBuffer putDouble( int index, double value );
 
     public final int remaining()
     {
@@ -172,6 +147,33 @@ public abstract class RetainableByteBuffer
         m_buf.reset();
         return this;
     }
+
+    public abstract RetainableByteBuffer rewind();
+
+    /*
+     * ByteBuffer interface mimic.
+     */
+
+    public final RetainableByteBuffer duplicate()
+    {
+        retain();
+        return new Slice( m_buf.duplicate() );
+    }
+
+    public abstract byte get( int index );
+    public abstract RetainableByteBuffer put( int index, byte value );
+
+    public abstract int getInt( int index );
+    public abstract RetainableByteBuffer putInt( int index, int value );
+
+    public abstract short getShort( int index );
+    public abstract RetainableByteBuffer putShort( int index, short value );
+
+    public abstract float getFloat( int index );
+    public abstract RetainableByteBuffer putFloat( int index, float value );
+
+    public abstract double getDouble( int index );
+    public abstract RetainableByteBuffer putDouble( int index, double value );
 
     public final byte get()
     {
@@ -224,6 +226,17 @@ public abstract class RetainableByteBuffer
         return m_buf.getShort();
     }
 
+    public final RetainableByteBuffer putFloat( float value )
+    {
+        m_buf.putFloat( value );
+        return this;
+    }
+
+    public final float getFloat()
+    {
+        return m_buf.getFloat();
+    }
+
     public final RetainableByteBuffer putDouble( double value )
     {
         m_buf.putDouble( value );
@@ -233,5 +246,17 @@ public abstract class RetainableByteBuffer
     public final double getDouble()
     {
         return m_buf.getDouble();
+    }
+
+    public final RetainableByteBuffer slice()
+    {
+        retain();
+        return new Slice( m_buf.slice() );
+    }
+
+    public static RetainableByteBuffer allocateDirect( int capacity )
+    {
+        final ByteBuffer byteBuffer = ByteBuffer.allocateDirect( capacity );
+        return new RetainableByteBufferImpl( byteBuffer );
     }
 }

@@ -21,6 +21,7 @@ package org.jsl.collider;
 
 import java.io.IOException;
 import java.net.NetworkInterface;
+import java.nio.ByteOrder;
 
 /* Collider public API. Typical usage example:
  * <pre>{@code
@@ -45,6 +46,7 @@ public abstract class Collider
     {
         public int threadPoolThreads;
         public boolean useDirectBuffers;
+        public ByteOrder byteOrder;
 
         public int socketSendBufSize;
         public int socketRecvBufSize;
@@ -58,6 +60,7 @@ public abstract class Collider
         {
             threadPoolThreads = 0; /* by default = number of cores */
             useDirectBuffers  = true;
+            byteOrder = ByteOrder.nativeOrder();
 
             socketSendBufSize = 0; /* Use system default settings by default */
             socketRecvBufSize = 0; /* Use system default settings by default */

@@ -20,6 +20,7 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.logging.Logger;
 
@@ -68,14 +69,16 @@ public class RetainableByteBufferPool
 
     private static class ChunkCache extends ObjectCache<Chunk>
     {
-        private final boolean m_useDirectBuffer;
         private final int m_bufferCapacity;
+        private final boolean m_useDirectBuffer;
+        private final ByteOrder m_byteOrder;
 
-        public ChunkCache( boolean useDirectBuffer, int bufferCapacity, int maxCacheSize )
+        public ChunkCache( int bufferCapacity, boolean useDirectBuffer, ByteOrder byteOrder, int maxCacheSize )
         {
             super( "ByteBufferPool[" + bufferCapacity + "]", new Chunk[maxCacheSize] );
-            m_useDirectBuffer = useDirectBuffer;
             m_bufferCapacity = bufferCapacity;
+            m_useDirectBuffer = useDirectBuffer;
+            m_byteOrder = byteOrder;
         }
 
         protected Chunk allocateObject()
@@ -84,6 +87,7 @@ public class RetainableByteBufferPool
                     m_useDirectBuffer
                             ? ByteBuffer.allocateDirect( m_bufferCapacity )
                             : ByteBuffer.allocate( m_bufferCapacity );
+            buf.order( m_byteOrder );
             return new Chunk( this, buf );
         }
     }
@@ -98,8 +102,8 @@ public class RetainableByteBufferPool
         public BufferImpl( Chunk chunk, int offs, int capacity, int reservedSize )
         {
             super( chunk.getByteBuffer().duplicate() );
-            m_buf.position(offs);
-            m_buf.limit(offs + capacity);
+            m_buf.position( offs );
+            m_buf.limit( offs + capacity );
             m_chunk = chunk;
             m_offs = offs;
             m_capacity = capacity;
@@ -118,6 +122,13 @@ public class RetainableByteBufferPool
             return ret;
         }
 
+        /* NIO Buffer */
+
+        public int capacity()
+        {
+            return m_capacity;
+        }
+
         public RetainableByteBuffer clear()
         {
             m_buf.clear();
@@ -132,11 +143,6 @@ public class RetainableByteBufferPool
             m_buf.position( m_offs );
             m_buf.limit( position );
             return this;
-        }
-
-        public int capacity()
-        {
-            return m_capacity;
         }
 
         public int limit()
@@ -162,6 +168,14 @@ public class RetainableByteBufferPool
             m_buf.position( m_offs + position );
             return this;
         }
+
+        public RetainableByteBuffer rewind()
+        {
+            m_buf.position( m_offs );
+            return this;
+        }
+
+        /* NIO ByteBuffer */
 
         public byte get( int index )
         {
@@ -196,6 +210,17 @@ public class RetainableByteBufferPool
             return this;
         }
 
+        public float getFloat( int index )
+        {
+            return m_buf.getFloat( m_offs + index );
+        }
+
+        public RetainableByteBuffer putFloat( int index, float value )
+        {
+            m_buf.putFloat( m_offs + index, value );
+            return this;
+        }
+
         public double getDouble( int index )
         {
             return m_buf.getDouble( m_offs + index );
@@ -211,9 +236,10 @@ public class RetainableByteBufferPool
     private final static AtomicIntegerFieldUpdater<RetainableByteBufferPool> s_stateUpdater =
             AtomicIntegerFieldUpdater.newUpdater( RetainableByteBufferPool.class, "m_state" );
 
-    private final boolean m_useDirectBuffers;
-    private final ChunkCache m_cache;
     private final int m_chunkSize;
+    private final boolean m_useDirectBuffers;
+    private final ByteOrder m_byteOrder;
+    private final ChunkCache m_cache;
     private volatile int m_state;
     private Chunk m_chunk;
 
@@ -233,25 +259,22 @@ public class RetainableByteBufferPool
         return new BufferImpl( chunk, 0, size, reservedSize );
     }
 
-    /**
-     * Default constructor.
-     * Creates a pool with chunk size = 64Kb.
-     */
-    public RetainableByteBufferPool()
-    {
-        this( 64*1024 );
-    }
-
     public RetainableByteBufferPool( int chunkSize )
     {
-        this( chunkSize, true );
+        this( chunkSize, /*useDirectBuffers*/true );
     }
 
     public RetainableByteBufferPool( int chunkSize, boolean useDirectBuffers )
     {
-        m_useDirectBuffers = useDirectBuffers;
-        m_cache = new ChunkCache( m_useDirectBuffers, chunkSize, 128 );
+        this( chunkSize, useDirectBuffers, ByteOrder.nativeOrder() );
+    }
+
+    public RetainableByteBufferPool( int chunkSize, boolean useDirectBuffers, ByteOrder byteOrder )
+    {
         m_chunkSize = chunkSize;
+        m_useDirectBuffers = useDirectBuffers;
+        m_byteOrder = byteOrder;
+        m_cache = new ChunkCache( chunkSize, useDirectBuffers, byteOrder, 32 );
         m_chunk = m_cache.get();
     }
 
@@ -350,6 +373,7 @@ public class RetainableByteBufferPool
                 final ByteBuffer buf =
                         m_useDirectBuffers ? ByteBuffer.allocateDirect( size )
                                            : ByteBuffer.allocate( size );
+                buf.order( m_byteOrder );
                 final Chunk chunk = new Chunk( null, buf );
                 final BufferImpl ret = new BufferImpl( chunk, 0, size, size );
                 chunk.release(1);
