@@ -28,10 +28,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Main
 {
+    private static final long DIFF_THRESHOLD = 30;
     private final AtomicInteger m_done;
     private final Semaphore m_sema;
 
-    private class Timer1 implements Runnable
+    private class Timer1 implements TimerQueue.Task
     {
         private final TimerQueue m_timerQueue;
 
@@ -40,131 +41,110 @@ public class Main
             m_timerQueue = timerQueue;
         }
 
-        public void run()
+        public long run()
         {
             try
             {
                 int rc = m_timerQueue.cancel( this );
-                assert( rc == 0 );
+                assert( rc == -1 );
                 System.out.println( "Test1 [callback cancel] done." );
             }
-            catch (InterruptedException e)
+            catch (final InterruptedException ex)
             {
-                e.printStackTrace();
+                ex.printStackTrace();
             }
 
             final int done = m_done.decrementAndGet();
             if (done == 0)
                 m_sema.release();
+
+            return 0;
         }
     }
 
-    private class Timer2 implements Runnable
+    private class Timer2 implements TimerQueue.Task
     {
-        private final TimerQueue m_timerQueue;
-        private final long m_period;
-        private long m_firstFireTime;
+        private final long m_interval;
+        private long m_lastFireTime;
         private int m_cnt;
 
-        public Timer2( TimerQueue timerQueue, long period )
+        public Timer2( long interval )
         {
-            m_timerQueue = timerQueue;
-            m_period = period;
+            m_interval = interval;
         }
 
-        public void run()
+        public long run()
         {
             /* Execution time should be first time + (cnt * period) */
             final long currentTime = System.currentTimeMillis();
             final int cnt = m_cnt++;
 
-            if (cnt == 0)
-                m_firstFireTime = currentTime;
+            if (m_lastFireTime == 0)
+                System.out.println( "Timer2: first fire" );
             else
             {
-                final long diff = (currentTime - m_firstFireTime) - (cnt * m_period);
-                System.out.println(
-                        "Timer2: " + (currentTime - m_firstFireTime) + " diff=" + diff );
-                if (diff > 100)
-                    throw new RuntimeException( "Missed too much: " + diff );
+                final long diff = (currentTime - m_lastFireTime - m_interval);
+                System.out.println( "Timer2: diff=" + diff );
+                if (diff > DIFF_THRESHOLD)
+                    throw new RuntimeException( "Timer2: missed too much: " + diff );
             }
+            m_lastFireTime = currentTime;
 
             if (cnt == 5)
             {
-                try
-                {
-                    int rc = m_timerQueue.cancel( this );
-                    if (rc != 0)
-                        throw new RuntimeException( "TimerQueue.cancel() failed." );
-                }
-                catch (InterruptedException ex)
-                {
-                    ex.printStackTrace();
-                }
-
                 final int done = m_done.decrementAndGet();
                 if (done == 0)
                     m_sema.release();
+                return 0;
             }
+            else
+                return m_interval;
         }
     }
 
-    private class Timer3 implements Runnable
+    private class Timer3 implements TimerQueue.Task
     {
-        private final TimerQueue m_timerQueue;
-        private final long m_period;
-        private final long m_sleepTime;
-        private long m_lastTime;
+        private final long m_interval;
+        private long m_lastFireTime;
         private int m_cnt;
 
-        public Timer3( TimerQueue timerQueue, long period, long sleepTime )
+        public Timer3( long interval )
         {
-            m_timerQueue = timerQueue;
-            m_period = period;
-            m_sleepTime = sleepTime;
+            m_interval = interval;
         }
 
-        public void run()
+        public long run()
         {
+            /* Execution time should be first time + (cnt * period) */
             final long currentTime = System.currentTimeMillis();
             final int cnt = m_cnt++;
 
-            if (cnt > 0)
+            if (m_lastFireTime == 0)
+                System.out.println( "Timer3: first fire" );
+            else
             {
-                final double cc = ((double)(currentTime-m_lastTime)) / m_period;
-                final double diff = Math.abs( cc - Math.rint(cc) );
-                System.out.println( "Timer3: " + (currentTime-m_lastTime) + ", " + cc + ", " + diff );
-                if ((cnt > 1) && (diff > 0.5d))
-                    throw new RuntimeException( "Missed too much!" );
+                final long diff = (currentTime - m_lastFireTime - m_interval);
+                System.out.println( "Timer3: diff=" + diff );
+                if (diff > DIFF_THRESHOLD)
+                    throw new RuntimeException( "Timer3: missed too much: " + diff );
             }
-            m_lastTime = currentTime;
+            m_lastFireTime = currentTime;
 
-            if (cnt == 7)
+            if (cnt == 8)
             {
                 final int done = m_done.decrementAndGet();
                 if (done == 0)
                     m_sema.release();
-
-                try
-                {
-                    int rc = m_timerQueue.cancel( this );
-                    if (rc != 0)
-                        throw new RuntimeException( "TimerQueue.cancel() failed." );
-                }
-                catch (InterruptedException ex)
-                {
-                    ex.printStackTrace();
-                }
+                return 0;
             }
-
-            try { Thread.sleep( m_sleepTime ); }
-            catch (InterruptedException ex) { ex.printStackTrace(); }
+            else
+                return m_interval;
         }
     }
 
-    private static class Timer4 implements Runnable
+    private static class Timer4 implements TimerQueue.Task
     {
-        public void run()
+        public long run()
         {
             throw new RuntimeException( "Method should never be called" );
         }
@@ -188,16 +168,13 @@ public class Main
         final Timer1 timer1 = new Timer1( timerQueue );
         timerQueue.schedule( timer1, 100, TimeUnit.MILLISECONDS );
 
-        final long test2Period = 500;
-        final Timer2 timer2 = new Timer2( timerQueue, test2Period );
-        timerQueue.scheduleAtFixedRate( timer2, 100, test2Period, TimeUnit.MILLISECONDS );
+        final long test2Interval = 500;
+        final Timer2 timer2 = new Timer2( test2Interval );
+        timerQueue.schedule( timer2, 100, TimeUnit.MILLISECONDS );
 
-        /* 110 220 330 440 550 660 770 880 990
-         *          +           +           +
-         */
-        final long test3Period = 110;
-        final Timer3 timer3 = new Timer3( timerQueue, test3Period, /*sleep time*/ 300 );
-        timerQueue.scheduleAtDynamicRate( timer3, 0, test3Period, TimeUnit.MILLISECONDS );
+        final long test3Interval = test2Interval;
+        final Timer3 timer3 = new Timer3( test3Interval );
+        timerQueue.schedule( timer3, 100, TimeUnit.MILLISECONDS );
 
         final Timer4 timer4 = new Timer4();
         timerQueue.schedule( timer4, 10, TimeUnit.SECONDS );
@@ -211,7 +188,7 @@ public class Main
             m_sema.acquire();
             threadPool.stopAndWait();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }

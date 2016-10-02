@@ -38,34 +38,37 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class TimerQueue
+public class TimerQueue extends ThreadPool.Runnable
 {
     private static final Logger s_logger = Logger.getLogger( TimerQueue.class.getName() );
+
+    public interface Task
+    {
+        /* Method should return the time interval (in milliseconds)
+         * the timer wish to fire next time.
+         * Return 0 to cancel timer.
+         */
+        long run();
+    }
 
     private final ThreadPool m_threadPool;
     private final ReentrantLock m_lock;
     private final Condition m_cond;
     private final TreeMap<Long, TimerInfo> m_sortedTimers;
-    private final Map<Runnable, TimerInfo> m_timers;
-    private final ThreadPool.Runnable m_worker;
+    private final Map<Task, TimerInfo> m_timers;
 
     private class TimerInfo extends ThreadPool.Runnable
     {
+        public final Task task;
         public TimerInfo prev;
         public TimerInfo next;
-        public final Runnable task;
-        public long fireTime; /* milliseconds */
-        public long period;   /* milliseconds */
-        public final boolean dynamicRate;
+        public long fireTime;
         public long threadID;
-        public int waiters;
+        public Condition cond;
 
-        public TimerInfo( Runnable task, long fireTime, long period, boolean dynamicRate )
+        public TimerInfo( Task task )
         {
             this.task = task;
-            this.fireTime = fireTime;
-            this.period = period;
-            this.dynamicRate = dynamicRate;
         }
 
         public void runInThreadPool()
@@ -73,62 +76,88 @@ public class TimerQueue
             assert( threadID == -1 );
             assert( prev == null );
             assert( next == null );
-
-            /* threadID value is important for this thread only during task.run() call,
-             * can modify it here without lock.
-             */
             threadID = Thread.currentThread().getId();
-
-            task.run();
-
-            m_lock.lock();
-            try
-            {
-                threadID = 0;
-                if (waiters > 0)
-                {
-                    m_timers.remove( task );
-                    m_cond.signalAll();
-                }
-                else if (period > 0)
-                {
-                    final long currentTime = System.currentTimeMillis();
-                    if (dynamicRate)
-                        fireTime = (fireTime + (((currentTime - fireTime) / period) + 1) * period);
-                    else
-                        fireTime = (currentTime + period);
-
-                    if (m_sortedTimers.isEmpty())
-                    {
-                        m_sortedTimers.put( fireTime, this );
-                        m_threadPool.execute( m_worker );
-                    }
-                    else
-                    {
-                        next = m_sortedTimers.get( fireTime );
-                        m_sortedTimers.put( fireTime, this );
-                        if ((m_sortedTimers.firstKey() == fireTime) && (next == null))
-                            m_cond.signalAll();
-                    }
-                }
-                else
-                {
-                    m_timers.remove( task );
-                    if (m_timers.isEmpty())
-                        m_cond.signalAll();
-                }
-            }
-            finally
-            {
-                m_lock.unlock();
-            }
+            final long interval = task.run();
+            restateTimer( this, interval );
         }
     }
 
-    private void run_i()
+    private void restateTimer( TimerInfo timerInfo, long interval )
+    {
+        boolean snatchThread = false;
+
+        m_lock.lock();
+        try
+        {
+            if (timerInfo.cond != null)
+            {
+                if (s_logger.isLoggable(Level.FINER))
+                    s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) + ": pending cancel" );
+
+                timerInfo.threadID = -2;
+                timerInfo.cond.signalAll();
+            }
+            else if (interval > 0)
+            {
+                final long fireTime = (System.currentTimeMillis() + interval);
+                timerInfo.threadID = 0;
+                timerInfo.fireTime = fireTime;
+                if (m_sortedTimers.isEmpty())
+                {
+                    if (s_logger.isLoggable(Level.FINER))
+                    {
+                        s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
+                                ": interval=" + interval + ", snatch thread" );
+                    }
+                    m_sortedTimers.put( fireTime, timerInfo );
+                    snatchThread = true;
+                }
+                else
+                {
+                    final TimerInfo next = m_sortedTimers.get( fireTime );
+                    m_sortedTimers.put( fireTime, timerInfo );
+                    if (next == null)
+                    {
+                        if (s_logger.isLoggable(Level.FINER))
+                        {
+                            s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
+                                    ": interval=" + interval + ", wakeup thread" );
+                        }
+                        if (m_sortedTimers.firstKey() == fireTime)
+                            m_cond.signal();
+                    }
+                    else
+                    {
+                        if (s_logger.isLoggable(Level.FINER))
+                        {
+                            s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
+                                    ": interval=" + interval );
+                        }
+                        timerInfo.next = next;
+                        next.prev = timerInfo;
+                    }
+                }
+            }
+            else
+            {
+                if (s_logger.isLoggable(Level.FINER))
+                    s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) + ": done" );
+                m_timers.remove( timerInfo.task );
+            }
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
+
+        if (snatchThread)
+            runInThreadPool();
+    }
+
+    public void runInThreadPool()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "TimerQueue worker started" );
+            s_logger.log( Level.FINE, "started" );
 
         m_lock.lock();
         try
@@ -141,18 +170,17 @@ public class TimerQueue
                 final long currentTime = System.currentTimeMillis();
                 if (firstEntry.getKey() <= currentTime)
                 {
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.log( Level.FINER, "fireTime=" + firstEntry.getKey() + ": execute" );
+
                     TimerInfo timerInfo = firstEntry.getValue();
-                    assert( timerInfo != null );
                     do
                     {
                         assert( timerInfo.threadID == 0 );
                         final TimerInfo next = timerInfo.next;
                         timerInfo.prev = null;
                         timerInfo.next = null;
-                        /* Special value indicating the timer is being fired,
-                         * will be changed to the proper value right before timer task execution.
-                         */
-                        timerInfo.threadID = -1;
+                        timerInfo.threadID = -1; /* timer is being fired */
 
                         m_threadPool.execute( timerInfo );
                         timerInfo = next;
@@ -163,11 +191,14 @@ public class TimerQueue
                 else
                 {
                     final long sleepTime = (firstEntry.getKey() - currentTime);
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.log( Level.FINER, "firstEntry=" + firstEntry.getKey() + ", sleepTime=" + sleepTime );
+
                     try
                     {
                         m_cond.awaitNanos( TimeUnit.MILLISECONDS.toNanos(sleepTime) );
                     }
-                    catch (InterruptedException ex)
+                    catch (final InterruptedException ex)
                     {
                         s_logger.warning( ex.toString() );
                     }
@@ -180,14 +211,11 @@ public class TimerQueue
         }
 
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "TimerQueue worker finished" );
+            s_logger.log( Level.FINE, "finished" );
     }
 
     private void removeTimerLocked( TimerInfo timerInfo )
     {
-        /* We will need to wake up worker thread only if timer
-         * had the lowest firing time, and it was a one.
-         */
         boolean wakeUpThread = false;
 
         if (timerInfo.prev == null)
@@ -205,7 +233,7 @@ public class TimerQueue
         }
         else
         {
-            timerInfo.prev = timerInfo.next;
+            timerInfo.prev.next = timerInfo.next;
             if (timerInfo.next != null)
             {
                 timerInfo.next.prev = timerInfo.prev;
@@ -220,7 +248,22 @@ public class TimerQueue
             m_cond.signal();
     }
 
-    private int schedule_i( Runnable task, long delay, long period, boolean dynamicRate )
+    /**
+     * Public methods
+     */
+    public TimerQueue( ThreadPool threadPool )
+    {
+        m_threadPool = threadPool;
+        m_lock = new ReentrantLock();
+        m_cond = m_lock.newCondition();
+        m_sortedTimers = new TreeMap<Long, TimerInfo>();
+        m_timers = new HashMap<Task, TimerInfo>();
+    }
+
+    /**
+     * Schedules the specified task for execution after the specified delay.
+     */
+    public int schedule( Task task, long delay, TimeUnit unit )
     {
         m_lock.lock();
         try
@@ -231,144 +274,121 @@ public class TimerQueue
                 return -1;
             }
 
-            boolean wasEmpty = m_sortedTimers.isEmpty();
+            final boolean wasEmpty = m_sortedTimers.isEmpty();
+            final long fireTime = (System.currentTimeMillis() + unit.toMillis(delay));
+            final TimerInfo timerInfo = new TimerInfo( task );
+            timerInfo.fireTime = fireTime;
 
-            final long fireTime = (System.currentTimeMillis() + delay);
-            final TimerInfo timerInfo = new TimerInfo( task, fireTime, period, dynamicRate );
-            timerInfo.next = m_sortedTimers.get( fireTime );
+            final TimerInfo next = m_sortedTimers.get( fireTime );
+            timerInfo.next = next;
+            if (next != null)
+                next.prev = timerInfo;
+
             m_sortedTimers.put( fireTime, timerInfo );
             m_timers.put( task, timerInfo );
 
-            if (!wasEmpty)
+            if (wasEmpty)
+            {
+                if (s_logger.isLoggable(Level.FINER))
+                    s_logger.log( Level.FINER, System.identityHashCode(task) + ": fireTime=" + fireTime + ", start worker" );
+                m_threadPool.execute( this );
+            }
+            else
             {
                 /* It make sense to wake up worker thread
                  * only if new timer is sooner than all previous.
                  */
                 if (fireTime < m_sortedTimers.firstKey())
+                {
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": firerTime=" + fireTime + ", wakeup worker" );
                     m_cond.signal();
-                return 0;
+                }
+                else
+                {
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": fireTime=" + fireTime );
+                }
             }
         }
         finally
         {
             m_lock.unlock();
         }
-
-        /* Worker will be started only if timer queue was empty. */
-        m_threadPool.execute( m_worker );
         return 0;
-    }
-
-    /**
-     * Public methods
-     */
-    public TimerQueue( ThreadPool threadPool )
-    {
-        m_threadPool = threadPool;
-        m_lock = new ReentrantLock();
-        m_cond = m_lock.newCondition();
-        m_sortedTimers = new TreeMap<Long, TimerInfo>();
-        m_timers = new HashMap<Runnable, TimerInfo>();
-        m_worker = new ThreadPool.Runnable() { public void runInThreadPool() { run_i(); } };
-    }
-
-    /**
-     * Schedules the specified task for execution after the specified delay.
-     */
-    public final int schedule( Runnable task, long delay, TimeUnit unit )
-    {
-        return schedule_i( task, unit.toMillis(delay), 0, /*dynamic rate*/ false );
-    }
-
-    /**
-     * Schedules the specified task for repeated fixed-rate execution,
-     * beginning after the specified delay. Subsequent executions
-     * take place at approximately regular intervals, separated by the specified period.
-     * Working time line looks like:
-     * +---------+-----------------+--------+------------------
-     *    delay  |                 | period |
-     *
-     * +---------+-timer-work-time-+--------+------------------
-     *                                       \
-     *                                        next fire time
-     */
-    public final int scheduleAtFixedRate( Runnable task, long delay, long period, TimeUnit timeUnit )
-    {
-        return schedule_i( task, timeUnit.toMillis(delay), timeUnit.toMillis(period), /*dynamic rate*/ false );
-    }
-
-    /**
-     * Schedules the specified task for repeated dynamic-rate execution,
-     * beginning after the specified delay. Subsequent executions
-     * take place at approximately regular intervals, separated by the specified period.
-     * Working time line looks like:
-     * +---------+----------+----------+------------------
-     *    delay  |  period  |  period  |
-     *
-     * +---------+-timer-work-time-+---+------------------
-     *                                  \
-     *                                   next fire time
-     * So timer will be executed exactly at a (delay + period*n) time,
-     * skipping time if timer handler execution took too much time.
-     */
-    public final int scheduleAtDynamicRate( Runnable task, long delay, long period, TimeUnit timeUnit )
-    {
-        return schedule_i( task, timeUnit.toMillis(delay), timeUnit.toMillis(period), /*dynamic rate*/ true );
     }
 
     /**
      * Cancel timer,
      * waits if timer is being firing at the moment,
-     * so it guarantees that timer handler is not executed
-     * on return.
+     * so it guarantees that timer handler is not executed on return.
      */
-    public final int cancel( Runnable task ) throws InterruptedException
+    public int cancel( Task task ) throws InterruptedException
     {
         m_lock.lock();
         try
         {
-            final TimerInfo timerInfo = m_timers.get( task );
-            if (timerInfo == null)
+            for (;;)
             {
-                /* Timer already canceled or was not scheduled. */
-                return -1;
-            }
+                final TimerInfo timerInfo = m_timers.get( task );
+                if (timerInfo == null)
+                {
+                    /* Timer already canceled or was not scheduled. */
+                    if (s_logger.isLoggable( Level.FINER))
+                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": not registered" );
+                    return -1;
+                }
 
-            if (timerInfo.threadID != 0)
-            {
-                /* Timer task is being executed now. */
+                assert( timerInfo.task == task );
+
                 if (timerInfo.threadID == Thread.currentThread().getId())
                 {
-                    /* Called from the timer callback,
-                     * let's just reset the period to avoid timer rescheduling.
-                     */
-                    timerInfo.period = 0;
+                    /* Cancel from the timer callback */
+                    return -1;
+                }
+                else if (timerInfo.threadID == 0)
+                {
+                    /* Timer is not fired yet */
+                    if (s_logger.isLoggable( Level.FINER))
+                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": canceled" );
+                    removeTimerLocked( timerInfo );
+                    return 0;
+                }
+                else if (timerInfo.threadID == -2)
+                {
+                    /* Timer just fired */
+                    if (s_logger.isLoggable(Level.FINER))
+                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": canceled, just fired" );
+                    assert( timerInfo.cond != null );
+                    timerInfo.cond = null;
+                    m_timers.remove( task );
+                    return 0;
                 }
                 else
                 {
-                    timerInfo.waiters++;
-                    while (timerInfo.threadID != 0)
-                        m_cond.await();
-                    timerInfo.waiters--;
+                    /* Timer is being executed now, let's wait */
+                    Condition cond = timerInfo.cond;
+                    if (cond == null)
+                    {
+                        cond = m_lock.newCondition();
+                        timerInfo.cond = cond;
+                    }
+                    cond.await();
                 }
-                return 0;
             }
-
-            removeTimerLocked( timerInfo );
         }
         finally
         {
             m_lock.unlock();
         }
-        return 0;
     }
 
     /**
      * Cancel timer,
-     * do not wait if runnable is being executed at that moment,
+     * do not wait if the task is being executed at that moment,
      * return > 0 in this case.
      */
-    public final int cancelNoWait( Runnable task )
+    public int cancelNoWait( Task task )
     {
         m_lock.lock();
         try
