@@ -186,6 +186,17 @@ public abstract class RetainableByteBuffer
         return this;
     }
 
+    public final RetainableByteBuffer get( byte [] dst )
+    {
+        return get( dst, 0, dst.length );
+    }
+
+    public final RetainableByteBuffer get( byte [] dst, int offset, int length )
+    {
+        m_buf.get( dst, offset, length );
+        return this;
+    }
+
     public final RetainableByteBuffer put( byte value )
     {
         m_buf.put( value );
@@ -201,6 +212,17 @@ public abstract class RetainableByteBuffer
     public final RetainableByteBuffer put( RetainableByteBuffer src )
     {
         m_buf.put( src.m_buf );
+        return this;
+    }
+
+    public final RetainableByteBuffer put( byte [] src )
+    {
+        return put( src, 0, src.length );
+    }
+
+    public final RetainableByteBuffer put( byte [] src, int offset, int length )
+    {
+        m_buf.put( src, offset, length );
         return this;
     }
 
