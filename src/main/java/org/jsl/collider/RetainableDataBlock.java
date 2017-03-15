@@ -20,7 +20,7 @@ package org.jsl.collider;
 
 import java.nio.ByteBuffer;
 
-public class RetainableDataBlock
+public abstract class RetainableDataBlock
 {
     /* RetainableDataBlock share retain counting
      * with aggregated RetainableByteBuffer.
@@ -41,16 +41,18 @@ public class RetainableDataBlock
 
         protected void finalRelease()
         {
-            super.finalRelease();
             m_dataBlock.finalRelease();
         }
     }
 
-    protected void finalRelease()
+    protected final void reinit()
     {
         assert( next == null );
         ww.clear();
+        rw.reinit();
     }
+
+    protected abstract void finalRelease();
 
     public RetainableDataBlock( ByteBuffer byteBuffer )
     {

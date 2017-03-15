@@ -35,7 +35,7 @@ public class RetainableByteBufferCache extends ObjectCache<RetainableByteBuffer>
 
         protected void finalRelease()
         {
-            super.finalRelease();
+            reinit();
             m_cache.put( this );
         }
     }

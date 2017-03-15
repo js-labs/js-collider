@@ -20,7 +20,7 @@ package org.jsl.collider;
 
 import java.nio.ByteBuffer;
 
-class RetainableByteBufferImpl extends RetainableByteBuffer
+abstract class RetainableByteBufferImpl extends RetainableByteBuffer
 {
     public RetainableByteBufferImpl( ByteBuffer byteBuffer )
     {
