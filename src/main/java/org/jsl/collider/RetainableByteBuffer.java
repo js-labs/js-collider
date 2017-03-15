@@ -30,23 +30,42 @@ public abstract class RetainableByteBuffer
     protected final ByteBuffer m_buf;
     private volatile int m_retainCount;
 
-    private class Slice extends RetainableByteBufferImpl
+    private static class Slice extends RetainableByteBufferImpl
     {
-        public Slice( ByteBuffer buf )
+        private final RetainableByteBuffer m_parent;
+
+        public Slice( ByteBuffer byteBuffer, RetainableByteBuffer parent )
         {
-            super( buf );
+            super( byteBuffer );
+            m_parent = parent;
         }
 
         protected void finalRelease()
         {
-            /* do not need to call super.finalRelease() */
-            RetainableByteBuffer.this.release();
+            m_parent.release();
         }
     }
 
-    protected void finalRelease()
+    private static class Impl extends RetainableByteBufferImpl
     {
+        public Impl( ByteBuffer byteBuffer )
+        {
+            super( byteBuffer );
+        }
+
+        protected void finalRelease()
+        {
+            /* Do nothing */
+        }
+    }
+
+    abstract protected void finalRelease();
+
+    protected void reinit()
+    {
+        /* To be called by derived class if instance going to be reused */
         m_buf.clear();
+        assert( s_retainCountUpdater.get(this) == 0 );
         s_retainCountUpdater.lazySet( this, 1 );
     }
 
@@ -65,7 +84,7 @@ public abstract class RetainableByteBuffer
     {
         for (;;)
         {
-            final int retainCount = m_retainCount;
+            final int retainCount = s_retainCountUpdater.get( this );
             assert( retainCount > 0 );
             if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount+1))
                 break;
@@ -76,7 +95,7 @@ public abstract class RetainableByteBuffer
     {
         for (;;)
         {
-            final int retainCount = m_retainCount;
+            final int retainCount = s_retainCountUpdater.get( this );
             assert( retainCount > 0 );
             if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount-1))
             {
@@ -126,13 +145,13 @@ public abstract class RetainableByteBuffer
     public final RetainableByteBuffer slice()
     {
         retain();
-        return new Slice( m_buf.slice() );
+        return new Slice( m_buf.slice(), this );
     }
 
     public final RetainableByteBuffer duplicate()
     {
         retain();
-        return new Slice( m_buf.duplicate() );
+        return new Slice( m_buf.duplicate(), this );
     }
 
     /*
@@ -141,6 +160,7 @@ public abstract class RetainableByteBuffer
 
     public abstract RetainableByteBuffer clear();
     public abstract RetainableByteBuffer flip();
+    public abstract RetainableByteBuffer rewind();
 
     public abstract int capacity();
 
@@ -233,5 +253,17 @@ public abstract class RetainableByteBuffer
     public final double getDouble()
     {
         return m_buf.getDouble();
+    }
+
+    public static RetainableByteBuffer allocate( int capacity )
+    {
+        final ByteBuffer byteBuffer = ByteBuffer.allocate( capacity );
+        return new Impl( byteBuffer );
+    }
+
+    public static RetainableByteBuffer allocateDirect( int capacity )
+    {
+        final ByteBuffer byteBuffer = ByteBuffer.allocateDirect( capacity );
+        return new Impl( byteBuffer );
     }
 }

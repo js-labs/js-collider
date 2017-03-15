@@ -134,6 +134,12 @@ public class RetainableByteBufferPool
             return this;
         }
 
+        public RetainableByteBuffer rewind()
+        {
+            m_buf.position( m_offs );
+            return this;
+        }
+
         public int capacity()
         {
             return m_capacity;

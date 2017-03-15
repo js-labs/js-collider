@@ -39,6 +39,12 @@ abstract class RetainableByteBufferImpl extends RetainableByteBuffer
         return this;
     }
 
+    public RetainableByteBuffer rewind()
+    {
+        m_buf.rewind();
+        return this;
+    }
+
     public int capacity()
     {
         return m_buf.capacity();
