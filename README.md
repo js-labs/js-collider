@@ -32,13 +32,13 @@ and scalability for applications having not too many connections
 but significant amount of network traffic (both incoming and outgoing).
 
 Performance is achieved by specially designed threading model
-and lock-free algorithms ([learn more](https://github.com/js-labs/js-collider/wiki/Performance benchmarks))
+and lock-free algorithms ([learn more](https://github.com/js-labs/js-collider/wiki/Performance%20benchmarks))
 
 ### Main features:
 
 * simple and flexible API ([learn more](https://github.com/js-labs/js-collider/wiki/API))
 * UDP (with multicast) support
-* shared memory IPC support out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared Memory IPC))
+* shared memory IPC support out-of-the-box ([learn more](https://github.com/js-labs/js-collider/wiki/Shared%20Memory%20IPC))
 * no GC overhead on income data, only one allocation per output message
 * plain Java 1.7 (no any unsafe cheating)
 
