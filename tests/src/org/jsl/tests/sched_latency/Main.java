@@ -19,52 +19,39 @@
 
 package org.jsl.tests.sched_latency;
 
+import java.util.Arrays;
+
 public class Main
 {
-    public static void print_res( String str, long [] res, int skip )
+    public static void printResult(String str, long [] res)
     {
-        long min = res[skip];
-        long max = res[skip];
-        long sum = res[skip];
-
-        for (int idx=skip; idx<res.length; idx++)
-        {
-            long tt = res[idx];
-            if (tt < min)
-                min = tt;
-            if (tt > max)
-                max = tt;
-            sum += tt;
-            tt /= 1000;
-            if (idx < (skip+20))
-                System.out.print( tt + " " );
-        }
+        final int c = Math.min(20, res.length);
+        for (int idx=0; idx<c; idx++)
+            System.out.print(res[idx]/1000 + " ");
         System.out.println();
 
-        min /= 1000;
-        max /= 1000;
-        sum /= 1000;
-        long avg = (sum / res.length);
-
-        System.out.println( str + ": min=" + min + " max=" + max + " avg=" + avg );
+        Arrays.sort(res);
+        final long min = res[0] / 1000;
+        final long med = res[res.length/2] / 1000;
+        final long max = res[res.length-1] / 1000;
+        System.out.println(str + ": min=" + min + " med=" + med + " max=" + max);
     }
 
-    public static void main( String args [] )
+    public static void main(String args [])
     {
         final int OPS = 100;
-        final int SKIP = 10;
-        long res [] = new long[OPS];
+        final long res [] = new long[OPS];
 
         new SL_Semaphore(res).start();
-        print_res( "Semaphore", res, SKIP );
+        printResult("Semaphore", res);
 
         new SL_Cond(res).start();
-        print_res( "Cond", res, SKIP );
+        printResult("Cond", res);
 
         new SL_Executor(res).start();
-        print_res( "Executor", res, SKIP );
+        printResult("Executor", res);
 
         new SL_ThreadPool(res).start();
-        print_res( "ThreadPool", res, SKIP );
+        printResult("ThreadPool", res);
     }
 }
