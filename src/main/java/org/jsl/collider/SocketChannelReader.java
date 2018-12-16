@@ -258,9 +258,9 @@ class SocketChannelReader extends ThreadPool.Runnable
         handleDataLoop: for (;;)
         {
             final int bytesReady = (state & LENGTH_MASK);
-            RetainableByteBuffer rw = m_head.rw;
-            int blockSize = rw.capacity();
-            int pos = rw.position();
+            RetainableByteBuffer rd = m_head.rd;
+            int blockSize = rd.capacity();
+            int pos = rd.position();
 
             if (pos == blockSize)
             {
@@ -268,9 +268,9 @@ class SocketChannelReader extends ThreadPool.Runnable
                 m_head.next = null;
                 m_head.release();
                 m_head = next;
-                rw = m_head.rw;
-                blockSize = rw.capacity();
-                assert( rw.position() == 0 );
+                rd = m_head.rd;
+                blockSize = rd.capacity();
+                assert(rd.position() == 0);
                 pos = 0;
             }
 
@@ -280,28 +280,28 @@ class SocketChannelReader extends ThreadPool.Runnable
                 final int bb = (blockSize - pos);
                 if (bytesRemaining <= bb)
                 {
-                    final int limit = pos + bytesRemaining;
-                    rw.limit( limit );
-                    m_dataListener.onDataReceived( rw );
+                    final int limit = (pos + bytesRemaining);
+                    rd.limit(limit);
+                    m_dataListener.onDataReceived(rd);
                     /* limit can be changed by listener,
                      * let's set it again to avoid exception.
                      */
-                    rw.limit( limit );
-                    rw.position( limit );
+                    rd.limit(limit);
+                    rd.position(limit);
                     break;
                 }
 
                 bytesRemaining -= bb;
-                rw.limit( blockSize );
-                m_dataListener.onDataReceived( rw );
+                rd.limit(blockSize);
+                m_dataListener.onDataReceived(rd);
 
                 final RetainableDataBlock next = m_head.next;
                 m_head.next = null;
                 m_head.release();
                 m_head = next;
-                rw = m_head.rw;
-                blockSize = rw.capacity();
-                assert( rw.position() == 0 );
+                rd = m_head.rd;
+                blockSize = rd.capacity();
+                assert(rd.position() == 0);
                 pos = 0;
             }
 
@@ -405,25 +405,25 @@ class SocketChannelReader extends ThreadPool.Runnable
         }
 
         /* Always read 2 data blocks */
-        int remaining = m_tail.ww.remaining();
+        int remaining = m_tail.wr.remaining();
         if (remaining == 0)
         {
             assert( m_tail.next == null );
             remaining = m_dataBlockCache.getBlockSize();
             m_tail.next = m_dataBlockCache.get(2);
             m_tail = m_tail.next;
-            assert( remaining == m_tail.ww.capacity() );
+            assert(remaining == m_tail.wr.capacity());
         }
         else
         {
             if (m_tail.next == null)
                 m_tail.next = m_dataBlockCache.get(1);
             else
-                assert( m_tail.next.ww.position() == 0 );
+                assert(m_tail.next.wr.position() == 0);
         }
 
-        m_iov[0] = m_tail.ww;
-        m_iov[1] = m_tail.next.ww;
+        m_iov[0] = m_tail.wr;
+        m_iov[1] = m_tail.next.wr;
 
         long bytesReceived;
         try
@@ -491,8 +491,8 @@ class SocketChannelReader extends ThreadPool.Runnable
 
             if (bytesReceived >= remaining)
             {
-                assert( m_tail.next != null );
-                assert( m_tail.ww.position() == m_tail.ww.capacity() );
+                assert(m_tail.next != null);
+                assert(m_tail.wr.position() == m_tail.wr.capacity());
                 m_tail = m_tail.next;
             }
 

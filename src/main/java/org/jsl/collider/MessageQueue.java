@@ -65,7 +65,7 @@ public class MessageQueue
     private final DataBlockCache m_dataBlockCache;
     private final int m_dataBlockSize;
     private final AtomicLongArray m_state;
-    private final ByteBuffer [] m_ww;
+    private final ByteBuffer [] m_wr;
     private DataBlock m_head;
     private DataBlock m_tail;
 
@@ -98,17 +98,17 @@ public class MessageQueue
                     continue;
 
                 if (space >= MSG_SIZE_SIZE)
-                    m_tail.ww.putInt( (int) offs, 0 );
+                    m_tail.wr.putInt((int) offs, 0);
 
                 m_tail.next = m_dataBlockCache.get(1);
                 m_tail = m_tail.next;
 
-                m_ww[0] = m_tail.ww;
+                m_wr[0] = m_tail.wr;
                 for (int idx=1; idx<WRITERS_WIDTH; idx++)
-                    m_ww[idx] = null;
+                    m_wr[idx] = null;
 
-                m_tail.ww.putInt( blockSize - MSG_SIZE_SIZE );
-                m_tail.ww.put( msg );
+                m_tail.wr.putInt(blockSize - MSG_SIZE_SIZE);
+                m_tail.wr.put(msg);
 
                 m_state.set( WRITE_STATE, blockSize );
                 return blockSize;
@@ -145,16 +145,16 @@ public class MessageQueue
 
             state = newState;
 
-            ByteBuffer ww = m_ww[writerIdx];
-            if (ww == null)
+            ByteBuffer wr = m_wr[writerIdx];
+            if (wr == null)
             {
-                ww = m_tail.ww.duplicate();
-                m_ww[writerIdx] = ww;
+                wr = m_tail.wr.duplicate();
+                m_wr[writerIdx] = wr;
             }
 
-            ww.position( (int) offs );
-            ww.putInt( blockSize - MSG_SIZE_SIZE );
-            ww.put( msg );
+            wr.position((int) offs);
+            wr.putInt(blockSize - MSG_SIZE_SIZE);
+            wr.put(msg);
 
             for (;;)
             {
@@ -189,20 +189,20 @@ public class MessageQueue
     {
         int msgSize;
         if (((m_rdOffs + MSG_SIZE_SIZE) > m_dataBlockSize) ||
-            ((msgSize = ((ByteBuffer)m_head.rw.limit(m_rdOffs+MSG_SIZE_SIZE)).getInt(m_rdOffs)) == 0))
+            ((msgSize = ((ByteBuffer)m_head.rd.limit(m_rdOffs+MSG_SIZE_SIZE)).getInt(m_rdOffs)) == 0))
         {
             final DataBlock dataBlock = m_head;
             m_head = dataBlock.next;
             dataBlock.reset();
             m_dataBlockCache.put( dataBlock );
             m_rdOffs = 0;
-            assert( m_head.rw.position() == 0 );
-            msgSize = m_head.rw.getInt(0);
+            assert(m_head.rd.position() == 0);
+            msgSize = m_head.rd.getInt(0);
         }
         m_blockSize = (MSG_SIZE_SIZE + msgSize);
-        m_head.rw.limit( m_rdOffs + m_blockSize );
-        m_head.rw.position( m_rdOffs + MSG_SIZE_SIZE );
-        return m_head.rw;
+        m_head.rd.limit(m_rdOffs + m_blockSize);
+        m_head.rd.position(m_rdOffs + MSG_SIZE_SIZE);
+        return m_head.rd;
     }
 
     public MessageQueue( DataBlockCache dataBlockCache )
@@ -210,11 +210,11 @@ public class MessageQueue
         m_dataBlockCache = dataBlockCache;
         m_dataBlockSize = (int) ((dataBlockCache.getBlockSize() <= OFFS_MASK)
                                         ? dataBlockCache.getBlockSize() : OFFS_MASK);
-        m_state = new AtomicLongArray( 8*3 );
-        m_ww = new ByteBuffer[WRITERS_WIDTH];
-        m_head = dataBlockCache.get( 1 );
+        m_state = new AtomicLongArray(8*3);
+        m_wr = new ByteBuffer[WRITERS_WIDTH];
+        m_head = dataBlockCache.get(1);
         m_tail = m_head;
-        m_ww[0] = m_tail.ww;
+        m_wr[0] = m_tail.wr;
     }
 
     /**

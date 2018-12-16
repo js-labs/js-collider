@@ -24,20 +24,20 @@ import java.nio.ByteBuffer;
 public class DataBlock
 {
     public DataBlock next;
-    public final ByteBuffer ww;
-    public final ByteBuffer rw;
+    public final ByteBuffer wr;
+    public final ByteBuffer rd;
 
-    public DataBlock( ByteBuffer buf )
+    public DataBlock(ByteBuffer buf)
     {
-        ww = buf;
-        rw = buf.duplicate();
+        wr = buf;
+        rd = buf.duplicate();
     }
 
     public final DataBlock reset()
     {
         next = null;
-        ww.clear();
-        rw.clear();
+        wr.clear();
+        rd.clear();
         return this;
     }
 }

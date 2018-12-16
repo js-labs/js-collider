@@ -261,9 +261,9 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
         int bytesReady = (state & LENGTH_MASK);
         int bytesRemaining = bytesReady;
         RetainableDataBlock dataBlock = m_dataBlockHead;
-        RetainableByteBuffer rw = dataBlock.rw;
-        int position = rw.position();
-        int capacity = rw.capacity();
+        RetainableByteBuffer rd = dataBlock.rd;
+        int position = rd.position();
+        int capacity = rd.capacity();
 
         for (;;)
         {
@@ -279,16 +279,16 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                 dataBlock.release();
                 m_dataBlockHead = next;
                 dataBlock = next;
-                rw = dataBlock.rw;
-                position = rw.position();
-                capacity = rw.capacity();
+                rd = dataBlock.rd;
+                position = rd.position();
+                capacity = rd.capacity();
             }
 
             final int limit = (position + packetInfo.length);
-            rw.position( position );
-            rw.limit( limit );
+            rd.position(position);
+            rd.limit(limit);
 
-            m_listener.onDataReceived( rw, packetInfo.addr );
+            m_listener.onDataReceived(rd, packetInfo.addr);
 
             position = limit;
 
@@ -297,8 +297,8 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
             if (bytesRemaining > 0)
                 continue;
 
-            rw.position( position );
-            rw.limit( capacity );
+            rd.position(position);
+            rd.limit(capacity);
 
             for (;;)
             {
@@ -519,21 +519,21 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
     public void runInThreadPool()
     {
         RetainableDataBlock dataBlock = m_dataBlockTail;
-        int pos = (dataBlock.ww.position() + 3) & -4;
-        int space = (dataBlock.ww.limit() - pos);
+        int pos = (dataBlock.wr.position() + 3) & -4;
+        int space = (dataBlock.wr.limit() - pos);
         if (space < m_readMinSize)
         {
             dataBlock = m_dataBlockCache.get(1);
             pos = 0;
         }
         else
-            dataBlock.ww.position( pos );
+            dataBlock.wr.position(pos);
 
         try
         {
-            SocketAddress sourceAddr = m_datagramChannel.receive( dataBlock.ww );
+            SocketAddress sourceAddr = m_datagramChannel.receive( dataBlock.wr);
 
-            int bytesReceived = dataBlock.ww.position() - pos;
+            int bytesReceived = dataBlock.wr.position() - pos;
             if ((sourceAddr == null) || (bytesReceived == 0))
             {
                 /* Very strange, should not happen. */
@@ -589,19 +589,19 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
 
                 /* Let's try read more */
 
-                pos = (dataBlock.ww.position() + 3) & -4;
-                space = (dataBlock.ww.limit() - pos);
+                pos = (dataBlock.wr.position() + 3) & -4;
+                space = (dataBlock.wr.limit() - pos);
                 if (space < m_readMinSize)
                 {
                     dataBlock = m_dataBlockCache.get(1);
                     pos = 0;
                 }
                 else
-                    dataBlock.ww.position( pos );
+                    dataBlock.wr.position(pos);
 
-                sourceAddr = m_datagramChannel.receive( dataBlock.ww );
+                sourceAddr = m_datagramChannel.receive(dataBlock.wr);
 
-                bytesReceived = (dataBlock.ww.position() - pos);
+                bytesReceived = (dataBlock.wr.position() - pos);
                 if ((sourceAddr == null) || (bytesReceived == 0))
                 {
                     if (dataBlock != m_dataBlockTail)
@@ -616,12 +616,12 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
         {
             /* Should not happen, considered as a bug. */
             if (s_logger.isLoggable(Level.WARNING))
-                s_logger.log( Level.WARNING, m_addr + ": " + ex.toString() );
+                s_logger.log(Level.WARNING, m_addr + ": " + ex.toString());
 
             if (dataBlock != m_dataBlockTail)
                 dataBlock.release();
 
-            m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
+            m_collider.executeInSelectorThreadNoWakeup(m_starter1);
         }
     }
 

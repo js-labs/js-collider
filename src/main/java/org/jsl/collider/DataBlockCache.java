@@ -76,8 +76,8 @@ public class DataBlockCache
                 DataBlock head = dataBlock;
                 for (;;)
                 {
-                    assert( dataBlock.rw.position() == 0 );
-                    assert( dataBlock.ww.position() == 0 );
+                    assert(dataBlock.rd.position() == 0);
+                    assert(dataBlock.wr.position() == 0);
                     if (++m_size == m_maxSize)
                         break;
                     if (dataBlock.next == null)

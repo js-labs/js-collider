@@ -22,12 +22,12 @@ import java.nio.ByteBuffer;
 
 public abstract class RetainableDataBlock
 {
-    /* RetainableDataBlock share retain counting
-     * with aggregated RetainableByteBuffer.
+    /* RetainableDataBlock: <wr> and <rd> shares the same memory block,
+     * <wr> used by socket reader thread, <rd> used by data processing thread.
      */
     public RetainableDataBlock next;
-    public final ByteBuffer ww;
-    public final RetainableByteBuffer rw;
+    public final ByteBuffer wr;
+    public final RetainableByteBuffer rd;
 
     private static class BufferImpl extends RetainableByteBufferImpl
     {
@@ -47,29 +47,29 @@ public abstract class RetainableDataBlock
 
     protected final void reinit()
     {
-        assert( next == null );
-        ww.clear();
-        rw.reinit();
+        assert(next == null);
+        wr.clear();
+        rd.reinit();
     }
 
     protected abstract void finalRelease();
 
     public RetainableDataBlock( ByteBuffer byteBuffer )
     {
-        ww = byteBuffer;
-        rw = new BufferImpl( byteBuffer.duplicate(), this );
+        wr = byteBuffer;
+        rd = new BufferImpl(byteBuffer.duplicate(), this);
     }
 
     public final void release()
     {
-        rw.release();
+        rd.release();
     }
 
     public final boolean clearSafe()
     {
-        final boolean ret = rw.clearSafe();
+        final boolean ret = rd.clearSafe();
         if (ret)
-            ww.clear();
+            wr.clear();
         return ret;
     }
 }

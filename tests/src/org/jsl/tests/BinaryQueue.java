@@ -44,7 +44,7 @@ public class BinaryQueue
     private volatile long m_state;
     private DataBlock m_head;
     private DataBlock m_tail;
-    private final ByteBuffer [] m_ww;
+    private final ByteBuffer [] m_wr;
 
     private int putDataLocked( final long state, final ByteBuffer data, final int dataSize, int bytesRemaining )
     {
@@ -56,28 +56,28 @@ public class BinaryQueue
             DataBlock tail = head;
             for (;;)
             {
-                final ByteBuffer ww = tail.ww;
-                assert( (ww.position() == 0) &&
-                        (ww.capacity() == m_blockSize) &&
-                        (ww.remaining() == m_blockSize) );
+                final ByteBuffer wr = tail.wr;
+                assert((wr.position() == 0) &&
+                       (wr.capacity() == m_blockSize) &&
+                       (wr.remaining() == m_blockSize));
                 if (bytesRemaining <= m_blockSize)
                 {
-                    data.limit( data.position() + bytesRemaining );
-                    ww.put( data );
+                    data.limit(data.position() + bytesRemaining);
+                    wr.put(data);
                     break;
                 }
                 bytesRemaining -= m_blockSize;
-                data.limit( data.position() + m_blockSize );
-                ww.put( data );
+                data.limit(data.position() + m_blockSize);
+                wr.put(data);
                 tail = tail.next;
             }
 
             for (int idx=1; idx<WRITERS_WIDTH; idx++)
-                m_ww[idx] = null;
+                m_wr[idx] = null;
 
             m_tail.next = head;
             m_tail = tail;
-            m_ww[0] = tail.ww;
+            m_wr[0] = tail.wr;
 
             s_stateUpdater.set( this, bytesRemaining );
             ret = dataSize;
@@ -90,7 +90,7 @@ public class BinaryQueue
                  * The best solution is to unlock the queue.
                  * May be we will lucky and application will survive.
                  */
-                m_tail.ww.position( (int)(state & OFFS_MASK) );
+                m_tail.wr.position( (int)(state & OFFS_MASK) );
                 s_stateUpdater.set( this, state );
 
                 if (head != null)
@@ -115,46 +115,46 @@ public class BinaryQueue
         try
         {
             dataBlock = m_dataBlockCache.getByDataSize( bytesRemaining );
-            final ByteBuffer ww = dataBlock.ww;
-            assert( (ww.position() == 0) &&
-                    (ww.capacity() == m_blockSize) &&
-                    (ww.remaining() == m_blockSize) );
+            final ByteBuffer wr = dataBlock.wr;
+            assert((wr.position() == 0) &&
+                   (wr.capacity() == m_blockSize) &&
+                   (wr.remaining() == m_blockSize));
 
             if (bytesRemaining == 4)
-                ww.putInt( value );
-            else if (ww.order() == ByteOrder.LITTLE_ENDIAN)
+                wr.putInt(value);
+            else if (wr.order() == ByteOrder.LITTLE_ENDIAN)
             {
                 int shift = ((4 - bytesRemaining) * 8);
                 for (int cc=bytesRemaining;;)
                 {
-                    ww.put( (byte) ((value >> shift) & 0xFF) );
+                    wr.put((byte) ((value >> shift) & 0xFF));
                     if (--cc == 0)
                         break;
                     shift += 8;
                 }
             }
-            else if (ww.order() == ByteOrder.BIG_ENDIAN)
+            else if (wr.order() == ByteOrder.BIG_ENDIAN)
             {
                 int shift = ((bytesRemaining - 1) * 8);
                 for (int cc=bytesRemaining;;)
                 {
-                    ww.put( (byte) ((value >> shift) & 0xFF) );
+                    wr.put((byte) ((value >> shift) & 0xFF));
                     if (--cc == 0)
                         break;
                     shift -= 8;
                 }
             }
             else
-                assert( false );
+                assert(false);
 
             for (int idx=1; idx<WRITERS_WIDTH; idx++)
-                m_ww[idx] = null;
+                m_wr[idx] = null;
 
             m_tail.next = dataBlock;
             m_tail = dataBlock;
-            m_ww[0] = dataBlock.ww;
+            m_wr[0] = dataBlock.wr;
 
-            s_stateUpdater.set( this, bytesRemaining );
+            s_stateUpdater.set(this, bytesRemaining);
             ret = 4;
         }
         finally
@@ -165,11 +165,11 @@ public class BinaryQueue
                  * The best solution is to unlock the queue.
                  * May be we will lucky and application will survive.
                  */
-                m_tail.ww.position( (int)(state & OFFS_MASK) );
-                s_stateUpdater.set( this, state );
+                m_tail.wr.position((int)(state & OFFS_MASK));
+                s_stateUpdater.set(this, state);
 
                 if (dataBlock != null)
-                    m_dataBlockCache.put( dataBlock.reset() );
+                    m_dataBlockCache.put(dataBlock.reset());
             }
         }
         return ret;
@@ -214,8 +214,8 @@ public class BinaryQueue
         m_state = 0;
         m_head = dataBlockCache.get(1);
         m_tail = m_head;
-        m_ww = new ByteBuffer[WRITERS_WIDTH];
-        m_ww[0] = m_tail.ww;
+        m_wr = new ByteBuffer[WRITERS_WIDTH];
+        m_wr[0] = m_tail.wr;
     }
 
     public final int putData( final ByteBuffer data )
@@ -251,14 +251,14 @@ public class BinaryQueue
 
                 if (space > 0)
                 {
-                    ByteBuffer ww = m_ww[0];
-                    ww.position( (int) offs );
-                    data.limit( data.position() + (int)space );
-                    ww.put( data );
+                    final ByteBuffer wr = m_wr[0];
+                    wr.position((int) offs);
+                    data.limit(data.position() + (int)space);
+                    wr.put(data);
                     bytesRest -= space;
                 }
 
-                return putDataLocked( state, data, dataSize, bytesRest );
+                return putDataLocked(state, data, dataSize, bytesRest);
             }
 
             final long writers = (state & WRITERS_MASK);
@@ -296,17 +296,17 @@ public class BinaryQueue
 
             state = newState;
 
-            ByteBuffer ww = m_ww[writerIdx];
-            if (ww == null)
+            ByteBuffer wr = m_wr[writerIdx];
+            if (wr == null)
             {
                 try
                 {
-                    ww = m_tail.ww.duplicate();
-                    m_ww[writerIdx] = ww;
+                    wr = m_tail.wr.duplicate();
+                    m_wr[writerIdx] = wr;
                 }
                 catch (Throwable ex)
                 {
-                    /* Most probably OutOfMemoryError happened.
+                    /* Most probably OutOfMemoryError.
                      * We have to recover queue state, otherwise it will remain
                      * in inconsistent state, and then we will send corrupted data.
                      * Not a good idea to swallow the error, but have no other options.
@@ -320,7 +320,7 @@ public class BinaryQueue
                         writer = (1L << (START_WIDTH + OFFS_WIDTH));
                         for (; writerIdx<WRITERS_WIDTH; writerIdx++, writer<<=1)
                         {
-                            if (((state & writer) == 0) && (m_ww[writerIdx] != null))
+                            if (((state & writer) == 0) && (m_wr[writerIdx] != null))
                             {
                                 newState = state;
                                 newState -= failedWriter;
@@ -332,16 +332,16 @@ public class BinaryQueue
                                 }
                             }
                         }
-                        state = s_stateUpdater.get( this );
+                        state = s_stateUpdater.get(this);
                     }
-                    ww = m_ww[writerIdx];
+                    wr = m_wr[writerIdx];
                 }
             }
 
-            ww.position( (int) offs );
-            ww.put( data );
+            wr.position((int) offs);
+            wr.put(data);
 
-            return removeWriter( writer, offs, dataSize, state );
+            return removeWriter(writer, offs, dataSize, state);
         }
     }
 
@@ -375,23 +375,23 @@ public class BinaryQueue
 
                 if (space > 0)
                 {
-                    ByteBuffer ww = m_ww[0];
-                    ww.position( (int) offs );
-                    if (ww.order() == ByteOrder.LITTLE_ENDIAN)
+                    final ByteBuffer wr = m_wr[0];
+                    wr.position((int) offs);
+                    if (wr.order() == ByteOrder.LITTLE_ENDIAN)
                     {
                         for (int cc=space, shift=0;;)
                         {
-                            ww.put( (byte) ((value >> shift) & 0xFF) );
+                            wr.put((byte) ((value >> shift) & 0xFF));
                             if (--cc == 0)
                                 break;
                             shift += 8;
                         }
                     }
-                    else if (ww.order() == ByteOrder.BIG_ENDIAN)
+                    else if (wr.order() == ByteOrder.BIG_ENDIAN)
                     {
                         for (int cc=space, shift=24;;)
                         {
-                            ww.put( (byte) ((value >> shift) & 0xFF) );
+                            wr.put((byte) ((value >> shift) & 0xFF));
                             if (--cc == 0)
                                 break;
                             shift -= 8;
@@ -401,7 +401,7 @@ public class BinaryQueue
                         assert( false );
                 }
 
-                return putIntLocked( state, value, 4-space );
+                return putIntLocked(state, value, 4-space);
             }
 
             final long writers = (state & WRITERS_MASK);
@@ -430,19 +430,19 @@ public class BinaryQueue
 
             if (!s_stateUpdater.compareAndSet(this, state, newState))
             {
-                state = s_stateUpdater.get( this );
+                state = s_stateUpdater.get(this);
                 continue;
             }
 
             state = newState;
 
-            ByteBuffer ww = m_ww[writerIdx];
-            if (ww == null)
+            ByteBuffer wr = m_wr[writerIdx];
+            if (wr == null)
             {
                 try
                 {
-                    ww = m_tail.ww.duplicate();
-                    m_ww[writerIdx] = ww;
+                    wr = m_tail.wr.duplicate();
+                    m_wr[writerIdx] = wr;
                 }
                 catch (Throwable ex)
                 {
@@ -460,7 +460,7 @@ public class BinaryQueue
                         writer = (1L << (START_WIDTH + OFFS_WIDTH));
                         for (; writerIdx<WRITERS_WIDTH; writerIdx++, writer<<=1)
                         {
-                            if (((state & writer) == 0) && (m_ww[writerIdx] != null))
+                            if (((state & writer) == 0) && (m_wr[writerIdx] != null))
                             {
                                 newState = state;
                                 newState -= failedWriter;
@@ -472,29 +472,29 @@ public class BinaryQueue
                                 }
                             }
                         }
-                        state = s_stateUpdater.get( this );
+                        state = s_stateUpdater.get(this);
                     }
-                    ww = m_ww[writerIdx];
+                    wr = m_wr[writerIdx];
                 }
             }
 
-            ww.position( (int) offs );
-            ww.putInt( value );
+            wr.position((int) offs);
+            wr.putInt(value);
 
-            return removeWriter( writer, offs, 4, state );
+            return removeWriter(writer, offs, 4, state);
         }
     }
 
     public final long getData( ByteBuffer [] iov, long maxBytes )
     {
         DataBlock dataBlock = m_head;
-        int pos = dataBlock.rw.position();
+        int pos = dataBlock.rd.position();
 
         if (pos == m_blockSize)
         {
             final DataBlock next = dataBlock.next;
             assert( next != null );
-            assert( next.rw.position() == 0 );
+            assert( next.rd.position() == 0 );
             dataBlock.reset();
             dataBlock.next = null;
             m_dataBlockCache.put( dataBlock );
@@ -513,8 +513,8 @@ public class BinaryQueue
             if (bb > bytesRest)
                 bb = (int) bytesRest;
 
-            dataBlock.rw.limit( pos + bb );
-            iov[idx] = dataBlock.rw;
+            dataBlock.rd.limit(pos + bb);
+            iov[idx] = dataBlock.rd;
 
             ret += bb;
             bytesRest -= bb;
@@ -527,7 +527,7 @@ public class BinaryQueue
 
             assert( dataBlock.next != null );
             dataBlock = dataBlock.next;
-            pos = dataBlock.rw.position();
+            pos = dataBlock.rd.position();
         }
 
         for (; idx<iov.length; idx++)
@@ -552,14 +552,14 @@ public class BinaryQueue
                 dataBlock = dataBlock.next;
                 if (bytesRemaining <= m_blockSize)
                 {
-                    assert( bytesRemaining == dataBlock.rw.position() );
+                    assert(bytesRemaining == dataBlock.rd.position());
                     m_head = dataBlock;
                     prev.next = null;
                     m_dataBlockCache.put( head );
                     break;
                 }
-                assert( (dataBlock.rw.position() == dataBlock.rw.capacity()) &&
-                        (dataBlock.rw.limit() == dataBlock.rw.capacity()) );
+                assert((dataBlock.rd.position() == dataBlock.rd.capacity()) &&
+                       (dataBlock.rd.limit() == dataBlock.rd.capacity()));
                 bytesRemaining -= m_blockSize;
             }
         }
