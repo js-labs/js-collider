@@ -25,29 +25,31 @@ public abstract class Acceptor extends SessionEmitter
 {
     public Acceptor()
     {
-        this( new InetSocketAddress(0) );
+        this(new InetSocketAddress(0));
     }
 
-    public Acceptor( InetSocketAddress addr )
+    public Acceptor(InetSocketAddress addr)
     {
-        super( addr );
+        super(addr);
     }
 
     /**
-     * Creates <tt>Session.Listener</tt> instance to be linked with the session.
-     * Called by framework, derived class supposed to override it.
-     * METHOD IS NOT [MT] SAFE, can be called concurrently in a number of threads.
-     * Connection will be closed if returns <tt>null</tt>, but any data
-     * scheduled with <tt>sendData</tt> call before return will be sent.
+     * Called by the framework to create <tt>Session.Listener</tt> instance
+     * to be linked with the session. METHOD IS NOT [MT] SAFE,
+     * can be executed concurrently in a number of threads.
+     * Connection and underlying socket will be closed if returns <tt>null</tt>,
+     * but any data scheduled with <tt>sendData</tt> call before return will be sent.
      */
-    public abstract Session.Listener createSessionListener( Session session );
+    public abstract Session.Listener createSessionListener(Session session);
 
     /**
      * Called by framework right before the acceptor is ready to accept connections.
      * It is still safe to remove the <tt>Acceptor</tt> instance from the collider
      * within this method, no one connection will be accepted then.
+     * @param collider the collider instance to work in
+     * @param localPort the local port to accept connections on
      */
-    public void onAcceptorStarted( Collider collider, int localPort )
+    public void onAcceptorStarted(Collider collider, int localPort)
     {
     }
 }
