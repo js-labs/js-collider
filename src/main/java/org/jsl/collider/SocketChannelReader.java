@@ -22,7 +22,7 @@ package org.jsl.collider;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -68,7 +68,7 @@ class SocketChannelReader extends ThreadPool.Runnable
             final int interestOps = m_selectionKey.interestOps();
             if ((interestOps & SelectionKey.OP_READ) == 0)
             {
-                final int state = m_state.get();
+                final int state = s_stateUpdater.get(SocketChannelReader.this);
                 if ((state & CLOSE) == 0)
                 {
                     m_waits++;
@@ -91,12 +91,12 @@ class SocketChannelReader extends ThreadPool.Runnable
             {
                 for (;;)
                 {
-                    final int state = m_state.get();
+                    final int state = s_stateUpdater.get(SocketChannelReader.this);
                     assert( (state & STOP) != 0 );
                     assert( (state & CLOSE) == 0 );
 
                     final int newState = (state | CLOSE);
-                    if (m_state.compareAndSet(state, newState))
+                    if (s_stateUpdater.compareAndSet(SocketChannelReader.this, state, newState))
                     {
                         if (s_logger.isLoggable(Level.FINER))
                         {
@@ -145,13 +145,13 @@ class SocketChannelReader extends ThreadPool.Runnable
         private final ShMem.ChannelIn m_shMem;
         private Session.Listener m_listener;
 
-        public ShMemListener( ShMem.ChannelIn shMem, Session.Listener listener )
+        ShMemListener(ShMem.ChannelIn shMem, Session.Listener listener)
         {
             m_shMem = shMem;
             m_listener = listener;
         }
 
-        public final Session.Listener replaceListener( Session.Listener listener )
+        Session.Listener replaceListener(Session.Listener listener)
         {
             Session.Listener ret = m_listener;
             m_listener = listener;
@@ -226,6 +226,9 @@ class SocketChannelReader extends ThreadPool.Runnable
         s_dataListenerUpdater = AtomicReferenceFieldUpdater.newUpdater(
             SocketChannelReader.class, Session.Listener.class, "m_dataListener" );
 
+    private static final AtomicIntegerFieldUpdater<SocketChannelReader>
+        s_stateUpdater = AtomicIntegerFieldUpdater.newUpdater(SocketChannelReader.class, "m_state");
+
     private static final DummyListener s_dummyListener = new DummyListener();
 
     private static final int LENGTH_MASK = 0x0FFFFFFF;
@@ -245,8 +248,8 @@ class SocketChannelReader extends ThreadPool.Runnable
     private final Starter0 m_starter0;
     private final Starter1 m_starter1;
     private final Suspender m_suspender;
-    private final AtomicInteger m_state;
     private final ByteBuffer [] m_iov;
+    private volatile int m_state;
     private RetainableDataBlock m_head;
     private RetainableDataBlock m_tail;
 
@@ -313,7 +316,7 @@ class SocketChannelReader extends ThreadPool.Runnable
 
                 if ((newState & LENGTH_MASK) == 0)
                 {
-                    if (m_state.compareAndSet(state, newState))
+                    if (s_stateUpdater.compareAndSet(this, state, newState))
                     {
                         if ((newState & CLOSE) == 0)
                         {
@@ -340,7 +343,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                 }
                 else
                 {
-                    if (m_state.compareAndSet(state, newState))
+                    if (s_stateUpdater.compareAndSet(this, state, newState))
                     {
                         if (((state & LENGTH_MASK) >= m_forwardReadMaxSize) &&
                             ((newState & LENGTH_MASK) < m_forwardReadMaxSize) &&
@@ -352,12 +355,12 @@ class SocketChannelReader extends ThreadPool.Runnable
                         break;
                     }
                 }
-                state = m_state.get();
+                state = s_stateUpdater.get(this);
             }
         }
     }
 
-    public SocketChannelReader(
+    SocketChannelReader(
             ColliderImpl colliderImpl,
             SessionImpl session,
             int forwardReadMaxSize,
@@ -377,7 +380,6 @@ class SocketChannelReader extends ThreadPool.Runnable
         m_starter0 = new Starter0();
         m_starter1 = new Starter1();
         m_suspender = new Suspender();
-        m_state = new AtomicInteger();
         m_iov = new ByteBuffer[2];
         m_head = m_dataBlockCache.get(2);
         m_tail = m_head;
@@ -398,7 +400,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         /* In a case if the queue is empty
          * we could try to reuse data blocks from the beginning.
          */
-        if ((m_state.get() & LENGTH_MASK) == 0)
+        if ((s_stateUpdater.get(this) & LENGTH_MASK) == 0)
         {
             assert( m_head == m_tail );
             m_tail.clearSafe();
@@ -468,7 +470,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         m_iov[0] = null;
         m_iov[1] = null;
 
-        int state = m_state.get();
+        int state = s_stateUpdater.get(this);
         if (bytesReceived > 0)
         {
             for (;;)
@@ -480,13 +482,13 @@ class SocketChannelReader extends ThreadPool.Runnable
                 assert( newState < LENGTH_MASK );
                 newState |= (state & ~LENGTH_MASK);
 
-                if (m_state.compareAndSet(state, newState))
+                if (s_stateUpdater.compareAndSet(this, state, newState))
                 {
                     state = newState;
                     break;
                 }
 
-                state = m_state.get();
+                state = s_stateUpdater.get(this);
             }
 
             if (bytesReceived >= remaining)
@@ -515,7 +517,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                 assert( (state & CLOSE) == 0 );
                 int newState = (state | CLOSE);
 
-                if (m_state.compareAndSet(state, newState))
+                if (s_stateUpdater.compareAndSet(this, state, newState))
                 {
                     if (s_logger.isLoggable(Level.FINER))
                     {
@@ -526,7 +528,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                     state = newState;
                     break;
                 }
-                state = m_state.get();
+                state = s_stateUpdater.get(this);
             }
 
             m_collider.executeInSelectorThreadNoWakeup( m_suspender );
@@ -637,7 +639,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         */
         for (;;)
         {
-            final int state = m_state.get();
+            final int state = s_stateUpdater.get(this);
             assert( (state & STOP) == 0 );
 
             if ((state & CLOSE) != 0)
@@ -651,7 +653,7 @@ class SocketChannelReader extends ThreadPool.Runnable
             if ((state & LENGTH_MASK) >= m_forwardReadMaxSize)
             {
                 final int newState = (state | CLOSE);
-                if (m_state.compareAndSet(state, newState))
+                if (s_stateUpdater.compareAndSet(this, state, newState))
                 {
                     if (s_logger.isLoggable(Level.FINER))
                     {
@@ -666,7 +668,7 @@ class SocketChannelReader extends ThreadPool.Runnable
             else
             {
                 final int newState = (state | STOP);
-                if (m_state.compareAndSet(state, newState))
+                if (s_stateUpdater.compareAndSet(this, state, newState))
                 {
                     if (s_logger.isLoggable(Level.FINER))
                     {
