@@ -51,7 +51,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         }
     }
 
-    private class Suspender extends ColliderImpl.SelectorThreadRunnable
+    private static class Suspender extends ColliderImpl.SelectorThreadRunnable
     {
         public int runInSelectorThread()
         {
@@ -229,6 +229,8 @@ class SocketChannelReader extends ThreadPool.Runnable
     private static final AtomicIntegerFieldUpdater<SocketChannelReader>
         s_stateUpdater = AtomicIntegerFieldUpdater.newUpdater(SocketChannelReader.class, "m_state");
 
+    private static final Suspender s_suspender = new Suspender();
+
     private static final DummyListener s_dummyListener = new DummyListener();
 
     private static final int LENGTH_MASK = 0x0FFFFFFF;
@@ -247,7 +249,6 @@ class SocketChannelReader extends ThreadPool.Runnable
 
     private final Starter0 m_starter0;
     private final Starter1 m_starter1;
-    private final Suspender m_suspender;
     private final ByteBuffer [] m_iov;
     private volatile int m_state;
     private RetainableDataBlock m_head;
@@ -379,7 +380,6 @@ class SocketChannelReader extends ThreadPool.Runnable
         m_closeListener = sessionListener;
         m_starter0 = new Starter0();
         m_starter1 = new Starter1();
-        m_suspender = new Suspender();
         m_iov = new ByteBuffer[2];
         m_head = m_dataBlockCache.get(2);
         m_tail = m_head;
@@ -500,9 +500,9 @@ class SocketChannelReader extends ThreadPool.Runnable
 
             final int length = (state & LENGTH_MASK);
             if (length < m_forwardReadMaxSize)
-                m_collider.executeInSelectorThreadNoWakeup( m_starter1 );
+                m_collider.executeInSelectorThreadNoWakeup(m_starter1);
             else
-                m_collider.executeInSelectorThreadNoWakeup( m_suspender );
+                m_collider.executeInSelectorThreadNoWakeup(s_suspender);
 
             if (length == bytesReceived)
             {
@@ -531,7 +531,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                 state = s_stateUpdater.get(this);
             }
 
-            m_collider.executeInSelectorThreadNoWakeup( m_suspender );
+            m_collider.executeInSelectorThreadNoWakeup(s_suspender);
             if ((state & STOP) == 0)
                 m_session.handleReaderStopped();
 
