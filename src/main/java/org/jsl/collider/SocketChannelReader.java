@@ -92,8 +92,8 @@ class SocketChannelReader extends ThreadPool.Runnable
                 for (;;)
                 {
                     final int state = s_stateUpdater.get(SocketChannelReader.this);
-                    assert( (state & STOP) != 0 );
-                    assert( (state & CLOSE) == 0 );
+                    assert((state & STOP) != 0);
+                    assert((state & CLOSE) == 0);
 
                     final int newState = (state | CLOSE);
                     if (s_stateUpdater.compareAndSet(SocketChannelReader.this, state, newState))
@@ -103,11 +103,11 @@ class SocketChannelReader extends ThreadPool.Runnable
                             s_logger.finer(
                                     m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
                                     ": " + stateToString(state) + " -> " + stateToString(newState) +
-                                    ": " + m_waits + " waits" );
+                                    ": " + m_waits + " waits");
                         }
 
                         if ((newState & LENGTH_MASK) == 0)
-                            m_collider.executeInThreadPool( new CloseNotifier() );
+                            m_collider.executeInThreadPool(new CloseNotifier());
 
                         m_selectionKey.interestOps( interestOps - SelectionKey.OP_READ );
                         m_selectionKey = null;
@@ -229,8 +229,6 @@ class SocketChannelReader extends ThreadPool.Runnable
     private static final AtomicIntegerFieldUpdater<SocketChannelReader>
         s_stateUpdater = AtomicIntegerFieldUpdater.newUpdater(SocketChannelReader.class, "m_state");
 
-    private static final Suspender s_suspender = new Suspender();
-
     private static final DummyListener s_dummyListener = new DummyListener();
 
     private static final int LENGTH_MASK = 0x0FFFFFFF;
@@ -249,6 +247,7 @@ class SocketChannelReader extends ThreadPool.Runnable
 
     private final Starter0 m_starter0;
     private final Starter1 m_starter1;
+    private final Suspender m_suspender;
     private final ByteBuffer [] m_iov;
     private volatile int m_state;
     private RetainableDataBlock m_head;
@@ -380,6 +379,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         m_closeListener = sessionListener;
         m_starter0 = new Starter0();
         m_starter1 = new Starter1();
+        m_suspender = new Suspender();
         m_iov = new ByteBuffer[2];
         m_head = m_dataBlockCache.get(2);
         m_tail = m_head;
@@ -391,7 +391,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         {
             s_logger.fine(
                     m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                    ": reads=" + m_statReads + " handleData=" + m_statHandleData );
+                    ": reads=" + m_statReads + " handleData=" + m_statHandleData);
         }
     }
 
@@ -502,7 +502,7 @@ class SocketChannelReader extends ThreadPool.Runnable
             if (length < m_forwardReadMaxSize)
                 m_collider.executeInSelectorThreadNoWakeup(m_starter1);
             else
-                m_collider.executeInSelectorThreadNoWakeup(s_suspender);
+                m_collider.executeInSelectorThreadNoWakeup(m_suspender);
 
             if (length == bytesReceived)
             {
@@ -514,7 +514,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         {
             for (;;)
             {
-                assert( (state & CLOSE) == 0 );
+                assert((state & CLOSE) == 0);
                 int newState = (state | CLOSE);
 
                 if (s_stateUpdater.compareAndSet(this, state, newState))
@@ -523,7 +523,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                     {
                         s_logger.finer(
                                 m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                                ": " + stateToString(state) + " -> " + stateToString(newState));
                     }
                     state = newState;
                     break;
@@ -531,7 +531,7 @@ class SocketChannelReader extends ThreadPool.Runnable
                 state = s_stateUpdater.get(this);
             }
 
-            m_collider.executeInSelectorThreadNoWakeup(s_suspender);
+            m_collider.executeInSelectorThreadNoWakeup( m_suspender );
             if ((state & STOP) == 0)
                 m_session.handleReaderStopped();
 
@@ -549,7 +549,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         }
     }
 
-    public final Session.Listener replaceListener( Session.Listener newListener )
+    public final Session.Listener replaceListener(Session.Listener newListener)
     {
         /* Supposed to be called from the SessionListener.onDataReceived() trace only,
          * but keep in mind Session.closeConnection() can be called any time.
@@ -571,7 +571,7 @@ class SocketChannelReader extends ThreadPool.Runnable
 
                 if (s_dataListenerUpdater.compareAndSet(this, dataListener, newListener))
                 {
-                    assert( m_closeListener == dataListener );
+                    assert(m_closeListener == dataListener);
                     m_closeListener = newListener;
                     return dataListener;
                 }
@@ -640,7 +640,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         for (;;)
         {
             final int state = s_stateUpdater.get(this);
-            assert( (state & STOP) == 0 );
+            assert((state & STOP) == 0);
 
             if ((state & CLOSE) != 0)
             {
@@ -659,9 +659,9 @@ class SocketChannelReader extends ThreadPool.Runnable
                     {
                         s_logger.finer(
                                 m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                ": " + stateToString(state) + " -> " + stateToString(newState) + "." );
+                                ": " + stateToString(state) + " -> " + stateToString(newState));
                     }
-                    m_session.releaseSocket( "SocketChannelReader.stop()" );
+                    m_session.releaseSocket("SocketChannelReader.stop()");
                     break;
                 }
             }
@@ -674,9 +674,9 @@ class SocketChannelReader extends ThreadPool.Runnable
                     {
                         s_logger.finer(
                                 m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                                ": " + stateToString(state) + " -> " + stateToString(newState) );
+                                ": " + stateToString(state) + " -> " + stateToString(newState));
                     }
-                    m_collider.executeInSelectorThread( new Stopper() );
+                    m_collider.executeInSelectorThread(new Stopper());
                     break;
                 }
             }
@@ -690,7 +690,7 @@ class SocketChannelReader extends ThreadPool.Runnable
         for (;;)
         {
             final Session.Listener dataListener = m_dataListener;
-            assert( dataListener != s_dummyListener );
+            assert(dataListener != s_dummyListener);
             if (s_dataListenerUpdater.compareAndSet(this, dataListener, s_dummyListener))
                 break;
         }
