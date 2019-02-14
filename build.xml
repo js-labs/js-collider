@@ -108,6 +108,10 @@
         <run-test/>
     </target>
 
+    <target name="test.msg_size_eq_block_size" depends="compile_tests">
+        <run-test/>
+    </target>
+
     <target name="test.pubsub" depends="compile_tests">
         <run-test/>
     </target>
@@ -168,6 +172,7 @@
                      test.echo_latency,
                      test.echo_throughput,
                      test.message_queue,
+                     test.msg_size_eq_block_size,
                      test.recv_throughput,
                      test.remove_acceptor,
                      test.session_latency,

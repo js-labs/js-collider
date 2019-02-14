@@ -128,15 +128,17 @@ class SocketChannelReader extends ThreadPool.Runnable
             m_closeListener.onConnectionClosed();
             logStats();
 
-            assert( m_head == m_tail );
-            if (m_tail.next != null)
-            {
-                m_tail.next.release();
-                m_tail.next = null;
-            }
-            m_tail.release();
-            m_head = null;
-            m_tail = null;
+            // Possible queue states here are:
+            // 1 block: (m_head == m_tail)
+            // 2 blocks: (m_head is empty) && (m_head != m_tail) && (m_head.next == m_tail) && (m_tail.next == null)
+            //           (m_head is not empty) && (m_head == m_tail) && (m_tail.next != null)
+            // 3 blocks: (m_head is empty) && (m_head != m_tail) && (m_head.next == m_tail) && (m_tail.next != null)
+
+            assert((m_head == m_tail) ||
+                   ((m_head.rd.position() < m_head.rd.capacity()) && (m_head == m_tail) && (m_tail.next != null)) ||
+                   ((m_head.rd.position() == m_head.rd.capacity()) && (m_head != m_tail) && (m_head.next == m_tail)));
+
+            resetQueue();
         }
     }
 
@@ -249,12 +251,33 @@ class SocketChannelReader extends ThreadPool.Runnable
     private final Starter1 m_starter1;
     private final Suspender m_suspender;
     private final ByteBuffer [] m_iov;
+
+    // We could reduce contention on the 'm_state' moving it
+    // into RetainableDataBlock, but in this case we will not
+    // be able to implement properly <forward read max size> feature.
     private volatile int m_state;
+
     private RetainableDataBlock m_head;
     private RetainableDataBlock m_tail;
 
     private int m_statReads;
     private int m_statHandleData;
+
+    private void resetQueue()
+    {
+        RetainableDataBlock dataBlock = m_head;
+        for (;;)
+        {
+            final RetainableDataBlock next = dataBlock.next;
+            dataBlock.next = null;
+            dataBlock.release();
+            if (next == null)
+                break;
+            dataBlock = next;
+        }
+        m_head = null;
+        m_tail = null;
+    }
 
     private void handleData( int state )
     {
@@ -273,8 +296,8 @@ class SocketChannelReader extends ThreadPool.Runnable
                 m_head = next;
                 rd = m_head.rd;
                 blockSize = rd.capacity();
-                assert(rd.position() == 0);
-                pos = 0;
+                pos = rd.position();
+                assert(pos == 0);
             }
 
             int bytesRemaining = bytesReady;
@@ -304,15 +327,14 @@ class SocketChannelReader extends ThreadPool.Runnable
                 m_head = next;
                 rd = m_head.rd;
                 blockSize = rd.capacity();
-                assert(rd.position() == 0);
-                pos = 0;
+                pos = rd.position();
+                assert(pos == 0);
             }
 
             for (;;)
             {
-                assert( (state & LENGTH_MASK) >= bytesReady );
-                int newState = state;
-                newState -= bytesReady;
+                assert((state & LENGTH_MASK) >= bytesReady);
+                int newState = (state - bytesReady);
 
                 if ((newState & LENGTH_MASK) == 0)
                 {
@@ -328,15 +350,17 @@ class SocketChannelReader extends ThreadPool.Runnable
                             m_closeListener.onConnectionClosed();
                             logStats();
 
-                            assert( m_head == m_tail );
-                            if (m_tail.next != null)
-                            {
-                                m_tail.next.release();
-                                m_tail.next = null;
-                            }
-                            m_tail.release();
-                            m_head = null;
-                            m_tail = null;
+                            // Possible queue states here are:
+                            // 1 block:  (m_head == m_tail)
+                            // 2 blocks: (m_head is not empty) && (m_head == m_tail) && (m_tail.next != null)
+                            // 3 blocks: (m_head is empty) && (m_head != m_tail) &&
+                            //           (m_head.next == m_tail) && (m_tail.next != null),
+
+                            assert((m_head == m_tail) ||
+                                   ((m_head.rd.position() < m_head.rd.capacity()) && (m_head == m_tail) && (m_tail.next != null)) ||
+                                   ((m_head.rd.position() == m_head.rd.capacity()) && (m_head != m_tail) && (m_head.next == m_tail)));
+
+                            resetQueue();
                         }
                         break handleDataLoop;
                     }
@@ -400,20 +424,31 @@ class SocketChannelReader extends ThreadPool.Runnable
         /* In a case if the queue is empty
          * we could try to reuse data blocks from the beginning.
          */
+        /*
         if ((s_stateUpdater.get(this) & LENGTH_MASK) == 0)
         {
-            assert( m_head == m_tail );
-            m_tail.clearSafe();
+            // Can try to reuse all blocks we have in the queue
+            RetainableDataBlock next;
+            for (;;)
+            {
+                final boolean reuse = m_head.clearSafe();
+                next = m_head.next;
+                if (reuse)
+                    break;
+                m_head.release();
+                m_head = next;
+            }
         }
+        */
 
         /* Always read 2 data blocks */
         int remaining = m_tail.wr.remaining();
         if (remaining == 0)
         {
-            assert( m_tail.next == null );
-            remaining = m_dataBlockCache.getBlockSize();
+            assert(m_tail.next == null);
             m_tail.next = m_dataBlockCache.get(2);
             m_tail = m_tail.next;
+            remaining = m_tail.wr.remaining();
             assert(remaining == m_tail.wr.capacity());
         }
         else
@@ -473,13 +508,21 @@ class SocketChannelReader extends ThreadPool.Runnable
         int state = s_stateUpdater.get(this);
         if (bytesReceived > 0)
         {
+            if (bytesReceived >= remaining)
+            {
+                // m_tail must be updated before m_state
+                assert(m_tail.next != null);
+                assert(m_tail.wr.position() == m_tail.wr.capacity());
+                m_tail = m_tail.next;
+            }
+
             for (;;)
             {
                 int newState = state;
                 newState &= LENGTH_MASK;
                 newState += bytesReceived;
 
-                assert( newState < LENGTH_MASK );
+                assert(newState < LENGTH_MASK);
                 newState |= (state & ~LENGTH_MASK);
 
                 if (s_stateUpdater.compareAndSet(this, state, newState))
@@ -491,22 +534,20 @@ class SocketChannelReader extends ThreadPool.Runnable
                 state = s_stateUpdater.get(this);
             }
 
-            if (bytesReceived >= remaining)
-            {
-                assert(m_tail.next != null);
-                assert(m_tail.wr.position() == m_tail.wr.capacity());
-                m_tail = m_tail.next;
-            }
+            // The tricky thing is the session can be closed at this point
 
             final int length = (state & LENGTH_MASK);
             if (length < m_forwardReadMaxSize)
                 m_collider.executeInSelectorThreadNoWakeup(m_starter1);
             else
+            {
+                assert((length - m_forwardReadMaxSize) < m_forwardReadMaxSize);
                 m_collider.executeInSelectorThreadNoWakeup(m_suspender);
+            }
 
             if (length == bytesReceived)
             {
-                handleData( state );
+                handleData(state);
                 m_statHandleData++;
             }
         }
@@ -539,12 +580,15 @@ class SocketChannelReader extends ThreadPool.Runnable
             {
                 m_closeListener.onConnectionClosed();
                 logStats();
-                assert( m_head == m_tail );
-                m_tail.next.release();
-                m_tail.next = null;
-                m_tail.release();
-                m_head = null;
-                m_tail = null;
+
+                // Possible queue states here are:
+                // 2 blocks: (m_head is not empty) && (m_head == m_tail) && (m_tail.next != null)
+                // 3 blocks: (m_head is empty) && (m_head != m_tail) && (m_head.next == m_tail) && (m_tail.next != null)
+
+                assert(((m_head.rd.position() < m_head.rd.capacity()) && (m_head == m_tail) && (m_tail.next != null)) ||
+                       ((m_head.rd.position() == m_head.rd.capacity()) && (m_head != m_tail) && (m_head.next == m_tail)));
+
+                resetQueue();
             }
         }
     }

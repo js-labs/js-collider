@@ -19,10 +19,7 @@
 
 package org.jsl.tests.session_latency;
 
-import org.jsl.collider.Acceptor;
-import org.jsl.collider.Collider;
-import org.jsl.collider.RetainableByteBuffer;
-import org.jsl.collider.Session;
+import org.jsl.collider.*;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -43,12 +40,20 @@ public class Server
     private class ServerListener implements Session.Listener
     {
         private final Session m_session;
+        private final StreamDefragger m_defragger;
         private Session m_session2;
         private int m_messages;
 
         public ServerListener( Session session )
         {
             m_session = session;
+            m_defragger = new StreamDefragger(Integer.SIZE / Byte.SIZE) {
+                @Override
+                protected int validateHeader(ByteBuffer header) {
+                    final int pos = header.position();
+                    return header.getInt(pos);
+                }
+            };
 
             for (;;)
             {
@@ -73,26 +78,25 @@ public class Server
             }
         }
 
-        public void onDataReceived( RetainableByteBuffer data )
+        public void onDataReceived(RetainableByteBuffer data)
         {
-            final int pos = data.position();
-            final int bytesReceived = data.remaining();
-            final int messageLength = data.getInt( pos );
-            if (bytesReceived != messageLength)
-                throw new AssertionError();
-
-            if (++m_messages < Server.this.m_messages)
+            RetainableByteBuffer msg = m_defragger.getNext(data);
+            while (msg != null)
             {
-                final RetainableByteBuffer reply = data.slice();
-                m_session2.sendData( reply );
-                reply.release();
-            }
-            else
-            {
-                m_session.sendData( m_msgStop );
-                m_session.closeConnection();
-                m_session2.sendData( m_msgStop );
-                m_session2.closeConnection();
+                if (++m_messages < Server.this.m_messages)
+                {
+                    final RetainableByteBuffer reply = msg.duplicate();
+                    m_session2.sendData(reply);
+                    reply.release();
+                }
+                else
+                {
+                    m_session.sendData(m_msgStop);
+                    m_session.closeConnection();
+                    m_session2.sendData(m_msgStop);
+                    m_session2.closeConnection();
+                }
+                msg = m_defragger.getNext();
             }
         }
 
@@ -102,6 +106,7 @@ public class Server
             final int sessionsDone = m_sessionsDone.incrementAndGet();
             if (sessionsDone == m_sessions)
                 m_session.getCollider().stop();
+            m_defragger.close();
         }
     }
 
