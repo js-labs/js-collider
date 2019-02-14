@@ -143,8 +143,9 @@ public abstract class StreamDefragger
 
                 m_buf.flip();
                 m_packetLen = validateHeader( m_buf.getNioByteBuffer() );
-                if (m_packetLen <= 0)
+                if (m_packetLen < 0)
                     return INVALID_HEADER;
+                assert(m_packetLen >= m_headerSize);
 
                 if (m_buf.capacity() < m_packetLen)
                 {
