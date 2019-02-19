@@ -85,8 +85,8 @@ public abstract class RetainableByteBuffer
     {
         for (;;)
         {
-            final int retainCount = s_retainCountUpdater.get( this );
-            assert( retainCount > 0 );
+            final int retainCount = s_retainCountUpdater.get(this);
+            assert(retainCount > 0);
             if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount+1))
                 break;
         }
@@ -96,8 +96,8 @@ public abstract class RetainableByteBuffer
     {
         for (;;)
         {
-            final int retainCount = s_retainCountUpdater.get( this );
-            assert( retainCount > 0 );
+            final int retainCount = s_retainCountUpdater.get(this);
+            assert(retainCount > 0);
             if (s_retainCountUpdater.compareAndSet(this, retainCount, retainCount-1))
             {
                 if (retainCount == 1)
@@ -111,8 +111,8 @@ public abstract class RetainableByteBuffer
     {
         for (;;)
         {
-            final int retainCount = s_retainCountUpdater.get( this );
-            assert( retainCount > 0 );
+            final int retainCount = s_retainCountUpdater.get(this);
+            assert(retainCount > 0);
 
             if (retainCount == 1)
             {
@@ -130,7 +130,8 @@ public abstract class RetainableByteBuffer
 
     public final boolean clearSafe()
     {
-        if (m_retainCount == 1)
+        final int retainCount = s_retainCountUpdater.get(this);
+        if (retainCount == 1)
         {
             /* instance has only one reference and this reference
              * and it definitely owned by the caller,
@@ -146,6 +147,7 @@ public abstract class RetainableByteBuffer
     /*
      * NIO ByteBuffer interface mimic.
      */
+
     ByteOrder order() { return m_buf.order(); }
     RetainableByteBuffer order(ByteOrder byteOrder) { m_buf.order(byteOrder); return this; }
 
