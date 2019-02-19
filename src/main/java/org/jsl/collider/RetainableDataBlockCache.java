@@ -19,6 +19,7 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -27,6 +28,7 @@ public class RetainableDataBlockCache
 {
     private final boolean m_useDirectBuffers;
     private final int m_blockSize;
+    private final ByteOrder m_byteOrder;
     private final int m_maxSize;
     private final ReentrantLock m_lock;
     private RetainableDataBlock m_dataBlock;
@@ -38,28 +40,29 @@ public class RetainableDataBlockCache
     {
         private final RetainableDataBlockCache m_cache;
 
-        public DataBlockImpl( ByteBuffer byteBuffer, RetainableDataBlockCache cache )
+        DataBlockImpl(ByteBuffer byteBuffer, RetainableDataBlockCache cache)
         {
-            super( byteBuffer );
+            super(byteBuffer);
             m_cache = cache;
         }
 
         protected void finalRelease()
         {
             reinit();
-            m_cache.put( this );
+            m_cache.put(this);
         }
     }
 
     private RetainableDataBlock createDataBlock()
     {
         final ByteBuffer byteBuffer =
-                m_useDirectBuffers ? ByteBuffer.allocateDirect( m_blockSize )
-                                   : ByteBuffer.allocate( m_blockSize );
-        return new DataBlockImpl( byteBuffer, this );
+                m_useDirectBuffers ? ByteBuffer.allocateDirect(m_blockSize)
+                                   : ByteBuffer.allocate(m_blockSize);
+        byteBuffer.order(m_byteOrder);
+        return new DataBlockImpl(byteBuffer, this);
     }
 
-    private void put( RetainableDataBlock dataBlock )
+    private void put(RetainableDataBlock dataBlock)
     {
         m_lock.lock();
         try
@@ -78,10 +81,11 @@ public class RetainableDataBlockCache
         }
     }
 
-    public RetainableDataBlockCache( boolean useDirectBuffers, int blockSize, int initialSize, int maxSize )
+    public RetainableDataBlockCache(boolean useDirectBuffers, int blockSize, ByteOrder byteOrder, int maxSize, int initialSize)
     {
         m_useDirectBuffers = useDirectBuffers;
         m_blockSize = blockSize;
+        m_byteOrder = byteOrder;
         m_maxSize = maxSize;
         m_lock = new ReentrantLock();
         m_dataBlock = null;
@@ -100,7 +104,7 @@ public class RetainableDataBlockCache
         return m_blockSize;
     }
 
-    public final RetainableDataBlock get( int cnt )
+    public final RetainableDataBlock get(int cnt)
     {
         assert( cnt >= 0 );
 
@@ -161,7 +165,7 @@ public class RetainableDataBlockCache
         return get( blocks );
     }
 
-    public final void clear( Logger logger )
+    public final void clear(Logger logger)
     {
         int size = 0;
         while (m_dataBlock != null)

@@ -20,6 +20,7 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class RetainableByteBufferCache extends ObjectCache<RetainableByteBuffer>
 {
@@ -27,35 +28,38 @@ public class RetainableByteBufferCache extends ObjectCache<RetainableByteBuffer>
     {
         private RetainableByteBufferCache m_cache;
 
-        public BufferImpl( ByteBuffer buf, RetainableByteBufferCache cache )
+        BufferImpl(ByteBuffer buf, RetainableByteBufferCache cache)
         {
-            super( buf );
+            super(buf);
             m_cache = cache;
         }
 
         protected void finalRelease()
         {
             reinit();
-            m_cache.put( this );
+            m_cache.put(this);
         }
     }
 
     private final boolean m_useDirectBuffer;
     private final int m_bufferCapacity;
+    private final ByteOrder m_byteOrder;
 
     protected BufferImpl allocateObject()
     {
-        final ByteBuffer buf =
+        final ByteBuffer byteBuffer =
                 m_useDirectBuffer
-                    ? ByteBuffer.allocateDirect( m_bufferCapacity )
-                    : ByteBuffer.allocate( m_bufferCapacity );
-        return new BufferImpl( buf, this );
+                    ? ByteBuffer.allocateDirect(m_bufferCapacity)
+                    : ByteBuffer.allocate(m_bufferCapacity);
+        byteBuffer.order(m_byteOrder);
+        return new BufferImpl(byteBuffer, this);
     }
 
-    public RetainableByteBufferCache( boolean useDirectBuffer, int bufferCapacity, int size )
+    public RetainableByteBufferCache(boolean useDirectBuffer, int bufferCapacity, ByteOrder byteOrder, int size)
     {
-        super( RetainableByteBufferCache.class.getSimpleName() + "-" + bufferCapacity, new RetainableByteBuffer[size] );
+        super(RetainableByteBufferCache.class.getSimpleName() + "-" + bufferCapacity, new RetainableByteBuffer[size]);
         m_useDirectBuffer = useDirectBuffer;
         m_bufferCapacity = bufferCapacity;
+        m_byteOrder = byteOrder;
     }
 }

@@ -230,15 +230,16 @@ class ColliderImpl extends Collider
         m_lock.lock();
         try
         {
-            RetainableDataBlockCache cache = m_dataBlockCache.get( inputQueueBlockSize );
+            RetainableDataBlockCache cache = m_dataBlockCache.get(inputQueueBlockSize);
             if (cache == null)
             {
                 cache = new RetainableDataBlockCache(
                             config.useDirectBuffers,
                             inputQueueBlockSize,
-                            8 /* initial size */,
-                            config.inputQueueCacheMaxSize );
-                m_dataBlockCache.put( inputQueueBlockSize, cache );
+                            config.byteOrder,
+                            config.inputQueueCacheMaxSize,
+                            /*initial size*/8);
+                m_dataBlockCache.put(inputQueueBlockSize, cache);
             }
 
             RetainableByteBufferPool joinPool = null;
@@ -717,15 +718,16 @@ class ColliderImpl extends Collider
         m_lock.lock();
         try
         {
-            dataBlockCache = m_dataBlockCache.get( inputQueueBlockSize );
+            dataBlockCache = m_dataBlockCache.get(inputQueueBlockSize);
             if (dataBlockCache == null)
             {
                 dataBlockCache = new RetainableDataBlockCache(
                         config.useDirectBuffers,
                         inputQueueBlockSize,
-                        4 /* initial size */,
-                        config.inputQueueCacheMaxSize );
-                m_dataBlockCache.put( inputQueueBlockSize, dataBlockCache );
+                        config.byteOrder,
+                        config.inputQueueCacheMaxSize,
+                        /*initial size*/4);
+                m_dataBlockCache.put(inputQueueBlockSize, dataBlockCache);
             }
         }
         finally
@@ -734,7 +736,7 @@ class ColliderImpl extends Collider
         }
 
         DatagramListenerImpl datagramListenerImpl = new DatagramListenerImpl(
-                this, m_selector, dataBlockCache, datagramListener, datagramChannel, membershipKey );
+                this, m_selector, dataBlockCache, datagramListener, datagramChannel, membershipKey);
 
         IOException ex = null;
 

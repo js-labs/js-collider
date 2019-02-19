@@ -20,6 +20,7 @@
 package org.jsl.collider;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 
 public abstract class RetainableByteBuffer
@@ -34,9 +35,9 @@ public abstract class RetainableByteBuffer
     {
         private final RetainableByteBuffer m_parent;
 
-        public Slice( ByteBuffer byteBuffer, RetainableByteBuffer parent )
+        Slice(ByteBuffer byteBuffer, RetainableByteBuffer parent)
         {
-            super( byteBuffer );
+            super(byteBuffer);
             m_parent = parent;
         }
 
@@ -48,9 +49,9 @@ public abstract class RetainableByteBuffer
 
     private static class Impl extends RetainableByteBufferImpl
     {
-        public Impl( ByteBuffer byteBuffer )
+        Impl(ByteBuffer byteBuffer)
         {
-            super( byteBuffer );
+            super(byteBuffer);
         }
 
         protected void finalRelease()
@@ -65,14 +66,14 @@ public abstract class RetainableByteBuffer
     {
         /* To be called by derived class if instance going to be reused */
         m_buf.clear();
-        assert( s_retainCountUpdater.get(this) == 0 );
-        s_retainCountUpdater.lazySet( this, 1 );
+        assert(s_retainCountUpdater.get(this) == 0);
+        s_retainCountUpdater.lazySet(this, 1);
     }
 
-    protected RetainableByteBuffer( ByteBuffer buf )
+    protected RetainableByteBuffer(ByteBuffer buf)
     {
         m_buf = buf;
-        s_retainCountUpdater.lazySet( this, 1 );
+        s_retainCountUpdater.lazySet(this, 1);
     }
 
     public final ByteBuffer getNioByteBuffer()
@@ -145,6 +146,8 @@ public abstract class RetainableByteBuffer
     /*
      * NIO ByteBuffer interface mimic.
      */
+    ByteOrder order() { return m_buf.order(); }
+    RetainableByteBuffer order(ByteOrder byteOrder) { m_buf.order(byteOrder); return this; }
 
     public abstract int capacity();
     public abstract RetainableByteBuffer clear();
@@ -152,7 +155,7 @@ public abstract class RetainableByteBuffer
     public final RetainableByteBuffer duplicate()
     {
         retain();
-        return new Slice( m_buf.duplicate(), this );
+        return new Slice(m_buf.duplicate(), this);
     }
 
     public abstract RetainableByteBuffer flip();
@@ -178,7 +181,7 @@ public abstract class RetainableByteBuffer
     public final RetainableByteBuffer slice()
     {
         retain();
-        return new Slice( m_buf.slice(), this );
+        return new Slice(m_buf.slice(), this);
     }
 
     public abstract byte get( int index );
