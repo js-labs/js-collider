@@ -121,7 +121,7 @@ public class ThreadPool
 
             /* Schmidt D. algorithm suitable for the garbage collector
              * environment can not be used here because the same Runnable
-             * can be scheduled multiple times (to avoid useless object allocation).
+             * can be scheduled multiple times (to reduce GC pressure).
              */
 
             if (runnable == LOCK)
