@@ -269,7 +269,8 @@ class ColliderImpl extends Collider
                     final int joinPoolChunkSize = socketSendBufferSize * 2;
 
                     /* For the join pool byte order does not matter */
-                    m_joinPool = new RetainableByteBufferPool( joinPoolChunkSize, useDirectBuffers, ByteOrder.nativeOrder() );
+                    m_joinPool = new RetainableByteBufferPool(joinPoolChunkSize,
+                            useDirectBuffers, ByteOrder.nativeOrder(), 16, 2);
                 }
                 joinPool = m_joinPool;
             }
@@ -494,6 +495,9 @@ class ColliderImpl extends Collider
         for (Map.Entry<Integer, RetainableDataBlockCache> me : m_dataBlockCache.entrySet())
             me.getValue().clear( s_logger );
         m_dataBlockCache.clear();
+
+        if (m_joinPool != null)
+            m_joinPool.release( s_logger );
 
         if (s_logger.isLoggable(Level.FINE))
             s_logger.fine( "finish (" + statLoopIt + ", " + statLoopReadersG0 + ")." );
