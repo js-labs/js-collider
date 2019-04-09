@@ -31,8 +31,9 @@ public interface Session
          * Executed serially in a one thread, but not necessary always the same.
          * Position in the byte buffer can be greater than 0,
          * limit can be less than capacity.
+         * @param data the data received from the related socket
          */
-        public abstract void onDataReceived( RetainableByteBuffer data );
+        public abstract void onDataReceived(RetainableByteBuffer data);
 
         /**
          * Called by framework when underlying socket channel
@@ -42,17 +43,17 @@ public interface Session
     }
 
     /**
-     * Returns Collider instance the session is linked with.
+     * @return Collider instance the session is linked with.
      */
     public Collider getCollider();
 
     /**
-     * Returns local socket address of the session.
+     * @return local socket address of the session.
      */
     public SocketAddress getLocalAddress();
 
     /**
-     * Returns remote socket address of the session.
+     * @return remote socket address of the session.
      */
     public SocketAddress getRemoteAddress();
 
@@ -62,8 +63,9 @@ public interface Session
      * (even it's attributes like a position, limit etc)
      * so the buffer can be reused to send the same data
      * to the different sessions.
-     * @return >=0 - byte buffer is retained by the framework, will be sent as soon as possible
-     *          -1 - the session is closed
+     * @param data byte buffer with data to send
+     * @return value greater than 0 if byte buffer is retained by the framework,
+     * (data will be sent as soon as possible), or less than 0 if the session is closed.
      */
     public int sendData( ByteBuffer data );
     public int sendData( RetainableByteBuffer data );
@@ -72,9 +74,10 @@ public interface Session
      * Method makes an attempt to write data synchronously to the underlying socket channel.
      * It can happen if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
      * Otherwise data will sent as <em>sendData</em> would be called.
-     * @return  0 - data written to socket, byte buffer can be reused
-     *         >0 - byte buffer is retained by the framework, will be sent as soon as possible
-     *         -1 - the session is closed
+     * @param data byte buffer with data to send
+     * @return 0 if data has been written to the socket and byte buffer can be reused,
+     * greater than 0 if byte buffer is retained by the framework, will be sent as soon as possible,
+     * less than 0 if session is closed.
      */
     public int sendDataSync( ByteBuffer data );
 
@@ -87,8 +90,8 @@ public interface Session
      * will be called after all received data will be processed.
      * All further <em>sendData</em>, <em>sendDataAsync</em> and
      * <em>closeConnection</em> calls will return -1.
-     * @return >0 - amount of data waiting to be sent
-     *         <0 - session already closed and has no data to be sent
+     * @return less than 0 if session already has been closed,
+     * otherwise amount of data waiting to be sent.
      */
     public int closeConnection();
 
@@ -97,8 +100,10 @@ public interface Session
      * Supposed to be called only from the <tt>onDataReceived()</tt> callback.
      * Calling it not from the <tt>onDataReceived</tt> callback will result
      * in undefined behaviour.
+     * @param newListener the new listener to be used for the session
+     * @return the previous listener was used to the session
      */
-    public Listener replaceListener( Listener newListener );
+    public Listener replaceListener(Listener newListener);
 
-    public int accelerate( ShMem shMem, ByteBuffer message );
+    public int accelerate(ShMem shMem, ByteBuffer message);
 }

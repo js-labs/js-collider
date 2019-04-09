@@ -24,9 +24,9 @@ import java.net.InetSocketAddress;
 
 public abstract class Connector extends SessionEmitter
 {
-    public Connector( InetSocketAddress addr )
+    public Connector(InetSocketAddress addr)
     {
-        super( addr );
+        super(addr);
     }
 
     /**
@@ -35,11 +35,12 @@ public abstract class Connector extends SessionEmitter
      * Connection will be closed if returns <tt>null</tt>, but any data
      * scheduled with <tt>sendData</tt> call before return will be sent.
      */
-    public abstract Session.Listener createSessionListener( Session session );
+    public abstract Session.Listener createSessionListener(Session session);
 
     /**
      * Called by framework in a case if asynchronous operation
      * with underlying socket channel throws some exception.
+     * @param ex An exception thrown by asynchronous I/O operation
      */
-    public abstract void onException( IOException ex );
+    public abstract void onException(IOException ex);
 }

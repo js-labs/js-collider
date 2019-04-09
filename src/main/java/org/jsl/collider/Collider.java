@@ -103,27 +103,34 @@ public abstract class Collider
     public abstract void stop();
 
     /**
-     * Adds an <tt>Acceptor</tt> to the collider.
+     * Adds an <tt>Acceptor</tt> to the collider. User supposed to extend {@link Acceptor}
+     * class with handlers to be called by the collider when it will be ready to accept
+     * inbound socket connections and when new inbound socket connection appears.
      * Additionally to the server socket exceptions
      * throws an IOException in a case if collider already stopped.
+     * @param acceptor The acceptor instance to add
+     * @throws IOException if collider failed to create accepting socket or collider already stopped
      */
-    public abstract void addAcceptor( Acceptor acceptor ) throws IOException;
+    public abstract void addAcceptor(Acceptor acceptor) throws IOException;
 
     /**
      * Removes the <tt>Acceptor</tt> from the collider.
-     * On return guarantees that no one thread runs
+     * On return guarantees no one thread runs
      * <tt>Acceptor.onAcceptorStarted</tt> or <tt>Acceptor.createSessionListener</tt>.
+     * @param acceptor The acceptor instance to remove
+     * @throws InterruptedException if thread was interrupted on wait
      */
-    public abstract void removeAcceptor( Acceptor acceptor ) throws InterruptedException;
+    public abstract void removeAcceptor(Acceptor acceptor) throws InterruptedException;
 
     /**
      * Adds <tt>Connector</tt> to the collider.
      * Operation is asynchronous, socket operations can throw an exception,
      * Connector.onException will be called in this case in the collider thread pool,
      * better to handle it properly.
+     * @param connector The connector instance to add
      */
-    public abstract void addConnector( Connector connector );
-    public abstract void removeConnector( Connector connector ) throws InterruptedException;
+    public abstract void addConnector(Connector connector);
+    public abstract void removeConnector(Connector connector) throws InterruptedException;
 
     public abstract void addDatagramListener(
             DatagramListener datagramListener ) throws IOException;
@@ -139,14 +146,16 @@ public abstract class Collider
 
     /**
      * Create a Collider instance with default configuration.
+     * @return a new collider instance
+     * @throws IOException if selector I/O error occurs
      */
     public static Collider create() throws IOException
     {
-        return create( new Config() );
+        return create(new Config());
     }
 
-    public static Collider create( Config config ) throws IOException
+    public static Collider create(Config config) throws IOException
     {
-        return new ColliderImpl( config );
+        return new ColliderImpl(config);
     }
 }

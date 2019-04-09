@@ -22,7 +22,6 @@ package org.jsl.collider;
 import java.net.InetSocketAddress;
 import java.nio.ByteOrder;
 
-
 public abstract class SessionEmitter
 {
     private final InetSocketAddress m_addr;
@@ -75,6 +74,8 @@ public abstract class SessionEmitter
      * Called by framework to create session listener instance.
      * See <tt>Acceptor.createSessionListener</tt> and
      * <tt>Connector.createSessionListener</tt> for detailed description.
+     * @param session session the listener will be used for
+     * @return A listener object for the given session
      */
-    public abstract Session.Listener createSessionListener( Session session );
+    public abstract Session.Listener createSessionListener(Session session);
 }

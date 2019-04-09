@@ -24,7 +24,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class DataBlockCache
+class DataBlockCache
 {
     private final boolean m_useDirectBuffers;
     private final int m_blockSize;

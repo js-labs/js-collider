@@ -250,8 +250,9 @@ public class TimerQueue extends ThreadPool.Runnable
 
     /**
      * Public methods
+     * @param threadPool the thread pool to execute timer tasks in.
      */
-    public TimerQueue( ThreadPool threadPool )
+    public TimerQueue(ThreadPool threadPool)
     {
         m_threadPool = threadPool;
         m_lock = new ReentrantLock();
@@ -262,8 +263,12 @@ public class TimerQueue extends ThreadPool.Runnable
 
     /**
      * Schedules the specified task for execution after the specified delay.
+     * @param task the task to be executed
+     * @param delay the time to wait
+     * @param unit the time unot of the {@code delay} argument
+     * @return less than 0 if task already registered, 0 if task scheduled
      */
-    public int schedule( Task task, long delay, TimeUnit unit )
+    public int schedule(Task task, long delay, TimeUnit unit)
     {
         m_lock.lock();
         try
@@ -322,8 +327,12 @@ public class TimerQueue extends ThreadPool.Runnable
      * Cancel timer,
      * waits if timer is being firing at the moment,
      * so it guarantees that timer handler is not executed on return.
+     * @param task the task to cancel
+     * @return less than 0 if timer task was not registered or timer already fired,
+     * greater than 0 if task removed before the timer fired.
+     * @throws InterruptedException if thread interrupted on wait
      */
-    public int cancel( Task task ) throws InterruptedException
+    public int cancel(Task task) throws InterruptedException
     {
         m_lock.lock();
         try
@@ -384,11 +393,12 @@ public class TimerQueue extends ThreadPool.Runnable
     }
 
     /**
-     * Cancel timer,
-     * do not wait if the task is being executed at that moment,
-     * return > 0 in this case.
+     * Cancel timer, do not wait if the task is being executed at that moment.
+     * @param task the task to cancel
+     * @return less than 0 if task not registered, 0 if timer task canceled,
+     * greater than 0 if timer task was executed at the call.
      */
-    public int cancelNoWait( Task task )
+    public int cancelNoWait(Task task)
     {
         m_lock.lock();
         try

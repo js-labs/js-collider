@@ -218,8 +218,9 @@ public class MessageQueue
     }
 
     /**
+     * @param msg the buffer to append
      * @return ByteBuffer instance to be processed (queue was empty),
-     * or <null> if queue was not empty.
+     * or {@code null} if queue was not empty.
      */
     public final ByteBuffer putAndGet( ByteBuffer msg )
     {
@@ -265,7 +266,7 @@ public class MessageQueue
 
     /**
      * @return next data block to be processed,
-     * or <null> if queue become empty.
+     * or {@code null} if queue become empty.
      */
     public final ByteBuffer getNext()
     {

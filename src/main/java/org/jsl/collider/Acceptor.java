@@ -21,6 +21,11 @@ package org.jsl.collider;
 
 import java.net.InetSocketAddress;
 
+/**
+ * {@code Acceptor} is used to accepot inbound socket connections.
+ * See {@link Collider} for details.
+ */
+
 public abstract class Acceptor extends SessionEmitter
 {
     public Acceptor()
@@ -35,10 +40,10 @@ public abstract class Acceptor extends SessionEmitter
 
     /**
      * Called by the framework to create <tt>Session.Listener</tt> instance
-     * to be linked with the session. METHOD IS NOT [MT] SAFE,
+     * to be linked with the session and underlying socket. METHOD IS NOT [MT] SAFE,
      * can be executed concurrently in a number of threads.
      * Connection and underlying socket will be closed if returns <tt>null</tt>,
-     * but any data scheduled with <tt>sendData</tt> call before return will be sent.
+     * but any data scheduled with <tt>sendData</tt> still will be sent.
      */
     public abstract Session.Listener createSessionListener(Session session);
 
