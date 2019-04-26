@@ -21,7 +21,7 @@ package org.jsl.collider;
 
 import java.nio.ByteBuffer;
 
-class DataBlock
+public class DataBlock
 {
     public DataBlock next;
     public final ByteBuffer wr;
