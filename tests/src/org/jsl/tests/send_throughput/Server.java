@@ -33,8 +33,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Server
 {
-    private final Client m_client;
-    private final int m_socketBufferSize;
     private final Semaphore m_semStart;
     private final AtomicInteger m_sessionsConnected;
     private final AtomicInteger m_sessionsReady;
@@ -47,19 +45,19 @@ public class Server
     {
         private Session m_session;
 
-        public ServerListener( Session session )
+        public ServerListener(Session session)
         {
             m_session = session;
-            System.out.println( "Connection accepted from " + session.getRemoteAddress() );
+            System.out.println("Connection accepted from " + session.getRemoteAddress());
         }
 
-        public void onDataReceived( RetainableByteBuffer data )
+        public void onDataReceived(RetainableByteBuffer data)
         {
             /* We expect only one small message from the client,
              * does not make a sense to handle possible fragmentation.
              */
             if (data.remaining() == 0)
-                throw new RuntimeException( "zero ByteBuffer" );
+                throw new RuntimeException("zero ByteBuffer");
 
             data.getInt(); // skip packet length
             final int sessionsExpected = data.getInt();
@@ -81,7 +79,7 @@ public class Server
             else
                 while (m_sender == null);
 
-            m_sender[sessions] = new Sender( m_session );
+            m_sender[sessions] = new Sender(m_session);
             m_sender[sessions].start();
 
             sessions = m_sessionsReady.incrementAndGet();
@@ -93,7 +91,7 @@ public class Server
         {
             System.out.println(
                     m_session.getLocalAddress() + " -> " + m_session.getRemoteAddress() +
-                    ": connection closed." );
+                    ": connection closed.");
         }
     }
 
@@ -101,7 +99,7 @@ public class Server
     {
         private final Session m_session;
 
-        public Sender( Session session )
+        Sender(Session session)
         {
             m_session = session;
         }
@@ -119,7 +117,7 @@ public class Server
 
             System.out.println(
                     "Sent " + m_messages + " messages at " +
-                    Util.formatDelay(startTime, endTime) + " sec." );
+                    Util.formatDelay(startTime, endTime) + " sec.");
 
             m_session.closeConnection();
             final int sessions = m_sessionsDone.decrementAndGet();
@@ -130,48 +128,62 @@ public class Server
 
     private class TestAcceptor extends Acceptor
     {
-        public TestAcceptor()
+        private final Client m_client;
+
+        public TestAcceptor(int port, int socketBufferSize, Client client)
         {
-            super( new InetSocketAddress(0) );
-            tcpNoDelay = true;
-            socketSendBufSize = m_socketBufferSize;
+            super(new InetSocketAddress(port));
+            this.tcpNoDelay = true;
+            this.socketSendBufSize = socketBufferSize;
+            this.m_client = client;
         }
 
-        public void onAcceptorStarted( Collider collider, int localPort )
+        public void onAcceptorStarted(Collider collider, int localPort)
         {
             System.out.println( "Server started at port " + localPort );
             if (m_client != null)
-                m_client.start( new InetSocketAddress("localhost", localPort) );
+                m_client.start(new InetSocketAddress("localhost", localPort));
         }
 
-        public Session.Listener createSessionListener( Session session )
+        public Session.Listener createSessionListener(Session session)
         {
-            return new ServerListener( session );
+            return new ServerListener(session);
         }
     }
 
-    public Server( Client client, int socketBufferSize )
+    public Server()
     {
-        m_client = client;
-        m_socketBufferSize = socketBufferSize;
         m_semStart = new Semaphore(0);
         m_sessionsConnected = new AtomicInteger();
         m_sessionsReady = new AtomicInteger();
         m_sessionsDone = new AtomicInteger();
     }
 
-    public void run()
+    public void run(int port, int socketBufferSize, Client client)
     {
         try
         {
             final Collider collider = Collider.create();
-            collider.addAcceptor( new TestAcceptor() );
+            collider.addAcceptor(new TestAcceptor(port, socketBufferSize, client));
             collider.run();
-            m_client.stopAndWait();
         }
-        catch (IOException ex)
+        catch (final IOException ex)
         {
             ex.printStackTrace();
         }
+    }
+
+    public static void main(String [] args)
+    {
+        int port = 0;
+        int socketBufferSize = (64 * 1024);
+        if (args.length > 0)
+        {
+            port = Integer.parseInt(args[0]);
+            if (args.length > 1)
+                socketBufferSize = Integer.parseInt(args[1]);
+        }
+        final Server server = new Server();
+        server.run(port, socketBufferSize, null);
     }
 }

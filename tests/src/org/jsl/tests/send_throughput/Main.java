@@ -21,29 +21,32 @@ package org.jsl.tests.send_throughput;
 
 public class Main
 {
-    public static void main( String [] args )
+    public static void main(String [] args)
     {
+        final int port = 0; // system assigned free port will be used
         int sessions = 1;
-        int messages = 100000;
+        int messages = 1000000;
         int messageLength = 500;
-        int socketBufferSize = (64*1024);
+        int socketBufferSize = (64 * 1024);
 
         if (args.length > 0)
         {
-            sessions = Integer.parseInt( args[0] );
+            sessions = Integer.parseInt(args[0]);
             if (args.length > 1)
             {
-                messages = Integer.parseInt( args[1] );
+                messages = Integer.parseInt(args[1]);
                 if (args.length > 2)
                 {
-                    messageLength = Integer.parseInt( args[2] );
+                    messageLength = Integer.parseInt(args[2]);
                     if (args.length > 3)
-                        socketBufferSize = Integer.parseInt( args[3] );
+                        socketBufferSize = Integer.parseInt(args[3]);
                 }
             }
         }
 
-        Client client = new Client( sessions, messages, messageLength, socketBufferSize );
-        new Server(client, socketBufferSize).run();
+        final Client client = new Client(sessions, messages, messageLength, socketBufferSize);
+        final Server server = new Server();
+        server.run(port, socketBufferSize, client);
+        client.stopAndWait();
     }
 }

@@ -23,6 +23,7 @@ import org.jsl.tests.StreamDefragger;
 import org.jsl.tests.Util;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
@@ -42,8 +43,8 @@ public class Client
         {
             try
             {
-                SocketChannel socketChannel = SocketChannel.open();
-                socketChannel.socket().setReceiveBufferSize( m_socketBufferSize );
+                final SocketChannel socketChannel = SocketChannel.open();
+                socketChannel.socket().setReceiveBufferSize(m_socketBufferSize);
 
                 StreamDefragger streamDefragger = new StreamDefragger(4)
                 {
@@ -59,49 +60,54 @@ public class Client
                     return;
                 }
 
-                ByteBuffer bb = ByteBuffer.allocateDirect( m_socketBufferSize );
-
-                ByteBuffer startRequest = m_startRequest.duplicate();
-                final int bytesSent = socketChannel.write( startRequest );
+                final ByteBuffer startRequest = m_startRequest.duplicate();
+                final int bytesSent = socketChannel.write(startRequest);
                 if (bytesSent != startRequest.capacity())
                 {
                     System.out.println( "SocketChannel.send() failed." );
                     return;
                 }
 
+                final ByteBuffer bb = ByteBuffer.allocateDirect(1024*128);
                 int messages = 0;
                 int bytesReceivedTotal = 0;
-                long startTime = 0;
-
-                readSocketLoop: for (;;)
+                int bytesReceived = socketChannel.read(bb);
+                if (bytesReceived > 0)
                 {
-                    final int bytesReceived = socketChannel.read( bb );
-                    if (bytesReceived > 0)
+                    final long startTime = System.nanoTime();
+                    for (;;)
                     {
-                        if (bytesReceivedTotal == 0)
-                            startTime = System.nanoTime();
                         bytesReceivedTotal += bytesReceived;
 
-                        bb.position( 0 );
-                        bb.limit( bytesReceived );
-                        ByteBuffer msg = streamDefragger.getNext( bb );
+                        bb.position(0);
+                        bb.limit(bytesReceived);
+                        ByteBuffer msg = streamDefragger.getNext(bb);
                         while (msg != null)
                         {
                             final int messageLength = msg.getInt();
-                            assert( messageLength == m_messageLength );
-                            if (++messages == m_messages)
-                                break readSocketLoop;
+                            assert(messageLength == m_messageLength);
+                            messages++;
                             msg = streamDefragger.getNext();
                         }
-                        bb.clear();
-                    }
-                }
-                long entTime = System.nanoTime();
-                socketChannel.close();
 
-                System.out.println(
-                        "Received " + messages + " messages (" + bytesReceivedTotal +
-                        " bytes) at " + Util.formatDelay(startTime, entTime) + "." );
+                        if (messages == m_messages)
+                            break;
+
+                        bb.clear();
+                        bytesReceived = socketChannel.read(bb);
+                        if (bytesReceived <= 0)
+                            break;
+                    }
+                    long entTime = System.nanoTime();
+
+                    System.out.println(
+                            "Received " + messages + " messages (" + bytesReceivedTotal +
+                            " bytes) at " + Util.formatDelay(startTime, entTime));
+                }
+                else
+                    System.out.println("Socket read error.");
+
+                socketChannel.close();
             }
             catch (IOException ex)
             {
@@ -110,7 +116,7 @@ public class Client
         }
     }
 
-    public Client( int sessions, int messages, int messageLength, int socketBufferSize )
+    public Client(int sessions, int messages, int messageLength, int socketBufferSize)
     {
         m_session = new SessionThread[sessions];
         m_messages = messages;
@@ -118,15 +124,15 @@ public class Client
         m_socketBufferSize = socketBufferSize;
 
         /* length + sessions + messages + message length */
-        m_startRequest = ByteBuffer.allocateDirect( 4 + 4 + 4 + 4 );
-        m_startRequest.putInt( 16 );
-        m_startRequest.putInt( sessions );
-        m_startRequest.putInt( messages );
-        m_startRequest.putInt( messageLength );
-        m_startRequest.position( 0 );
+        m_startRequest = ByteBuffer.allocateDirect(4 + 4 + 4 + 4);
+        m_startRequest.putInt(16);
+        m_startRequest.putInt(sessions);
+        m_startRequest.putInt(messages);
+        m_startRequest.putInt(messageLength);
+        m_startRequest.position(0);
     }
 
-    public void start( SocketAddress addr )
+    public void start(SocketAddress addr)
     {
         m_addr = addr;
         for (int idx=0; idx<m_session.length; idx++)
@@ -143,9 +149,46 @@ public class Client
             for (SessionThread session : m_session)
                 session.join();
         }
-        catch (InterruptedException ex)
+        catch (final InterruptedException ex)
         {
             ex.printStackTrace();
         }
+    }
+
+    public static void main(String [] args)
+    {
+        int port;
+        int sessions = 1;
+        int messages = 1000000;
+        int messageLength = 500;
+        int socketBufferSize = (64*1024);
+
+        if (args.length > 0)
+        {
+            port = Integer.parseInt(args[0]);
+            if (args.length > 1)
+            {
+                sessions = Integer.parseInt(args[1]);
+                if (args.length > 2)
+                {
+                    messages = Integer.parseInt(args[2]);
+                    if (args.length > 3)
+                    {
+                        messageLength = Integer.parseInt(args[3]);
+                        if (args.length > 4)
+                            socketBufferSize = Integer.parseInt(args[4]);
+                    }
+                }
+            }
+        }
+        else
+        {
+            System.out.println("Usage: <port> [sessions] [messages] [message length] [socket buffer size]");
+            return;
+        }
+
+        final Client client = new Client(sessions, messages, messageLength, socketBufferSize);
+        client.start(new InetSocketAddress("localhost", port));
+        client.stopAndWait();
     }
 }
