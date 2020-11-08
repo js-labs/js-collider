@@ -69,6 +69,10 @@
                 <attribute name="Sealed" value="true"/>
             </manifest>
         </jar>
+        <copy file="pom.xml" tofile="${OUT_DIR}/${ant.project.name}-${VERSION}.pom"/>
+        <!--exec command="mvn">
+            <arg value="javadoc:jar"/>
+        </exec-->
     </target>
 
     <target name="compile_tests" depends="compile">
