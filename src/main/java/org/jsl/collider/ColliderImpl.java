@@ -371,7 +371,7 @@ class ColliderImpl extends Collider
             threadPoolThreads = Runtime.getRuntime().availableProcessors();
         if (threadPoolThreads < 4)
             threadPoolThreads = 4;
-        m_threadPool = new ThreadPool( "CTP", threadPoolThreads );
+        m_threadPool = new ThreadPool("CTP", threadPoolThreads, config.threadPriority);
 
         if (config.inputQueueCacheMaxSize == 0)
             config.inputQueueCacheMaxSize = (threadPoolThreads * 3);
@@ -390,8 +390,11 @@ class ColliderImpl extends Collider
     public void run()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "start" );
+            s_logger.fine("start");
 
+        final Thread currentThread = Thread.currentThread();
+        final int threadPriority = currentThread.getPriority();
+        currentThread.setPriority(getConfig().threadPriority);
         m_threadPool.start();
 
         final DummyRunnable dummyRunnable = new DummyRunnable();
@@ -493,14 +496,16 @@ class ColliderImpl extends Collider
         }
 
         for (Map.Entry<Integer, RetainableDataBlockCache> me : m_dataBlockCache.entrySet())
-            me.getValue().clear( s_logger );
+            me.getValue().clear(s_logger);
         m_dataBlockCache.clear();
 
         if (m_joinPool != null)
-            m_joinPool.release( s_logger );
+            m_joinPool.release(s_logger);
 
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "finish (" + statLoopIt + ", " + statLoopReadersG0 + ")." );
+            s_logger.fine("finish (" + statLoopIt + ", " + statLoopReadersG0 + ").");
+
+        currentThread.setPriority(threadPriority);
     }
 
     public void stop()

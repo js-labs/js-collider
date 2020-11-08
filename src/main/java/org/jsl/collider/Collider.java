@@ -44,6 +44,7 @@ public abstract class Collider
 {
     public static class Config
     {
+        public int threadPriority;
         public int threadPoolThreads;
         public boolean useDirectBuffers;
         public ByteOrder byteOrder;
@@ -58,6 +59,7 @@ public abstract class Collider
 
         public Config()
         {
+            threadPriority = Thread.NORM_PRIORITY;
             threadPoolThreads = 0; /* by default = number of cores */
             useDirectBuffers  = true;
             byteOrder = ByteOrder.nativeOrder();
@@ -66,7 +68,7 @@ public abstract class Collider
             socketRecvBufSize = 0; /* Use system default settings by default */
 
             forwardReadMaxSize     = (256 * 1024);
-            inputQueueBlockSize    = (32 * 1024);
+            inputQueueBlockSize    = (64 * 1024);
             inputQueueCacheMaxSize = 128;
             joinMessageMaxSize     = 0;
             datagramReadMinSize    = (2 * 1024);

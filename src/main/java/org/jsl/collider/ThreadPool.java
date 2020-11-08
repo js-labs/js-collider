@@ -38,7 +38,7 @@ public class ThreadPool
     {
         private final int m_id;
 
-        public Worker( int id )
+        Worker(int id)
         {
             m_id = id;
         }
@@ -47,10 +47,10 @@ public class ThreadPool
         {
             final String name = m_name + "-" + getId();
             final int workerId = (1 << m_id);
-            setName( name );
+            setName(name);
 
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.log( Level.FINE, name + ": started." );
+                s_logger.log(Level.FINE, name + ": started.");
 
             int parks = 0;
             int idx = 0;
@@ -148,7 +148,7 @@ public class ThreadPool
         public void runInThreadPool()
         {
             /* Should never be called */
-            assert( false );
+            assert(false);
         }
     }
 
@@ -172,7 +172,7 @@ public class ThreadPool
     private final AtomicReferenceArray<Runnable> m_tra;
     private volatile int m_state;
 
-    public ThreadPool( String name, int threads, int contentionFactor )
+    public ThreadPool(String name, int threads, int threadPriority, int contentionFactor)
     {
         /* Current implementation supports up to 29 worker threads,
          * should be enough for most cases for now.
@@ -181,7 +181,7 @@ public class ThreadPool
         if (threads > 29)
             threads = 29;
 
-        assert( contentionFactor >= 1 );
+        assert(contentionFactor >= 1);
         if (contentionFactor < 1)
             contentionFactor = 1;
 
@@ -190,16 +190,25 @@ public class ThreadPool
 
         m_thread = new Thread[threads];
         for (int idx=0; idx<threads; idx++)
-            m_thread[idx] = new Worker(idx);
+        {
+            final Worker worker = new Worker(idx);
+            worker.setPriority(threadPriority);
+            m_thread[idx] = worker;
+        }
 
         m_hra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
         m_tra = new AtomicReferenceArray<Runnable>( contentionFactor * FS_PADDING );
         m_state = 0;
     }
 
-    public ThreadPool( String name, int threads )
+    public ThreadPool(String name, int threads)
     {
-        this( name, threads, 4 );
+        this(name, threads, Thread.NORM_PRIORITY, 4);
+    }
+
+    public ThreadPool(String name, int threads, int threadPriority)
+    {
+        this(name, threads, threadPriority, 4);
     }
 
     public void start()
