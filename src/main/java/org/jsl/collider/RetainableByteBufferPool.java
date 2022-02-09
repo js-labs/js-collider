@@ -307,29 +307,40 @@ public class RetainableByteBufferPool
             return this;
         }
 
+        public short getShort(int index)
+        {
+            return m_buf.getShort(m_offs + index);
+        }
+
+        public RetainableByteBuffer putShort(int index, short value)
+        {
+            m_buf.putShort(m_offs + index, value);
+            return this;
+        }
+
         public int getInt(int index)
         {
             return m_buf.getInt(m_offs + index);
         }
 
-        public RetainableByteBuffer putInt( int index, int value )
+        public RetainableByteBuffer putInt(int index, int value)
         {
-            m_buf.putInt( m_offs + index, value );
+            m_buf.putInt(m_offs + index, value);
             return this;
         }
 
-        public short getShort( int index )
+        public long getLong(int index)
         {
-            return m_buf.getShort(m_offs + index);
+            return m_buf.getLong(m_offs + index);
         }
 
-        public RetainableByteBuffer putShort( int index, short value )
+        public RetainableByteBuffer putLong(int index, long value)
         {
-            m_buf.putShort( m_offs + index, value );
+            m_buf.putLong(m_offs + index, value);
             return this;
         }
 
-        public float getFloat( int index )
+        public float getFloat(int index)
         {
             return m_buf.getFloat(m_offs + index);
         }
@@ -340,14 +351,14 @@ public class RetainableByteBufferPool
             return this;
         }
 
-        public double getDouble( int index )
+        public double getDouble(int index)
         {
-            return m_buf.getDouble( m_offs + index );
+            return m_buf.getDouble(m_offs + index);
         }
 
-        public RetainableByteBuffer putDouble( int index, double value )
+        public RetainableByteBuffer putDouble(int index, double value)
         {
-            m_buf.putDouble( m_offs + index, value );
+            m_buf.putDouble(m_offs + index, value);
             return this;
         }
     }

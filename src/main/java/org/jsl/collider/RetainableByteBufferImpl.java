@@ -80,58 +80,69 @@ abstract class RetainableByteBufferImpl extends RetainableByteBuffer
      * NIO ByteBuffer
      */
 
-    public byte get( int index )
+    public byte get(int index)
     {
-        return m_buf.get( index );
+        return m_buf.get(index);
     }
 
-    public RetainableByteBuffer put( int index, byte value )
+    public RetainableByteBuffer put(int index, byte value)
     {
         m_buf.put( index, value );
         return this;
     }
 
-    public int getInt( int index )
+    public short getShort(int index)
     {
-        return m_buf.getInt( index );
+        return m_buf.getShort(index);
     }
 
-    public RetainableByteBuffer putInt( int index, int value )
+    public RetainableByteBuffer putShort(int index , short value)
     {
-        m_buf.putInt( index, value );
+        m_buf.putShort(index, value);
         return this;
     }
 
-    public short getShort( int index )
+    public int getInt(int index)
     {
-        return m_buf.getShort( index );
+        return m_buf.getInt(index);
     }
 
-    public RetainableByteBuffer putShort( int index , short value )
+    public RetainableByteBuffer putInt(int index, int value)
     {
-        m_buf.putShort( index, value );
+        m_buf.putInt(index, value);
         return this;
     }
 
-    public float getFloat( int index )
+    public long getLong(int index)
     {
-        return m_buf.getFloat( index );
+        return m_buf.getLong(index);
     }
 
-    public RetainableByteBuffer putFloat( int index, float value )
+    public RetainableByteBuffer putLong(int index, long value)
     {
-        m_buf.putFloat( index, value );
+        m_buf.putLong(index, value);
         return this;
     }
 
-    public double getDouble( int index )
+    public float getFloat(int index)
     {
-        return m_buf.getDouble( index );
+        return m_buf.getFloat(index);
     }
 
-    public RetainableByteBuffer putDouble( int index, double value )
+    public RetainableByteBuffer putFloat(int index, float value)
     {
-        m_buf.putDouble( index, value );
+        m_buf.putFloat(index, value);
+        return this;
+    }
+
+    public double getDouble(int index)
+    {
+        return m_buf.getDouble(index);
+    }
+
+    public RetainableByteBuffer putDouble(int index, double value)
+    {
+        m_buf.putDouble(index, value);
         return this;
     }
 }
