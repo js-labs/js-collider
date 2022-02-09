@@ -40,7 +40,7 @@ import java.util.logging.Logger;
 
 public class TimerQueue extends ThreadPool.Runnable
 {
-    private static final Logger s_logger = Logger.getLogger( TimerQueue.class.getName() );
+    private static final Logger s_logger = Logger.getLogger(TimerQueue.class.getName());
 
     public interface Task
     {
@@ -56,6 +56,7 @@ public class TimerQueue extends ThreadPool.Runnable
     private final Condition m_cond;
     private final TreeMap<Long, TimerInfo> m_sortedTimers;
     private final Map<Task, TimerInfo> m_timers;
+    private boolean m_stop;
 
     private class TimerInfo extends ThreadPool.Runnable
     {
@@ -66,23 +67,24 @@ public class TimerQueue extends ThreadPool.Runnable
         public long threadID;
         public Condition cond;
 
-        public TimerInfo( Task task )
+        public TimerInfo(Task task, long fireTime)
         {
             this.task = task;
+            this.fireTime = fireTime;
         }
 
         public void runInThreadPool()
         {
-            assert( threadID == -1 );
-            assert( prev == null );
-            assert( next == null );
+            assert(threadID == -1);
+            assert(prev == null);
+            assert(next == null);
             threadID = Thread.currentThread().getId();
             final long interval = task.run();
-            restateTimer( this, interval );
+            restateTimer(this, interval);
         }
     }
 
-    private void restateTimer( TimerInfo timerInfo, long interval )
+    private void restateTimer(TimerInfo timerInfo, long interval)
     {
         boolean snatchThread = false;
 
@@ -92,7 +94,7 @@ public class TimerQueue extends ThreadPool.Runnable
             if (timerInfo.cond != null)
             {
                 if (s_logger.isLoggable(Level.FINER))
-                    s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) + ": pending cancel" );
+                    s_logger.log(Level.FINER, System.identityHashCode(timerInfo.task) + ": pending cancel");
 
                 timerInfo.threadID = -2;
                 timerInfo.cond.signalAll();
@@ -106,22 +108,22 @@ public class TimerQueue extends ThreadPool.Runnable
                 {
                     if (s_logger.isLoggable(Level.FINER))
                     {
-                        s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
-                                ": interval=" + interval + ", snatch thread" );
+                        s_logger.log(Level.FINER, System.identityHashCode(timerInfo.task) +
+                                ": interval=" + interval + ", snatch thread");
                     }
-                    m_sortedTimers.put( fireTime, timerInfo );
+                    m_sortedTimers.put(fireTime, timerInfo);
                     snatchThread = true;
                 }
                 else
                 {
-                    final TimerInfo next = m_sortedTimers.get( fireTime );
-                    m_sortedTimers.put( fireTime, timerInfo );
+                    final TimerInfo next = m_sortedTimers.get(fireTime);
+                    m_sortedTimers.put(fireTime, timerInfo);
                     if (next == null)
                     {
                         if (s_logger.isLoggable(Level.FINER))
                         {
-                            s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
-                                    ": interval=" + interval + ", wakeup thread" );
+                            s_logger.log(Level.FINER, System.identityHashCode(timerInfo.task) +
+                                    ": interval=" + interval + ", wakeup thread");
                         }
                         if (m_sortedTimers.firstKey() == fireTime)
                             m_cond.signal();
@@ -130,8 +132,8 @@ public class TimerQueue extends ThreadPool.Runnable
                     {
                         if (s_logger.isLoggable(Level.FINER))
                         {
-                            s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) +
-                                    ": interval=" + interval );
+                            s_logger.log(Level.FINER, System.identityHashCode(timerInfo.task) +
+                                    ": interval=" + interval);
                         }
                         timerInfo.next = next;
                         next.prev = timerInfo;
@@ -141,8 +143,8 @@ public class TimerQueue extends ThreadPool.Runnable
             else
             {
                 if (s_logger.isLoggable(Level.FINER))
-                    s_logger.log( Level.FINER, System.identityHashCode(timerInfo.task) + ": done" );
-                m_timers.remove( timerInfo.task );
+                    s_logger.log(Level.FINER, System.identityHashCode(timerInfo.task) + ": done");
+                m_timers.remove(timerInfo.task);
             }
         }
         finally
@@ -162,21 +164,21 @@ public class TimerQueue extends ThreadPool.Runnable
         m_lock.lock();
         try
         {
-            while (!m_sortedTimers.isEmpty())
+            while (!m_sortedTimers.isEmpty() && !m_stop)
             {
                 final Map.Entry<Long, TimerInfo> firstEntry = m_sortedTimers.firstEntry();
-                assert( firstEntry != null );
+                assert(firstEntry != null);
 
                 final long currentTime = System.currentTimeMillis();
                 if (firstEntry.getKey() <= currentTime)
                 {
                     if (s_logger.isLoggable(Level.FINER))
-                        s_logger.log( Level.FINER, "fireTime=" + firstEntry.getKey() + ": execute" );
+                        s_logger.log(Level.FINER, "fireTime=" + firstEntry.getKey() + ": execute");
 
                     TimerInfo timerInfo = firstEntry.getValue();
                     do
                     {
-                        assert( timerInfo.threadID == 0 );
+                        assert(timerInfo.threadID == 0);
                         final TimerInfo next = timerInfo.next;
                         timerInfo.prev = null;
                         timerInfo.next = null;
@@ -190,17 +192,17 @@ public class TimerQueue extends ThreadPool.Runnable
                 }
                 else
                 {
-                    final long sleepTime = (firstEntry.getKey() - currentTime);
+                    final long waitTime = (firstEntry.getKey() - currentTime);
                     if (s_logger.isLoggable(Level.FINER))
-                        s_logger.log( Level.FINER, "firstEntry=" + firstEntry.getKey() + ", sleepTime=" + sleepTime );
+                        s_logger.log(Level.FINER, "firstEntry=" + firstEntry.getKey() + ", waitTime=" + waitTime);
 
                     try
                     {
-                        m_cond.awaitNanos( TimeUnit.MILLISECONDS.toNanos(sleepTime) );
+                        m_cond.awaitNanos(TimeUnit.MILLISECONDS.toNanos(waitTime));
                     }
                     catch (final InterruptedException ex)
                     {
-                        s_logger.warning( ex.toString() );
+                        s_logger.warning(ex.toString());
                     }
                 }
             }
@@ -211,10 +213,10 @@ public class TimerQueue extends ThreadPool.Runnable
         }
 
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.log( Level.FINE, "finished" );
+            s_logger.log(Level.FINE, "finished");
     }
 
-    private void removeTimerLocked( TimerInfo timerInfo )
+    private void removeTimerLocked(TimerInfo timerInfo)
     {
         boolean wakeUpThread = false;
 
@@ -227,7 +229,7 @@ public class TimerQueue extends ThreadPool.Runnable
             }
             else
             {
-                m_sortedTimers.put( timerInfo.fireTime, timerInfo.next );
+                m_sortedTimers.put(timerInfo.fireTime, timerInfo.next);
                 timerInfo.next = null;
             }
         }
@@ -279,40 +281,45 @@ public class TimerQueue extends ThreadPool.Runnable
                 return -1;
             }
 
-            final boolean wasEmpty = m_sortedTimers.isEmpty();
+            final Map.Entry<Long, TimerInfo> firstEntry = m_sortedTimers.firstEntry();
             final long fireTime = (System.currentTimeMillis() + unit.toMillis(delay));
-            final TimerInfo timerInfo = new TimerInfo( task );
-            timerInfo.fireTime = fireTime;
+            final TimerInfo timerInfo = new TimerInfo(task, fireTime);
 
-            final TimerInfo next = m_sortedTimers.get( fireTime );
+            final TimerInfo next = m_sortedTimers.get(fireTime);
             timerInfo.next = next;
             if (next != null)
                 next.prev = timerInfo;
 
-            m_sortedTimers.put( fireTime, timerInfo );
-            m_timers.put( task, timerInfo );
+            m_sortedTimers.put(fireTime, timerInfo);
+            m_timers.put(task, timerInfo);
 
-            if (wasEmpty)
+            if (firstEntry == null)
             {
                 if (s_logger.isLoggable(Level.FINER))
-                    s_logger.log( Level.FINER, System.identityHashCode(task) + ": fireTime=" + fireTime + ", start worker" );
-                m_threadPool.execute( this );
+                {
+                    s_logger.log(Level.FINER, System.identityHashCode(task)
+                            + ": fireTime=" + fireTime + ", start worker");
+                }
+                m_threadPool.execute(this);
             }
             else
             {
-                /* It make sense to wake up worker thread
+                /* It makes sense to wake up worker thread
                  * only if new timer is sooner than all previous.
                  */
-                if (fireTime < m_sortedTimers.firstKey())
+                if (fireTime < firstEntry.getKey())
                 {
                     if (s_logger.isLoggable(Level.FINER))
-                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": firerTime=" + fireTime + ", wakeup worker" );
+                    {
+                        s_logger.log(Level.FINER, System.identityHashCode(task)
+                                + ": firerTime=" + fireTime + ", wakeup worker");
+                    }
                     m_cond.signal();
                 }
                 else
                 {
                     if (s_logger.isLoggable(Level.FINER))
-                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": fireTime=" + fireTime );
+                        s_logger.log(Level.FINER, System.identityHashCode(task) + ": fireTime=" + fireTime);
                 }
             }
         }
@@ -339,16 +346,16 @@ public class TimerQueue extends ThreadPool.Runnable
         {
             for (;;)
             {
-                final TimerInfo timerInfo = m_timers.get( task );
+                final TimerInfo timerInfo = m_timers.get(task);
                 if (timerInfo == null)
                 {
                     /* Timer already canceled or was not scheduled. */
                     if (s_logger.isLoggable( Level.FINER))
-                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": not registered" );
+                        s_logger.log(Level.FINER, System.identityHashCode(task) + ": not registered");
                     return -1;
                 }
 
-                assert( timerInfo.task == task );
+                assert(timerInfo.task == task);
 
                 if (timerInfo.threadID == Thread.currentThread().getId())
                 {
@@ -359,7 +366,7 @@ public class TimerQueue extends ThreadPool.Runnable
                 {
                     /* Timer is not fired yet */
                     if (s_logger.isLoggable( Level.FINER))
-                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": canceled" );
+                        s_logger.log(Level.FINER, System.identityHashCode(task) + ": canceled");
                     removeTimerLocked( timerInfo );
                     return 0;
                 }
@@ -367,10 +374,10 @@ public class TimerQueue extends ThreadPool.Runnable
                 {
                     /* Timer just fired */
                     if (s_logger.isLoggable(Level.FINER))
-                        s_logger.log( Level.FINER, System.identityHashCode(task) + ": canceled, just fired" );
-                    assert( timerInfo.cond != null );
+                        s_logger.log(Level.FINER, System.identityHashCode(task) + ": canceled, just fired");
+                    assert(timerInfo.cond != null);
                     timerInfo.cond = null;
-                    m_timers.remove( task );
+                    m_timers.remove(task);
                     return 0;
                 }
                 else
@@ -403,7 +410,7 @@ public class TimerQueue extends ThreadPool.Runnable
         m_lock.lock();
         try
         {
-            final TimerInfo timerInfo = m_timers.get( task );
+            final TimerInfo timerInfo = m_timers.get(task);
             if (timerInfo == null)
             {
                 /* Timer already canceled or was not scheduled. */
@@ -416,12 +423,30 @@ public class TimerQueue extends ThreadPool.Runnable
                 return 1;
             }
 
-            removeTimerLocked( timerInfo );
+            removeTimerLocked(timerInfo);
         }
         finally
         {
             m_lock.unlock();
         }
         return 0;
+    }
+
+    /**
+     * Stop the timer queue.
+     */
+    public void stop()
+    {
+        m_lock.lock();
+        try
+        {
+            m_stop = true;
+            if (!m_timers.isEmpty())
+                m_cond.signal();
+        }
+        finally
+        {
+            m_lock.unlock();
+        }
     }
 }
