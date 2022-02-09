@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 Sergey Zubarev, info@js-labs.org
+ * Copyright (C) 2022 Sergey Zubarev, info@js-labs.org
  *
  * This file is a part of JS-Collider framework.
  *
@@ -19,16 +19,14 @@
 
 package org.jsl.collider;
 
+import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.logging.Formatter;
-import java.util.logging.Level;
 import java.util.logging.LogRecord;
 
 public class LogFormatter extends Formatter
 {
-    private static final String s_packageName = getPackageName();
-
     private static String getPackageName()
     {
         Class cls = LogFormatter.class;
@@ -38,44 +36,36 @@ public class LogFormatter extends Formatter
         return canonicalName.substring( 0, length );
     }
 
-    public String format( LogRecord logRecord )
+    public String format(LogRecord logRecord)
     {
-        StringBuilder sb = new StringBuilder();
-        Calendar calendar = Calendar.getInstance();
+        final StringBuilder sb = new StringBuilder();
+        final SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS");
+        final Date date = new Date(logRecord.getMillis());
+        sb.append(simpleDateFormat.format(date));
+        sb.append("t@");
+        sb.append(logRecord.getThreadID());
+        sb.append(' ');
+        sb.append(logRecord.getLevel().getName());
+        sb.append(' ');
 
-        calendar.setTime( new Date(logRecord.getMillis()) );
-        String str = String.format( "%04d-%02d-%02d %02d:%02d:%02d.%03d t@%02d ",
-                calendar.get(Calendar.YEAR),
-                calendar.get(Calendar.MONTH),
-                calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR_OF_DAY),
-                calendar.get(Calendar.MINUTE),
-                calendar.get(Calendar.SECOND),
-                calendar.get(Calendar.MILLISECOND),
-                logRecord.getThreadID() );
-        sb.append( str );
+        final String className = logRecord.getSourceClassName();
+        final int idx = className.lastIndexOf('.');
+        if (idx < 0)
+            sb.append(className);
+        else
+            sb.append(className.substring(idx+1));
 
-        if (logRecord.getLevel().intValue() >= Level.CONFIG.intValue())
-        {
-            sb.append( logRecord.getLevel().getName().toUpperCase() );
-            sb.append( " " );
-        }
+        sb.append('.');
+        sb.append(logRecord.getSourceMethodName());
 
-        String className = logRecord.getSourceClassName();
-        if (className.startsWith(s_packageName))
-            sb.append( className.substring(s_packageName.length()) );
-
-        sb.append( "." );
-        sb.append( logRecord.getSourceMethodName() );
-
-        String msg = logRecord.getMessage();
+        final String msg = logRecord.getMessage();
         if (msg.length() > 0)
         {
-            sb.append( ": " );
-            sb.append( logRecord.getMessage() );
+            sb.append(": ");
+            sb.append(logRecord.getMessage());
         }
 
-        sb.append( "\n" );
+        sb.append('\n');
         return sb.toString();
     }
 }
