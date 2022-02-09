@@ -97,7 +97,7 @@ class ColliderImpl extends Collider
                     {
                         try
                         {
-                            removeEmitter( emitter );
+                            removeEmitter(emitter);
                         }
                         catch (InterruptedException ex)
                         {
@@ -114,7 +114,7 @@ class ColliderImpl extends Collider
                     {
                         try
                         {
-                            removeDatagramListener( datagramListener );
+                            removeDatagramListener(datagramListener);
                         }
                         catch (InterruptedException ex)
                         {
@@ -132,7 +132,7 @@ class ColliderImpl extends Collider
             }
 
             /* No new session can appear now, can close all current. */
-            executeInSelectorThread( new Stopper2() );
+            executeInSelectorThread(new Stopper2());
         }
     }
 
@@ -305,13 +305,13 @@ class ColliderImpl extends Collider
         emitterImpl.stopAndWait();
     }
 
-    public void removeEmitterNoWait( final SessionEmitter sessionEmitter )
+    public void removeEmitterNoWait(final SessionEmitter sessionEmitter)
     {
         /* Supposed to be called by SessionEmitterImpl itself. */
         m_lock.lock();
         try
         {
-            m_emitters.remove( sessionEmitter );
+            m_emitters.remove(sessionEmitter);
         }
         finally
         {
@@ -319,7 +319,7 @@ class ColliderImpl extends Collider
         }
     }
 
-    public void removeDatagramListenerNoWait( final DatagramListener datagramListener )
+    public void removeDatagramListenerNoWait(final DatagramListener datagramListener)
     {
         /* Supposed to be called by DatagramListenerImpl */
         m_lock.lock();
@@ -511,7 +511,7 @@ class ColliderImpl extends Collider
     public void stop()
     {
         if (s_logger.isLoggable(Level.FINE))
-            s_logger.fine( "" );
+            s_logger.fine("");
 
         m_lock.lock();
         try
@@ -525,10 +525,10 @@ class ColliderImpl extends Collider
             m_lock.unlock();
         }
 
-        executeInThreadPool( new Stopper1() );
+        executeInThreadPool(new Stopper1());
     }
 
-    public final void executeInSelectorThread( SelectorThreadRunnable runnable )
+    public final void executeInSelectorThread(SelectorThreadRunnable runnable)
     {
         assert( runnable.nextSelectorThreadRunnable == null );
         final SelectorThreadRunnable tail = s_strTailUpdater.getAndSet( this, runnable );
@@ -566,16 +566,16 @@ class ColliderImpl extends Collider
             tail.nextSelectorThreadRunnable = runnable;
     }
 
-    public final void executeInSelectorThreadLater( SelectorThreadRunnable runnable )
+    public final void executeInSelectorThreadLater(SelectorThreadRunnable runnable)
     {
         assert( runnable.nextSelectorThreadRunnable == null );
         runnable.nextSelectorThreadRunnable = m_strLater;
         m_strLater = runnable;
     }
 
-    public final void executeInThreadPool( ThreadPool.Runnable runnable )
+    public final void executeInThreadPool(ThreadPool.Runnable runnable)
     {
-        m_threadPool.execute( runnable );
+        m_threadPool.execute(runnable);
     }
 
     public void addAcceptor( Acceptor acceptor ) throws IOException
@@ -702,18 +702,17 @@ class ColliderImpl extends Collider
             if (addr.getAddress().isMulticastAddress())
             {
                 datagramChannel.close();
-                throw new IOException( "addDatagramListener(" + addr + "): " +
-                                       "addDatagramListener(DatagramListener, NetworkInterface) " +
-                                       "should be used for multicast addresses." );
+                throw new IOException("addDatagramListener(" + addr + "): "
+                                      + "addDatagramListener(DatagramListener, NetworkInterface) "
+                                      + "should be used for multicast addresses.");
             }
-            datagramChannel.bind( addr );
-            datagramChannel.connect( addr );
+            datagramChannel.bind(addr);
         }
         else
         {
-            datagramChannel.bind( new InetSocketAddress( addr.getPort() ) );
-            datagramChannel.setOption( StandardSocketOptions.IP_MULTICAST_IF, networkInterface );
-            membershipKey = datagramChannel.join( addr.getAddress(), networkInterface );
+            datagramChannel.bind(new InetSocketAddress(addr.getPort()));
+            datagramChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, networkInterface);
+            membershipKey = datagramChannel.join(addr.getAddress(), networkInterface);
         }
 
         int inputQueueBlockSize = datagramListener.inputQueueBlockSize;
@@ -753,11 +752,11 @@ class ColliderImpl extends Collider
         try
         {
             if (m_stop)
-                ex = new IOException( "Collider stopped" );
+                ex = new IOException("Collider stopped");
             else if (m_datagramListeners.containsKey(datagramListener))
-                ex = new IOException( "DatagramListener already registered." );
+                ex = new IOException("DatagramListener already registered.");
             else
-                m_datagramListeners.put( datagramListener, datagramListenerImpl );
+                m_datagramListeners.put(datagramListener, datagramListenerImpl);
         }
         finally
         {
@@ -779,19 +778,19 @@ class ColliderImpl extends Collider
             {
                 /* Should never happen */
                 if (s_logger.isLoggable(Level.WARNING))
-                    s_logger.warning( ex1.toString() );
+                    s_logger.warning(ex1.toString());
             }
             throw ex;
         }
     }
 
-    public void removeDatagramListener( DatagramListener datagramListener) throws InterruptedException
+    public void removeDatagramListener(DatagramListener datagramListener) throws InterruptedException
     {
         DatagramListenerImpl datagramListenerImpl;
         m_lock.lock();
         try
         {
-            datagramListenerImpl = m_datagramListeners.get( datagramListener );
+            datagramListenerImpl = m_datagramListeners.get(datagramListener);
             if (datagramListenerImpl == null)
                 return;
         }
