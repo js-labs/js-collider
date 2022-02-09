@@ -32,7 +32,7 @@ public abstract class DatagramListener
     public int forwardReadMaxSize;
     public int readMinSize;
 
-    public DatagramListener( InetSocketAddress addr )
+    public DatagramListener(InetSocketAddress addr)
     {
         m_addr = addr;
 
@@ -48,5 +48,5 @@ public abstract class DatagramListener
         return m_addr;
     }
 
-    public abstract void onDataReceived( RetainableByteBuffer data, SocketAddress sourceAddr );
+    public abstract void onDataReceived(RetainableByteBuffer data, SocketAddress sourceAddr);
 }

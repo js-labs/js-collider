@@ -481,7 +481,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                             m_lock.lock();
                             try
                             {
-                                assert( m_run );
+                                assert(m_run);
                                 m_run = false;
                                 m_cond.signalAll();
                             }
@@ -494,7 +494,7 @@ public class DatagramListenerImpl extends ThreadPool.Runnable
                         }
                         else
                         {
-                            m_collider.executeInSelectorThread( new Stopper() );
+                            m_collider.executeInSelectorThread(new Stopper());
                             break;
                         }
                     }
