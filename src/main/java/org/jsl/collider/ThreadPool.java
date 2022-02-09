@@ -59,7 +59,7 @@ public class ThreadPool
                 int cc = m_contentionFactor;
                 for (;;)
                 {
-                    final Runnable runnable = getNext( idx );
+                    final Runnable runnable = getNext(idx);
                     if (runnable == null)
                     {
                         if (--cc == 0)
@@ -105,7 +105,7 @@ public class ThreadPool
             }
 
             if (s_logger.isLoggable(Level.FINE))
-                s_logger.log( Level.FINE, name + ": finished (" + parks + " parks)." );
+                s_logger.log(Level.FINE, name + ": finished (" + parks + " parks).");
         }
     }
 
@@ -131,13 +131,13 @@ public class ThreadPool
             {
                 if (runnable.nextThreadPoolRunnable == null)
                 {
-                    m_hra.set( idx, null );
+                    m_hra.set(idx, null);
                     if (m_tra.compareAndSet(idx, runnable, null))
                         return runnable;
                     while (runnable.nextThreadPoolRunnable == null);
                 }
-                m_hra.set( idx, runnable.nextThreadPoolRunnable );
-                s_nextUpdater.lazySet( runnable, null );
+                m_hra.set(idx, runnable.nextThreadPoolRunnable);
+                s_nextUpdater.lazySet(runnable, null);
                 return runnable;
             }
         }
@@ -219,12 +219,12 @@ public class ThreadPool
 
     public void stopAndWait() throws InterruptedException
     {
-        assert( m_thread != null );
+        assert(m_thread != null);
 
         for (;;)
         {
-            final int state = s_stateUpdater.get( this );
-            assert( (state & STATE_STOP) == 0 );
+            final int state = s_stateUpdater.get(this);
+            assert((state & STATE_STOP) == 0);
             if (s_stateUpdater.compareAndSet(this, state, state|STATE_STOP))
                 break;
         }
@@ -239,7 +239,7 @@ public class ThreadPool
                     break;
                 if (s_stateUpdater.compareAndSet(this, state, state^workerId))
                 {
-                    LockSupport.unpark( m_thread[idx] );
+                    LockSupport.unpark(m_thread[idx]);
                     break;
                 }
             }
@@ -252,22 +252,22 @@ public class ThreadPool
         }
     }
 
-    public final void execute( Runnable runnable )
+    public final void execute(Runnable runnable)
     {
-        assert( runnable.nextThreadPoolRunnable == null );
+        assert(runnable.nextThreadPoolRunnable == null);
 
         int idx = (int) Thread.currentThread().getId();
         idx = (idx % m_contentionFactor) * FS_PADDING + FS_PADDING - 1;
 
-        final Runnable tail = m_tra.getAndSet( idx, runnable );
+        final Runnable tail = m_tra.getAndSet(idx, runnable);
         if (tail == null)
-            m_hra.set( idx, runnable );
+            m_hra.set(idx, runnable);
         else
             tail.nextThreadPoolRunnable = runnable;
 
         for (;;)
         {
-            final int state = s_stateUpdater.get( this );
+            final int state = s_stateUpdater.get(this);
             if ((state & IDLE_THREADS_MASK) == 0)
             {
                 if ((state & STATE_SPIN) != 0)
@@ -294,7 +294,7 @@ public class ThreadPool
                 final int newState = (state ^ (1 << workerIdx));
                 if (s_stateUpdater.compareAndSet(this, state, newState))
                 {
-                    LockSupport.unpark( m_thread[workerIdx] );
+                    LockSupport.unpark(m_thread[workerIdx]);
                     break;
                 }
             }
