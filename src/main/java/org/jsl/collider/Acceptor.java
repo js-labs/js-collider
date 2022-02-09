@@ -22,24 +22,32 @@ package org.jsl.collider;
 import java.net.InetSocketAddress;
 
 /**
- * {@code Acceptor} is used to accepot inbound socket connections.
+ * {@code Acceptor} is used to accept inbound socket connections.
  * See {@link Collider} for details.
  */
 
 public abstract class Acceptor extends SessionEmitter
 {
+    /**
+     * Initialize acceptor to listen on any available port.
+     * The port number can be obtained later in the onAcceptorStarted()
+     */
     public Acceptor()
     {
-        this(new InetSocketAddress(0));
-    }
-
-    public Acceptor(InetSocketAddress addr)
-    {
-        super(addr);
+        super(new InetSocketAddress(0));
     }
 
     /**
-     * Called by the framework to create <tt>Session.Listener</tt> instance
+     * Initialize acceptor to listen on the particular port.
+     * @param listenPort
+     */
+    public Acceptor(int listenPort)
+    {
+        super(new InetSocketAddress(listenPort));
+    }
+
+    /**
+     * Called by the Collider runtime to create <tt>Session.Listener</tt> instance
      * to be linked with the session and underlying socket. METHOD IS NOT [MT] SAFE,
      * can be executed concurrently in a number of threads.
      * Connection and underlying socket will be closed if returns <tt>null</tt>,
@@ -48,7 +56,7 @@ public abstract class Acceptor extends SessionEmitter
     public abstract Session.Listener createSessionListener(Session session);
 
     /**
-     * Called by framework right before the acceptor is ready to accept connections.
+     * Called by the Collider runtime right before the acceptor is ready to accept connections.
      * It is still safe to remove the <tt>Acceptor</tt> instance from the collider
      * within this method, no one connection will be accepted then.
      * @param collider the collider instance to work in
