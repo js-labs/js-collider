@@ -24,7 +24,7 @@ import java.nio.ByteBuffer;
 
 public interface Session
 {
-    public interface Listener
+    interface Listener
     {
         /**
          * Called by framework when some data is available.
@@ -33,29 +33,29 @@ public interface Session
          * limit can be less than capacity.
          * @param data the data received from the related socket
          */
-        public abstract void onDataReceived(RetainableByteBuffer data);
+        void onDataReceived(RetainableByteBuffer data);
 
         /**
          * Called by framework when underlying socket channel
          * is closed and all income data is processed.
          */
-        public abstract void onConnectionClosed();
+        void onConnectionClosed();
     }
 
     /**
      * @return Collider instance the session is linked with.
      */
-    public Collider getCollider();
+    Collider getCollider();
 
     /**
      * @return local socket address of the session.
      */
-    public SocketAddress getLocalAddress();
+    SocketAddress getLocalAddress();
 
     /**
      * @return remote socket address of the session.
      */
-    public SocketAddress getRemoteAddress();
+    SocketAddress getRemoteAddress();
 
     /**
      * Schedules data to be sent to the underlying socket channel.
@@ -67,19 +67,19 @@ public interface Session
      * @return value greater than 0 if byte buffer is retained by the framework,
      * (data will be sent as soon as possible), or less than 0 if the session is closed.
      */
-    public int sendData( ByteBuffer data );
-    public int sendData( RetainableByteBuffer data );
+    int sendData(ByteBuffer data);
+    int sendData(RetainableByteBuffer data);
 
     /**
      * Method makes an attempt to write data synchronously to the underlying socket channel.
      * It can happen if it is the single thread calling the <em>sendData</em> or <em>sendDataSync</em>.
-     * Otherwise data will sent as <em>sendData</em> would be called.
+     * Otherwise data will be sent as <em>sendData</em> would be called.
      * @param data byte buffer with data to send
      * @return 0 if data has been written to the socket and byte buffer can be reused,
      * greater than 0 if byte buffer is retained by the framework, will be sent as soon as possible,
      * less than 0 if session is closed.
      */
-    public int sendDataSync( ByteBuffer data );
+    int sendDataSync(ByteBuffer data);
 
     /**
      * Method to be used to close the session.
@@ -93,7 +93,7 @@ public interface Session
      * @return less than 0 if session already has been closed,
      * otherwise amount of data waiting to be sent.
      */
-    public int closeConnection();
+    int closeConnection();
 
     /**
      * Replaces the current session listener with a new one.
@@ -103,7 +103,7 @@ public interface Session
      * @param newListener the new listener to be used for the session
      * @return the previous listener was used to the session
      */
-    public Listener replaceListener(Listener newListener);
+    Listener replaceListener(Listener newListener);
 
-    public int accelerate(ShMem shMem, ByteBuffer message);
+    int accelerate(ShMem shMem, ByteBuffer message);
 }
