@@ -43,7 +43,7 @@ public abstract class SessionEmitter
 
     public int joinMessageMaxSize;
 
-    public SessionEmitter( InetSocketAddress addr )
+    public SessionEmitter(InetSocketAddress addr)
     {
         m_addr = addr;
 
@@ -71,7 +71,7 @@ public abstract class SessionEmitter
     }
 
     /**
-     * Called by framework to create session listener instance.
+     * Called by the Collider runtime to create session listener instance.
      * See <tt>Acceptor.createSessionListener</tt> and
      * <tt>Connector.createSessionListener</tt> for detailed description.
      * @param session session the listener will be used for
