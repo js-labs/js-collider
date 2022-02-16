@@ -39,7 +39,7 @@ public abstract class Acceptor extends SessionEmitter
 
     /**
      * Initialize acceptor to listen on the particular port.
-     * @param listenPort
+     * @param listenPort    TCP port number to accept connections on.
      */
     public Acceptor(int listenPort)
     {
