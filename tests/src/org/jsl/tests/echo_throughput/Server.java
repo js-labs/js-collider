@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework tests.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2022 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
@@ -133,7 +133,7 @@ public class Server
     {
         public TestAcceptor( int socketBufferSize )
         {
-            super( new InetSocketAddress(0) );
+            super(0);
             socketRecvBufSize = socketBufferSize;
             socketSendBufSize = socketBufferSize;
         }

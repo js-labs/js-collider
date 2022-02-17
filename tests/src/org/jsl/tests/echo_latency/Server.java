@@ -103,7 +103,7 @@ public class Server
     {
         public TestAcceptor()
         {
-            super( new InetSocketAddress(0) );
+            super(0);
             //inputQueueBlockSize = 700;
         }
 

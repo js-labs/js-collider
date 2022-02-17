@@ -1,6 +1,6 @@
 /*
  * JS-Collider framework tests.
- * Copyright (C) 2013 Sergey Zubarev
+ * Copyright (C) 2022 Sergey Zubarev
  * info@js-labs.org
  *
  * This program is free software: you can redistribute it and/or modify
@@ -132,7 +132,7 @@ public class Server
 
         public TestAcceptor(int port, int socketBufferSize, Client client)
         {
-            super(new InetSocketAddress(port));
+            super(port);
             this.tcpNoDelay = true;
             this.socketSendBufSize = socketBufferSize;
             this.m_client = client;
