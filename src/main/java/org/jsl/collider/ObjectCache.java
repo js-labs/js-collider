@@ -35,14 +35,14 @@ public abstract class ObjectCache<TYPE>
 
     protected abstract TYPE allocateObject();
 
-    public ObjectCache( String name, TYPE [] cache )
+    public ObjectCache(String name, TYPE [] cache)
     {
         m_name = name;
         m_lock = new ReentrantLock();
         m_cache = cache;
     }
 
-    public final boolean put( TYPE obj )
+    public final boolean put(TYPE obj)
     {
         m_lock.lock();
         try
@@ -72,7 +72,7 @@ public abstract class ObjectCache<TYPE>
             if (m_size > 0)
             {
                 final int idx = --m_size;
-                assert( m_cache[idx] != null );
+                assert(m_cache[idx] != null);
                 TYPE ret = m_cache[idx];
                 m_cache[idx] = null;
                 return ret;
@@ -86,11 +86,11 @@ public abstract class ObjectCache<TYPE>
         return allocateObject();
     }
 
-    public final void clear( Logger logger )
+    public void clear(Logger logger)
     {
         for (int idx=0; idx<m_size; idx++)
         {
-            assert( m_cache[idx] != null );
+            assert(m_cache[idx] != null);
             m_cache[idx] = null;
         }
 
@@ -98,44 +98,19 @@ public abstract class ObjectCache<TYPE>
         {
             if (logger.isLoggable(Level.WARNING))
             {
-                logger.log( Level.WARNING,
-                        m_name + ": resource leak detected: gets=" + m_gets + ", puts=" + m_puts + "." );
+                logger.log(Level.WARNING, m_name
+                        + ": resource leak detected: gets=" + m_gets + ", puts=" + m_puts + ".");
             }
         }
         else
         {
             if (logger.isLoggable(Level.FINE))
             {
-                logger.log(
-                        Level.FINE, m_name + ": size=" + m_size +
-                        " (get=" + m_gets + ", miss=" + m_miss + ", put" + m_puts + ")." );
+                logger.log(Level.FINE, m_name
+                        + ": size=" + m_size + " (gets=" + m_gets + ", miss=" + m_miss + ", puts=" + m_puts + ")." );
             }
         }
 
         m_size = 0;
-    }
-
-    public String clear( int initialSize )
-    {
-        for (int idx=0; idx<m_size; idx++)
-        {
-            assert( m_cache[idx] != null );
-            m_cache[idx] = null;
-        }
-
-        final int size = m_size;
-        m_size = 0;
-
-        if (m_puts != m_gets)
-        {
-            return m_name + ": WARNING: resource leak detected: current size " +
-                   size + " less than initial size " + initialSize +
-                   " (" + m_gets + ", " + m_miss + ", " + m_puts + ").";
-        }
-        else
-        {
-            return m_name + ": size=" + size + " (get=" + m_gets +
-                   ", miss=" + m_miss + ", put=" + m_puts + ").";
-        }
     }
 }
