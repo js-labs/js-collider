@@ -189,6 +189,10 @@
         <run-test/>
     </target>
 
+    <target name="test.unit" depends="compile_tests">
+        <run-test/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.byte_buffer_pool,
@@ -198,6 +202,7 @@
                      test.echo_throughput,
                      test.message_queue,
                      test.msg_size_eq_block_size,
+                     test.pubsub,
                      test.recv_throughput,
                      test.remove_acceptor,
                      test.session_latency,
@@ -207,6 +212,6 @@
                      test.thread_pool,
                      test.thread_pool_throughput,
                      test.timer_queue,
-                     test.pubsub"/>
+                     test.unit"/>
 
 </project>
