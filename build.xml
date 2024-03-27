@@ -35,11 +35,7 @@
     <macrodef name="run-test">
         <sequential>
             <property name="testName" value=""/>
-            <script language="javascript"> <![CDATA[
-                targetName = self.getOwningTarget().toString();
-                project.setProperty( "testName", targetName.slice(5) );
-            ]]>
-            </script>
+            <get-test-name propertyName="testName"/>
             <java classname="org.jsl.tests.${testName}.Main" fork="true">
                 <classpath>
                     <pathelement location="${build}/classes"/>
@@ -53,6 +49,7 @@
     </macrodef>
 
     <target name="init">
+        <mkdir dir="${build}/ant_tasks"/>
         <mkdir dir="${build}/classes"/>
         <mkdir dir="${dist}/lib"/>
     </target>
@@ -96,9 +93,14 @@
         <copy file="pom.xml" tofile="${dist}/lib/${ant.project.name}-${version}.pom"/>
     </target>
 
-    <target name="compile_tests" depends="compile">
+    <target name="compile_ant_tasks" depends="init">
+        <javac srcdir="ant_tasks" destdir="${build}/ant_tasks" includeAntRuntime="true" debug="true"/>
+        <taskdef name="get-test-name" classname="GetTestNameTask" classpath="${build}/ant_tasks"/>
+    </target>
+
+    <target name="compile_tests" depends="compile, compile_ant_tasks">
         <mkdir dir="${build}/tests"/>
-        <javac srcdir="tests/src" destdir="${build}/tests" includeantruntime="false" debug="true">
+        <javac srcdir="tests/src" destdir="${build}/tests" includeAntRuntime="false" debug="true">
             <classpath>
                 <pathelement location="${build}/classes"/>
             </classpath>
@@ -198,6 +200,7 @@
                      test.echo_throughput,
                      test.message_queue,
                      test.msg_size_eq_block_size,
+                     test.pubsub,
                      test.recv_throughput,
                      test.remove_acceptor,
                      test.session_latency,
@@ -206,7 +209,5 @@
                      test.sched_latency,
                      test.thread_pool,
                      test.thread_pool_throughput,
-                     test.timer_queue,
-                     test.pubsub"/>
-
+                     test.timer_queue"/>
 </project>
