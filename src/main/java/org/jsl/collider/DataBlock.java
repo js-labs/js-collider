@@ -31,6 +31,7 @@ public class DataBlock
     {
         wr = buf;
         rd = buf.duplicate();
+        rd.order(buf.order());
     }
 
     public final DataBlock reset()

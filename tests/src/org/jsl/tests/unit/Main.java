@@ -22,6 +22,10 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import org.jsl.collider.DataBlock;
 
+interface TestFunc {
+    void run() throws Exception;
+}
+
 public class Main {
     private static void dataBlockInheritsByteOrder() throws Exception {
         final ByteOrder [] orders = {ByteOrder.LITTLE_ENDIAN, ByteOrder.BIG_ENDIAN};
@@ -38,13 +42,20 @@ public class Main {
         }
     }
 
+    private static int runTest(TestFunc testFunc) {
+        try {
+            testFunc.run();
+            return 0;
+        } catch (final Exception ex) {
+            System.out.println(ex.getMessage());
+            return 1;
+        }
+    }
+
     public static void main(String [] args) {
         int failedTests = 0;
-        try { dataBlockInheritsByteOrder(); }
-        catch (final Exception ex) {
-            System.out.println(ex.getMessage());
-            failedTests++;
-        }
+        failedTests += runTest(Main::dataBlockInheritsByteOrder);
         System.out.println(failedTests + " tests failed");
+        System.exit((failedTests == 0) ? 0 : -1);
     }
 }

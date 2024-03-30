@@ -36,7 +36,7 @@
         <sequential>
             <property name="testName" value=""/>
             <get-test-name propertyName="testName"/>
-            <java classname="org.jsl.tests.${testName}.Main" fork="true">
+            <java classname="org.jsl.tests.${testName}.Main" fork="true" failonerror="true">
                 <classpath>
                     <pathelement location="${build}/classes"/>
                     <pathelement location="${build}/tests"/>
