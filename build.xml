@@ -36,7 +36,7 @@
         <sequential>
             <property name="testName" value=""/>
             <get-test-name propertyName="testName"/>
-            <java classname="org.jsl.tests.${testName}.Main" fork="true">
+            <java classname="org.jsl.tests.${testName}.Main" fork="true" failonerror="true">
                 <classpath>
                     <pathelement location="${build}/classes"/>
                     <pathelement location="${build}/tests"/>
@@ -191,6 +191,10 @@
         <run-test/>
     </target>
 
+    <target name="test.unit" depends="compile_tests">
+        <run-test/>
+    </target>
+
     <target name="tests"
             depends="test.buffer_overlap_copy,
                      test.byte_buffer_pool,
@@ -209,5 +213,6 @@
                      test.sched_latency,
                      test.thread_pool,
                      test.thread_pool_throughput,
-                     test.timer_queue"/>
+                     test.timer_queue,
+                     test.unit"/>
 </project>
