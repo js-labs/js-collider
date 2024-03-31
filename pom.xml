@@ -7,7 +7,7 @@
   <packaging>jar</packaging>
 
   <name>js-collider</name>
-  <version>0.2.5</version>
+  <version>0.2.6</version>
   <description>Java NIO framework</description>
   <url>https://github.com/js-labs/js-collider</url>
 
